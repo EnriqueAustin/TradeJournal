@@ -1,0 +1,627 @@
+import { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { api } from '../api/client';
+import { useApi } from '../hooks/useApi';
+import { useFilters } from '../store/FilterContext';
+import { AsyncBoundary } from '../components/states';
+import type { TradeDetail as TTradeDetail, TagCategory } from '../types';
+import {
+  formatMoney,
+  formatR,
+  formatNumber,
+  formatDateTime,
+  formatDuration,
+  signClass,
+} from '../utils/format';
+
+const TAG_CATEGORIES: TagCategory[] = [
+  'setup',
+  'session',
+  'emotion',
+  'mistake',
+  'grade',
+];
+
+function Field({
+  label,
+  children,
+  className = '',
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className={`num mt-0.5 text-sm ${className ? '' : 'text-slate-200'}`}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export default function TradeDetail() {
+  const { id } = useParams<{ id: string }>();
+  const tradeId = Number(id);
+  const { data, loading, error, reload } = useApi(
+    () => api.getTrade(tradeId),
+    [tradeId]
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <Link
+          to="/trades"
+          className="text-sm text-indigo-400 hover:text-indigo-300"
+        >
+          ← Back to trades
+        </Link>
+        <Link to={`/replay?trade=${tradeId}`} className="btn">
+          ▶ Replay
+        </Link>
+      </div>
+      <AsyncBoundary
+        loading={loading}
+        error={error}
+        onRetry={reload}
+        loadingLabel="Loading trade…"
+      >
+        {data && <TradeBody trade={data} onChanged={reload} />}
+      </AsyncBoundary>
+    </div>
+  );
+}
+
+function TradeBody({
+  trade,
+  onChanged,
+}: {
+  trade: TTradeDetail;
+  onChanged: () => void;
+}) {
+  const { setups } = useFilters();
+  const [stop, setStop] = useState(trade.stop_price?.toString() ?? '');
+  const [target, setTarget] = useState(trade.target_price?.toString() ?? '');
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [setupSaving, setSetupSaving] = useState(false);
+  const setupName = setups.find((s) => s.id === trade.setup_id)?.name ?? null;
+
+  useEffect(() => {
+    setStop(trade.stop_price?.toString() ?? '');
+    setTarget(trade.target_price?.toString() ?? '');
+  }, [trade.id, trade.stop_price, trade.target_price]);
+
+  const saveSetup = async (value: string) => {
+    setSetupSaving(true);
+    setSaveErr(null);
+    try {
+      await api.patchTrade(trade.id, {
+        setup_id: value === '' ? null : Number(value),
+      });
+      onChanged();
+    } catch (e: any) {
+      setSaveErr(e?.message || 'Failed to save setup');
+    } finally {
+      setSetupSaving(false);
+    }
+  };
+
+  const saveLevels = async () => {
+    setSaving(true);
+    setSaveErr(null);
+    setSaveMsg(null);
+    try {
+      await api.patchTrade(trade.id, {
+        stop_price: stop === '' ? null : Number(stop),
+        target_price: target === '' ? null : Number(target),
+      });
+      setSaveMsg('Saved');
+      onChanged();
+    } catch (e: any) {
+      setSaveErr(e?.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMsg(null), 2500);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Header */}
+      <div className="card p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold text-slate-100">
+              {trade.instrument}
+            </h1>
+            <span
+              className={`rounded px-2 py-0.5 text-xs font-medium ${
+                trade.direction === 'long'
+                  ? 'bg-emerald-500/15 text-emerald-400'
+                  : 'bg-red-500/15 text-red-400'
+              }`}
+            >
+              {trade.direction}
+            </span>
+            <span className="rounded bg-slate-800 px-2 py-0.5 text-xs capitalize text-slate-400">
+              {trade.session}
+            </span>
+            <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-500">
+              #{trade.id}
+            </span>
+            {setupName && (
+              <span className="rounded bg-indigo-600/20 px-2 py-0.5 text-xs font-medium text-indigo-300">
+                {setupName}
+              </span>
+            )}
+          </div>
+          <div className="text-right">
+            <div className={`num text-2xl font-semibold ${signClass(trade.net_pnl)}`}>
+              {formatMoney(trade.net_pnl)}
+            </div>
+            <div className={`num text-sm ${signClass(trade.r_multiple)}`}>
+              {formatR(trade.r_multiple)}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <Field label="Entry Time">{formatDateTime(trade.entry_time)}</Field>
+          <Field label="Exit Time">{formatDateTime(trade.exit_time)}</Field>
+          <Field label="Hold Time">{formatDuration(trade.hold_time_sec)}</Field>
+          <Field label="Size">{formatNumber(trade.size, 2)}</Field>
+          <Field label="Entry Price">{formatNumber(trade.entry_price, 2)}</Field>
+          <Field label="Exit Price">{formatNumber(trade.exit_price, 2)}</Field>
+          <Field label="Gross P&L">
+            <span className={signClass(trade.gross_pnl)}>
+              {formatMoney(trade.gross_pnl)}
+            </span>
+          </Field>
+          <Field label="Commission">{formatMoney(trade.commission)}</Field>
+          <Field label="Swap">{formatMoney(trade.swap)}</Field>
+          <Field label="MAE">
+            {trade.mae == null ? '—' : formatNumber(trade.mae, 2)}
+          </Field>
+          <Field label="MFE">
+            {trade.mfe == null ? '—' : formatNumber(trade.mfe, 2)}
+          </Field>
+          <Field label="Source">
+            <span className="uppercase">{trade.source}</span>
+          </Field>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* Edit stop / target */}
+        <div className="card p-5">
+          <h2 className="mb-3 text-sm font-semibold text-slate-200">
+            Risk Levels
+          </h2>
+          <div className="mb-4">
+            <label className="label" htmlFor="td-setup">
+              Setup
+            </label>
+            <select
+              id="td-setup"
+              className="input w-full max-w-xs"
+              value={trade.setup_id == null ? '' : String(trade.setup_id)}
+              disabled={setupSaving}
+              onChange={(e) => saveSetup(e.target.value)}
+            >
+              <option value="">— Unassigned —</option>
+              {setups.map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name}
+                  {s.instrument ? ` (${s.instrument})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="label" htmlFor="stop">
+                Stop Price
+              </label>
+              <input
+                id="stop"
+                type="number"
+                step="any"
+                className="input w-36"
+                value={stop}
+                onChange={(e) => setStop(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="target">
+                Target Price
+              </label>
+              <input
+                id="target"
+                type="number"
+                step="any"
+                className="input w-36"
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+              />
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={saveLevels}
+              disabled={saving}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            {saveMsg && (
+              <span className="text-sm text-emerald-400">{saveMsg}</span>
+            )}
+            {saveErr && <span className="text-sm text-red-400">{saveErr}</span>}
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            R multiple recomputes from stop distance when the trade is refetched.
+          </p>
+        </div>
+
+        {/* Tags */}
+        <TagsPanel trade={trade} onChanged={onChanged} />
+      </div>
+
+      {/* Executions */}
+      <div className="card p-5">
+        <h2 className="mb-3 text-sm font-semibold text-slate-200">
+          Executions ({trade.executions.length})
+        </h2>
+        {trade.executions.length === 0 ? (
+          <p className="text-sm text-slate-500">No executions recorded.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2 font-medium">Time</th>
+                  <th className="px-3 py-2 font-medium">Side</th>
+                  <th className="px-3 py-2 text-right font-medium">Price</th>
+                  <th className="px-3 py-2 text-right font-medium">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trade.executions.map((ex) => (
+                  <tr key={ex.id} className="border-b border-slate-800/60">
+                    <td className="num px-3 py-2 text-slate-400">
+                      {formatDateTime(ex.exec_time)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                          ex.side === 'in'
+                            ? 'bg-sky-500/15 text-sky-400'
+                            : 'bg-amber-500/15 text-amber-400'
+                        }`}
+                      >
+                        {ex.side}
+                      </span>
+                    </td>
+                    <td className="num px-3 py-2 text-right text-slate-300">
+                      {formatNumber(ex.price, 2)}
+                    </td>
+                    <td className="num px-3 py-2 text-right text-slate-300">
+                      {formatNumber(ex.size, 2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Notes */}
+      <NotesPanel trade={trade} onChanged={onChanged} />
+
+      {/* Screenshots */}
+      <ScreenshotsPanel trade={trade} onChanged={onChanged} />
+    </div>
+  );
+}
+
+function ScreenshotsPanel({
+  trade,
+  onChanged,
+}: {
+  trade: TTradeDetail;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const uploadMany = async (files: FileList | File[]) => {
+    const list = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    if (!list.length) {
+      setErr('Only image files are supported.');
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      for (const f of list) await api.uploadScreenshot(trade.id, f);
+      onChanged();
+    } catch (e: any) {
+      setErr(e?.message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (sid: number) => {
+    setErr(null);
+    try {
+      await api.deleteScreenshot(trade.id, sid);
+      onChanged();
+    } catch (e: any) {
+      setErr(e?.message || 'Delete failed');
+    }
+  };
+
+  return (
+    <div className="card p-5">
+      <h2 className="mb-3 text-sm font-semibold text-slate-200">
+        Screenshots ({trade.screenshots.length})
+      </h2>
+      <label
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (e.dataTransfer.files?.length) uploadMany(e.dataTransfer.files);
+        }}
+        className={`mb-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center transition ${
+          dragOver
+            ? 'border-indigo-400 bg-indigo-500/5'
+            : 'border-slate-700 hover:border-slate-600'
+        }`}
+      >
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          disabled={busy}
+          onChange={(e) => {
+            if (e.target.files?.length) uploadMany(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <p className="text-sm text-slate-300">
+          {busy ? 'Uploading…' : 'Drop images here or click to upload'}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">PNG, JPG, WebP, GIF · up to 10 MB each</p>
+      </label>
+      {err && <p className="mb-3 text-sm text-red-400">{err}</p>}
+      {trade.screenshots.length === 0 ? (
+        <p className="text-sm text-slate-500">No screenshots attached.</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {trade.screenshots.map((sc) => (
+            <div
+              key={sc.id}
+              className="group relative overflow-hidden rounded-lg border border-slate-800"
+            >
+              <a href={sc.url} target="_blank" rel="noreferrer" className="block">
+                <img
+                  src={sc.url}
+                  alt={`Screenshot ${sc.id}`}
+                  className="aspect-video w-full bg-slate-800 object-cover transition group-hover:opacity-80"
+                  loading="lazy"
+                />
+              </a>
+              <button
+                onClick={() => remove(sc.id)}
+                className="absolute right-1.5 top-1.5 rounded bg-slate-900/80 px-2 py-0.5 text-xs text-slate-300 opacity-0 transition hover:text-red-400 group-hover:opacity-100"
+                aria-label="Delete screenshot"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TagsPanel({
+  trade,
+  onChanged,
+}: {
+  trade: TTradeDetail;
+  onChanged: () => void;
+}) {
+  const [category, setCategory] = useState<TagCategory>('setup');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const add = async () => {
+    if (!name.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.addTag(trade.id, category, name.trim());
+      setName('');
+      onChanged();
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to add tag');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (tagId: number) => {
+    setErr(null);
+    try {
+      await api.removeTag(trade.id, tagId);
+      onChanged();
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to remove tag');
+    }
+  };
+
+  return (
+    <div className="card p-5">
+      <h2 className="mb-3 text-sm font-semibold text-slate-200">Tags</h2>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {trade.tags.length === 0 && (
+          <span className="text-sm text-slate-500">No tags yet.</span>
+        )}
+        {trade.tags.map((tag) => (
+          <span
+            key={tag.id}
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-xs text-slate-200"
+          >
+            <span className="text-slate-500">{tag.category}:</span>
+            {tag.name}
+            <button
+              onClick={() => remove(tag.id)}
+              className="text-slate-500 hover:text-red-400"
+              aria-label="Remove tag"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <div>
+          <label className="label" htmlFor="tag-cat">
+            Category
+          </label>
+          <select
+            id="tag-cat"
+            className="input capitalize"
+            value={category}
+            onChange={(e) => setCategory(e.target.value as TagCategory)}
+          >
+            {TAG_CATEGORIES.map((c) => (
+              <option key={c} value={c} className="capitalize">
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="label" htmlFor="tag-name">
+            Name
+          </label>
+          <input
+            id="tag-name"
+            className="input w-full"
+            value={name}
+            placeholder="e.g. breakout"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && add()}
+          />
+        </div>
+        <button className="btn" onClick={add} disabled={busy || !name.trim()}>
+          Add
+        </button>
+      </div>
+      {err && <p className="mt-2 text-sm text-red-400">{err}</p>}
+    </div>
+  );
+}
+
+function NotesPanel({
+  trade,
+  onChanged,
+}: {
+  trade: TTradeDetail;
+  onChanged: () => void;
+}) {
+  const [body, setBody] = useState('');
+  const [rules, setRules] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const add = async () => {
+    if (!body.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.addNote(trade.id, body.trim(), rules ? 1 : 0);
+      setBody('');
+      onChanged();
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to add note');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card p-5">
+      <h2 className="mb-3 text-sm font-semibold text-slate-200">
+        Notes ({trade.notes.length})
+      </h2>
+      <div className="mb-4 flex flex-col gap-3">
+        {trade.notes.length === 0 && (
+          <p className="text-sm text-slate-500">No notes yet.</p>
+        )}
+        {trade.notes.map((n) => (
+          <div
+            key={n.id}
+            className="rounded-lg border border-slate-800 bg-slate-900/40 p-3"
+          >
+            <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+              <span>{formatDateTime(n.created_at)}</span>
+              <span
+                className={
+                  n.rules_followed ? 'text-emerald-400' : 'text-amber-400'
+                }
+              >
+                {n.rules_followed ? 'Rules followed' : 'Rules broken'}
+              </span>
+            </div>
+            <p className="whitespace-pre-wrap text-sm text-slate-200">{n.body}</p>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-col gap-2">
+        <textarea
+          className="input min-h-[80px] w-full resize-y"
+          placeholder="Write a note about this trade…"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+        />
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2 text-sm text-slate-400">
+            <input
+              type="checkbox"
+              checked={rules}
+              onChange={(e) => setRules(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-600 bg-slate-800"
+            />
+            Rules followed
+          </label>
+          <button
+            className="btn btn-primary"
+            onClick={add}
+            disabled={busy || !body.trim()}
+          >
+            Add Note
+          </button>
+        </div>
+        {err && <p className="text-sm text-red-400">{err}</p>}
+      </div>
+    </div>
+  );
+}

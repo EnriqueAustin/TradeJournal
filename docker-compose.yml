@@ -1,0 +1,26 @@
+# Trade Journal — production-ish local stack.
+#   docker compose up --build      → open http://localhost:8080
+# The SQLite database + screenshots persist in the named volume `journal-data`.
+services:
+  server:
+    build: ./server
+    environment:
+      PORT: "4000"
+      EA_TOKEN: "${EA_TOKEN:-changeme}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      AI_MODEL: "${AI_MODEL:-claude-opus-4-8}"
+      AI_MODEL_FALLBACK: "${AI_MODEL_FALLBACK:-claude-sonnet-5}"
+    volumes:
+      - journal-data:/app/data
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  journal-data:

@@ -1,0 +1,14 @@
+{
+  "name": "trade-journal",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local trade journal for XAUUSD + US100 scalping",
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm --prefix server run dev\" \"npm --prefix web run dev\"",
+    "install:all": "npm --prefix server install && npm --prefix web install",
+    "build": "npm --prefix web run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
