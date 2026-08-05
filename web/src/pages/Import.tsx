@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
-import type { ImportResult, BarsImportResult } from '../types';
+import type { ImportResult, BarsImportResult, BarsFetchResult } from '../types';
 import { Spinner } from '../components/states';
 
 export default function Import() {
@@ -252,6 +252,20 @@ function BarsImport() {
   const [result, setResult] = useState<BarsImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Live feed (OANDA) state.
+  const [oanda, setOanda] = useState<boolean | null>(null);
+  const [days, setDays] = useState(7);
+  const [feedBusy, setFeedBusy] = useState(false);
+  const [feed, setFeed] = useState<BarsFetchResult | null>(null);
+  const [feedErr, setFeedErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getBarsStatus()
+      .then((s) => setOanda(s.oanda))
+      .catch(() => setOanda(false));
+  }, []);
+
   const upload = async () => {
     if (!file) return;
     setBusy(true);
@@ -267,6 +281,23 @@ function BarsImport() {
     }
   };
 
+  const updateFromFeed = async () => {
+    setFeedBusy(true);
+    setFeedErr(null);
+    setFeed(null);
+    try {
+      const res = await api.fetchBars({
+        instruments: ['XAUUSD', 'US100'],
+        days,
+      });
+      setFeed(res);
+    } catch (e: any) {
+      setFeedErr(e?.message || 'Live fetch failed');
+    } finally {
+      setFeedBusy(false);
+    }
+  };
+
   return (
     <div className="card mt-4 flex flex-col gap-4 p-5">
       <div>
@@ -275,8 +306,95 @@ function BarsImport() {
         </h2>
         <p className="text-xs text-slate-500">
           CSV with columns <span className="num">time,open,high,low,close,vol</span>{' '}
-          for Replay and Backtest. Deduped on (instrument, tf, time).
+          for Replay and Backtest. Deduped on (instrument, tf, time). M1 auto-aggregates
+          to M5/M15/M30/H1.
         </p>
+      </div>
+
+      {/* Live feed (OANDA) */}
+      <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-200">
+              Live feed{' '}
+              {oanda === null ? (
+                <span className="text-xs font-normal text-slate-500">…</span>
+              ) : oanda ? (
+                <span className="text-xs font-normal text-emerald-400">
+                  ● OANDA connected
+                </span>
+              ) : (
+                <span className="text-xs font-normal text-amber-400">
+                  ● not configured
+                </span>
+              )}
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Pull M1 candles for XAUUSD + US100 straight from OANDA. Trades also
+              auto-fetch their bars on import.
+            </p>
+          </div>
+          <div className="flex items-end gap-2">
+            <div>
+              <label className="label" htmlFor="feed-days">
+                Last N days
+              </label>
+              <input
+                id="feed-days"
+                type="number"
+                min={1}
+                max={90}
+                className="input w-24"
+                value={days}
+                onChange={(e) => setDays(Math.max(1, Number(e.target.value) || 1))}
+              />
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={updateFromFeed}
+              disabled={feedBusy || oanda === false}
+              title={oanda === false ? 'Set OANDA_API_TOKEN in server/.env' : undefined}
+            >
+              {feedBusy ? (
+                <>
+                  <Spinner className="h-4 w-4" /> Updating…
+                </>
+              ) : (
+                'Update bars'
+              )}
+            </button>
+          </div>
+        </div>
+
+        {oanda === false && (
+          <p className="mt-2 text-xs text-amber-400/90">
+            Add <span className="num">OANDA_API_TOKEN=…</span> to{' '}
+            <span className="num">server/.env</span> (free practice token) and
+            restart the server.
+          </p>
+        )}
+        {feedErr && (
+          <div className="mt-3 rounded-lg border border-red-900/50 bg-red-950/30 p-2 text-sm text-red-300">
+            {feedErr}
+          </div>
+        )}
+        {feed && (
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            {feed.results.map((r) => (
+              <span
+                key={r.instrument}
+                className={`rounded-full border px-2.5 py-1 ${
+                  r.error
+                    ? 'border-red-900/50 text-red-300'
+                    : 'border-slate-700 text-slate-300'
+                }`}
+              >
+                <span className="font-semibold">{r.instrument}</span>{' '}
+                {r.error ? r.error : `${r.upserted} bars`}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-end gap-3">

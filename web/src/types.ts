@@ -16,7 +16,18 @@ export interface Account {
   prop_daily_loss: number | null;
   prop_max_dd: number | null;
   prop_target: number | null;
+  broker_tz: string | null;
+  times_realigned: number;
   created_at: string;
+}
+
+export interface TimeCheck {
+  checked: number;
+  scores: Record<string, number>;
+  fit_at_best: number;
+  best_offset_min: number | null;
+  fit_at_zero: number;
+  aligned: boolean | null;
 }
 
 export interface NewAccount {
@@ -29,6 +40,7 @@ export interface NewAccount {
   prop_daily_loss?: number | null;
   prop_max_dd?: number | null;
   prop_target?: number | null;
+  broker_tz?: string | null;
 }
 
 export interface Trade {
@@ -56,6 +68,7 @@ export interface Trade {
   ext_id: string | null;
   setup_id: number | null;
   is_backtest?: number;
+  preferred_tf?: string | null;
   created_at: string;
 }
 
@@ -293,6 +306,19 @@ export interface BarsImportResult {
   total: number;
 }
 
+export interface BarsFetchItem {
+  instrument: string;
+  fetched?: number;
+  upserted?: number;
+  error?: string;
+}
+
+export interface BarsFetchResult {
+  from: string;
+  to: string;
+  results: BarsFetchItem[];
+}
+
 export interface BarSeriesInfo {
   instrument: string;
   tf: string;
@@ -306,18 +332,27 @@ export interface ReplayMarker {
   price: number;
 }
 
+export interface ReplayFrame {
+  tf: string;
+  /** 'stored' | `agg:<baseTf>` | 'none' */
+  source: string;
+  bars: Bar[];
+}
+
+export interface ReplayMarkers {
+  entry: ReplayMarker | null;
+  exit: ReplayMarker | null;
+  stop: ReplayMarker | null;
+  target: ReplayMarker | null;
+}
+
 export interface ReplayResponse {
   trade_id: number;
   instrument: string;
-  tf: string;
   direction: Direction;
-  bars: Bar[];
-  markers: {
-    entry: ReplayMarker | null;
-    exit: ReplayMarker | null;
-    stop: ReplayMarker | null;
-    target: ReplayMarker | null;
-  };
+  primary_tf: string;
+  frames: ReplayFrame[];
+  markers: ReplayMarkers;
 }
 
 export interface BacktestResponse {

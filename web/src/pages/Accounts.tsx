@@ -3,8 +3,17 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
-import type { NewAccount } from '../types';
-import { formatMoney, formatDate } from '../utils/format';
+import type { Account, NewAccount, TimeCheck } from '../types';
+import { formatMoney, formatDate, DISPLAY_TZ } from '../utils/format';
+
+const BROKER_TZS = [
+  'Europe/London',
+  'UTC',
+  'Europe/Athens',
+  'Europe/Helsinki',
+  'Africa/Johannesburg',
+  'America/New_York',
+];
 
 const PLATFORMS = ['MT5', 'MT4', 'cTrader', 'Other'];
 const ACCOUNT_TYPES = ['live', 'demo', 'prop'];
@@ -21,6 +30,143 @@ const emptyForm: NewAccount = {
   prop_max_dd: null,
   prop_target: null,
 };
+
+function BrokerTimePanel({
+  accounts,
+  onChanged,
+}: {
+  accounts: Account[];
+  onChanged: () => void;
+}) {
+  const [checks, setChecks] = useState<Record<number, TimeCheck | 'loading' | string>>({});
+  const [busy, setBusy] = useState<number | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const setTz = async (id: number, tz: string) => {
+    try {
+      await api.updateAccount(id, { broker_tz: tz });
+      onChanged();
+    } catch (e: any) {
+      setMsg(e?.message || 'Failed to set timezone');
+    }
+  };
+
+  const check = async (id: number) => {
+    setChecks((c) => ({ ...c, [id]: 'loading' }));
+    try {
+      const r = await api.checkAccountTime(id);
+      setChecks((c) => ({ ...c, [id]: r }));
+    } catch (e: any) {
+      setChecks((c) => ({ ...c, [id]: e?.message || 'check failed' }));
+    }
+  };
+
+  const realign = async (id: number, name: string) => {
+    if (
+      !confirm(
+        `Re-align existing trade times for "${name}" from its broker timezone to UTC? This shifts stored entry/exit times once and can't be auto-undone.`
+      )
+    )
+      return;
+    setBusy(id);
+    setMsg(null);
+    try {
+      const r = await api.realignAccountTimes(id);
+      setMsg(
+        r.note
+          ? `${name}: ${r.note}`
+          : `${name}: re-aligned ${r.realigned} trades from ${r.broker_tz}.`
+      );
+      onChanged();
+      check(id);
+    } catch (e: any) {
+      setMsg(e?.message || 'Re-align failed');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const renderCheck = (c: TimeCheck | 'loading' | string | undefined) => {
+    if (c === undefined) return null;
+    if (c === 'loading') return <span className="text-slate-500">checking…</span>;
+    if (typeof c === 'string') return <span className="text-red-400">{c}</span>;
+    if (c.checked === 0)
+      return <span className="text-slate-500">no verifiable trades (need fills + price bars)</span>;
+    if (c.aligned)
+      return (
+        <span className="text-emerald-400">
+          ✓ aligned ({c.fit_at_zero}/{c.checked} fills on-candle)
+        </span>
+      );
+    if (c.best_offset_min == null)
+      return (
+        <span className="text-slate-500">
+          inconclusive — fills don't match any candle (bad prices or no bar coverage)
+        </span>
+      );
+    const hrs = (c.best_offset_min / 60).toFixed(0);
+    return (
+      <span className="text-amber-400">
+        ⚠ off by {c.best_offset_min > 0 ? '+' : ''}
+        {hrs}h — set Broker TZ so fills land on candles, then re-align
+      </span>
+    );
+  };
+
+  return (
+    <div className="card p-5">
+      <div className="mb-1 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-200">Broker time &amp; alignment</h2>
+        <span className="text-xs text-slate-500">display: {DISPLAY_TZ}</span>
+      </div>
+      <p className="mb-3 text-xs text-slate-500">
+        MT5 stores times in the broker's server timezone. This converts imports to
+        UTC so trades line up with price candles. Times display in your local zone.
+      </p>
+      <div className="flex flex-col gap-2">
+        {accounts.map((a) => (
+          <div
+            key={a.id}
+            className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/40 p-3"
+          >
+            <span className="min-w-[10rem] font-medium text-slate-200">{a.name}</span>
+            <label className="flex items-center gap-1.5 text-xs text-slate-500">
+              Broker TZ
+              <select
+                className="input py-1 text-xs"
+                value={a.broker_tz ?? 'UTC'}
+                onChange={(e) => setTz(a.id, e.target.value)}
+              >
+                {BROKER_TZS.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="btn px-2 py-1 text-xs" onClick={() => check(a.id)}>
+              Check alignment
+            </button>
+            <button
+              className="btn px-2 py-1 text-xs"
+              disabled={busy === a.id || a.times_realigned === 1}
+              onClick={() => realign(a.id, a.name)}
+              title={a.times_realigned === 1 ? 'Already re-aligned' : undefined}
+            >
+              {a.times_realigned === 1
+                ? '✓ re-aligned'
+                : busy === a.id
+                ? 'Re-aligning…'
+                : 'Re-align existing'}
+            </button>
+            <span className="text-xs">{renderCheck(checks[a.id])}</span>
+          </div>
+        ))}
+      </div>
+      {msg && <p className="mt-3 text-sm text-indigo-300">{msg}</p>}
+    </div>
+  );
+}
 
 export default function Accounts() {
   const { refreshAccounts } = useFilters();
@@ -94,6 +240,10 @@ export default function Accounts() {
         <h1 className="text-xl font-semibold text-slate-100">Accounts</h1>
         <p className="text-sm text-slate-500">Manage trading accounts.</p>
       </div>
+
+      {data && data.length > 0 && (
+        <BrokerTimePanel accounts={data} onChanged={reload} />
+      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         {/* List */}

@@ -9,13 +9,15 @@ import { fileURLToPath } from 'node:url';
 import { PORT, EA_TOKEN } from './env.js';
 import { db, migrate } from './db.js';
 import { parseImport } from './import.js';
-import { parseBarsCsv } from './bars.js';
+import { parseBarsCsv, getBarsForTf, upsertBars, TF_MINUTES } from './bars.js';
+import { fetchOandaM1, oandaConfigured, oandaSymbol } from './marketdata.js';
 import { aiReview, autoTagTrades } from './ai.js';
 import {
   sessionFromTime,
   normalizeInstrument,
   parseBarTime,
   computeRMultiple,
+  brokerIsoToUtc,
 } from './util.js';
 import {
   summary,
@@ -176,6 +178,7 @@ app.patch('/api/accounts/:id', (req, res) => {
     'prop_daily_loss',
     'prop_max_dd',
     'prop_target',
+    'broker_tz',
   ];
   const sets = [];
   const params = { id };
@@ -188,6 +191,114 @@ app.patch('/api/accounts/:id', (req, res) => {
   if (sets.length)
     db.prepare(`UPDATE accounts SET ${sets.join(', ')} WHERE id = @id`).run(params);
   res.json(db.prepare('SELECT * FROM accounts WHERE id = ?').get(id));
+});
+
+// POST /api/accounts/:id/realign-times — one-shot: shift this account's existing
+// trade + execution times from broker_tz wall-clock into true UTC. Guarded by
+// accounts.times_realigned so it can never double-apply.
+app.post('/api/accounts/:id/realign-times', (req, res) => {
+  const id = Number(req.params.id);
+  const account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id);
+  if (!account) return res.status(404).json({ error: 'account not found' });
+  const tz = account.broker_tz;
+  if (!tz || tz === 'UTC')
+    return res.status(400).json({ error: 'account has no broker_tz to convert from' });
+  if (account.times_realigned)
+    return res.json({ realigned: 0, note: 'already realigned', broker_tz: tz });
+
+  const trades = db
+    .prepare('SELECT id, entry_time, exit_time FROM trades WHERE account_id = ?')
+    .all(id);
+  const upT = db.prepare(
+    'UPDATE trades SET entry_time=@entry_time, exit_time=@exit_time, session=@session WHERE id=@id'
+  );
+  const exSel = db.prepare('SELECT id, exec_time FROM executions WHERE trade_id = ?');
+  const upE = db.prepare('UPDATE executions SET exec_time=@exec_time WHERE id=@id');
+
+  let n = 0;
+  const tx = db.transaction(() => {
+    for (const t of trades) {
+      const entry = brokerIsoToUtc(t.entry_time, tz);
+      const exit = brokerIsoToUtc(t.exit_time, tz);
+      upT.run({
+        id: t.id,
+        entry_time: entry,
+        exit_time: exit,
+        session: entry ? sessionFromTime(entry) : null,
+      });
+      for (const e of exSel.all(t.id))
+        upE.run({ id: e.id, exec_time: brokerIsoToUtc(e.exec_time, tz) });
+      n++;
+    }
+    db.prepare('UPDATE accounts SET times_realigned = 1 WHERE id = ?').run(id);
+  });
+  tx();
+  res.json({ realigned: n, broker_tz: tz });
+});
+
+// GET /api/accounts/:id/time-check — safety net. For recent trades on supported
+// instruments, checks whether each entry fill price lands inside the OANDA M1
+// candle at its UTC entry time, and reports the time-shift (minutes) that best
+// fits. best_offset_min === 0 means trades are aligned with the price data.
+app.get('/api/accounts/:id/time-check', (req, res) => {
+  const id = Number(req.params.id);
+  const account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id);
+  if (!account) return res.status(404).json({ error: 'account not found' });
+
+  const trades = db
+    .prepare(
+      `SELECT instrument, entry_time, entry_price FROM trades
+       WHERE account_id = ? AND entry_time IS NOT NULL AND entry_price IS NOT NULL
+       ORDER BY entry_time DESC LIMIT 50`
+    )
+    .all(id);
+
+  const OFFSETS = [-180, -120, -60, 0, 60, 120, 180];
+  const tol = 0.05;
+  const scores = Object.fromEntries(OFFSETS.map((o) => [o, 0]));
+  const barCache = new Map();
+  const barsFor = (inst) => {
+    if (!barCache.has(inst)) barCache.set(inst, getBarsForTf(inst, 'M1').bars);
+    return barCache.get(inst);
+  };
+
+  let checked = 0;
+  for (const t of trades) {
+    const inst = normalizeInstrument(t.instrument);
+    if (!oandaSymbol(inst)) continue;
+    const bars = barsFor(inst);
+    if (!bars.length) continue;
+    const et = new Date(t.entry_time).getTime();
+    checked++;
+    for (const o of OFFSETS) {
+      const target = et + o * 60000;
+      const b = bars.find((x) => {
+        const bt = new Date(x.t).getTime();
+        return target >= bt && target < bt + 60000;
+      });
+      if (b && t.entry_price >= b.low - tol && t.entry_price <= b.high + tol)
+        scores[o]++;
+    }
+  }
+
+  let best = 0;
+  let bestScore = -1;
+  for (const o of OFFSETS)
+    if (scores[o] > bestScore) {
+      bestScore = scores[o];
+      best = o;
+    }
+  // No offset fits any fill → inconclusive (bad prices or no bar coverage),
+  // not a real misalignment. Only claim aligned/off when something actually fit.
+  const inconclusive = checked === 0 || bestScore <= 0;
+  res.json({
+    checked,
+    scores,
+    fit_at_best: Math.max(0, bestScore),
+    best_offset_min: inconclusive ? null : best,
+    fit_at_zero: scores[0],
+    aligned: inconclusive ? null : best === 0,
+  });
 });
 
 app.delete('/api/accounts/:id', (req, res) => {
@@ -354,6 +465,7 @@ const EDITABLE = new Set([
   'entry_price',
   'exit_price',
   'size',
+  'preferred_tf',
 ]);
 
 app.patch('/api/trades/:id', (req, res) => {
@@ -545,7 +657,67 @@ app.get('/api/stats/optimizer', (req, res) => res.json(optimizer(req.query)));
 app.get('/api/stats/portfolio', (req, res) => res.json(portfolio(req.query)));
 
 // ---------- Import ----------
-app.post('/api/import', upload.single('file'), (req, res) => {
+// Convert a parsed trade's broker-local times (stored wall-clock-as-UTC) into
+// true UTC using the account's broker_tz, re-deriving session. Mutates + returns
+// the trade. No-op when tz is empty/UTC.
+function brokerTimesToUtc(trade, tz) {
+  if (!tz || tz === 'UTC') return trade;
+  if (trade.entry_time) trade.entry_time = brokerIsoToUtc(trade.entry_time, tz);
+  if (trade.exit_time) trade.exit_time = brokerIsoToUtc(trade.exit_time, tz);
+  if (Array.isArray(trade._executions)) {
+    for (const e of trade._executions) {
+      if (e.exec_time) e.exec_time = brokerIsoToUtc(e.exec_time, tz);
+    }
+  }
+  if (trade.entry_time) trade.session = sessionFromTime(trade.entry_time);
+  return trade;
+}
+
+// Merge padded per-trade windows per instrument, then pull M1 from OANDA for
+// each merged span and upsert. No-op (returns null) when OANDA isn't configured
+// so imports never fail on a missing token / network hiccup.
+async function autoFetchBarsForTrades(trades) {
+  if (!oandaConfigured()) return null;
+  const pad = 2 * 60 * 60 * 1000; // 2h either side of the trade
+  const byInst = new Map();
+  for (const t of trades) {
+    const inst = normalizeInstrument(t.instrument);
+    if (!oandaSymbol(inst)) continue;
+    const times = [t.entry_time, t.exit_time]
+      .map((v) => (v ? new Date(v).getTime() : null))
+      .filter((v) => v != null && !Number.isNaN(v));
+    if (!times.length) continue;
+    if (!byInst.has(inst)) byInst.set(inst, []);
+    byInst.get(inst).push([Math.min(...times) - pad, Math.max(...times) + pad]);
+  }
+
+  const out = [];
+  for (const [inst, ivals] of byInst) {
+    ivals.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const iv of ivals) {
+      const last = merged[merged.length - 1];
+      if (last && iv[0] <= last[1]) last[1] = Math.max(last[1], iv[1]);
+      else merged.push([...iv]);
+    }
+    let fetched = 0;
+    let upserted = 0;
+    let error = null;
+    try {
+      for (const [lo, hi] of merged) {
+        const bars = await fetchOandaM1(inst, new Date(lo), new Date(hi));
+        fetched += bars.length;
+        upserted += upsertBars(inst, 'M1', bars);
+      }
+    } catch (e) {
+      error = String(e.message || e);
+    }
+    out.push({ instrument: inst, fetched, upserted, ...(error ? { error } : {}) });
+  }
+  return out;
+}
+
+app.post('/api/import', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'file is required' });
     let accountId = req.body.account ? Number(req.body.account) : null;
@@ -560,6 +732,12 @@ app.post('/api/import', upload.single('file'), (req, res) => {
       mimetype: req.file.mimetype,
       accountId,
     });
+
+    // Broker server time → true UTC (so trades align with UTC price bars).
+    const brokerTz = db
+      .prepare('SELECT broker_tz FROM accounts WHERE id = ?')
+      .get(accountId)?.broker_tz;
+    for (const t of trades) brokerTimesToUtc(t, brokerTz);
 
     let inserted = 0;
     let skipped = 0;
@@ -580,7 +758,15 @@ app.post('/api/import', upload.single('file'), (req, res) => {
     });
     tx(trades);
 
-    res.json({ inserted, skipped, account_id: accountId });
+    // Best-effort: pull M1 bars around the imported trades so Replay works.
+    let bars = null;
+    try {
+      bars = await autoFetchBarsForTrades(trades);
+    } catch {
+      /* never fail an import over bars */
+    }
+
+    res.json({ inserted, skipped, account_id: accountId, bars });
   } catch (err) {
     res.status(500).json({ error: String(err.message || err) });
   }
@@ -662,6 +848,55 @@ app.post('/api/bars/import', upload.single('file'), (req, res) => {
   }
 });
 
+// POST /api/bars/fetch {instrument?|instruments?, from?, to?, days?}
+// Pull M1 from OANDA and upsert. Defaults to XAUUSD+US100 over the last `days`
+// (7) up to now. Requires OANDA_API_TOKEN in server/.env.
+app.post('/api/bars/fetch', async (req, res) => {
+  try {
+    if (!oandaConfigured())
+      return res
+        .status(400)
+        .json({ error: 'OANDA_API_TOKEN not set in server/.env' });
+
+    const b = req.body || {};
+    const insts = b.instrument
+      ? [b.instrument]
+      : Array.isArray(b.instruments) && b.instruments.length
+      ? b.instruments
+      : ['XAUUSD', 'US100'];
+    const to = b.to ? new Date(b.to) : new Date();
+    const days = b.days != null ? Number(b.days) : 7;
+    const from = b.from ? new Date(b.from) : new Date(to.getTime() - days * 86400000);
+
+    const results = [];
+    for (const inst of insts) {
+      if (!oandaSymbol(inst)) {
+        results.push({ instrument: inst, error: 'unsupported instrument' });
+        continue;
+      }
+      try {
+        const bars = await fetchOandaM1(inst, from, to);
+        const upserted = upsertBars(inst, 'M1', bars);
+        results.push({
+          instrument: normalizeInstrument(inst),
+          fetched: bars.length,
+          upserted,
+        });
+      } catch (e) {
+        results.push({ instrument: inst, error: String(e.message || e) });
+      }
+    }
+    res.json({ from: from.toISOString(), to: to.toISOString(), results });
+  } catch (err) {
+    res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+// GET /api/bars/status → whether the live feed (OANDA) is configured.
+app.get('/api/bars/status', (req, res) => {
+  res.json({ oanda: oandaConfigured() });
+});
+
 // GET /api/bars?instrument&tf&from&to → OHLC array.
 app.get('/api/bars', (req, res) => {
   const { instrument, tf, from, to } = req.query;
@@ -683,51 +918,59 @@ app.get('/api/bars/instruments', (req, res) => {
   );
 });
 
-// GET /api/trades/:id/replay → bars window around the trade + markers.
+// Slice ascending bars to a window of `pad` bars either side of entry↔exit.
+function windowBars(all, entryMs, exitMs, pad) {
+  if (!all.length || (entryMs == null && exitMs == null)) return all;
+  const times = all.map((b) => new Date(b.t).getTime());
+  const lo = entryMs ?? exitMs;
+  const hi = exitMs ?? entryMs;
+  let firstIdx = times.findIndex((tm) => tm >= lo);
+  if (firstIdx === -1) firstIdx = all.length - 1;
+  let lastIdx = -1;
+  for (let i = times.length - 1; i >= 0; i--) {
+    if (times[i] <= hi) {
+      lastIdx = i;
+      break;
+    }
+  }
+  if (lastIdx === -1) lastIdx = firstIdx;
+  const start = Math.max(0, firstIdx - pad);
+  const end = Math.min(all.length, lastIdx + pad + 1);
+  return all.slice(start, end);
+}
+
+// GET /api/trades/:id/replay?tf=M5,M15,M30,H1&pad=20
+// → one frame per requested TF (stored bars preferred, aggregated otherwise),
+//   each windowed to `pad` bars around the trade, plus shared markers.
 app.get('/api/trades/:id/replay', (req, res) => {
   const id = Number(req.params.id);
   const trade = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
   if (!trade) return res.status(404).json({ error: 'trade not found' });
 
-  const tf = req.query.tf || 'M1';
-  const padBars = req.query.pad ? Math.max(0, Number(req.query.pad)) : 40;
+  const primaryTf = trade.preferred_tf || 'M30';
+  const requested = String(req.query.tf || `M5,M15,M30,H1`)
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && TF_MINUTES[s]);
+  // De-dupe, keep request order; guarantee the primary is present.
+  const tfs = [...new Set([...requested, primaryTf])].filter((t) => TF_MINUTES[t]);
+  tfs.sort((a, b) => TF_MINUTES[a] - TF_MINUTES[b]);
 
-  const all = db
-    .prepare(
-      `SELECT t, open, high, low, close, volume FROM price_bars
-       WHERE instrument = ? AND tf = ? ORDER BY t ASC`
-    )
-    .all(trade.instrument, tf);
-
+  const pad = req.query.pad ? Math.max(0, Number(req.query.pad)) : 20;
   const entryMs = trade.entry_time ? new Date(trade.entry_time).getTime() : null;
   const exitMs = trade.exit_time ? new Date(trade.exit_time).getTime() : null;
 
-  let bars = all;
-  if (all.length && (entryMs != null || exitMs != null)) {
-    const times = all.map((b) => new Date(b.t).getTime());
-    const lo = entryMs ?? exitMs;
-    const hi = exitMs ?? entryMs;
-    let firstIdx = times.findIndex((tm) => tm >= lo);
-    if (firstIdx === -1) firstIdx = all.length - 1;
-    let lastIdx = -1;
-    for (let i = times.length - 1; i >= 0; i--) {
-      if (times[i] <= hi) {
-        lastIdx = i;
-        break;
-      }
-    }
-    if (lastIdx === -1) lastIdx = firstIdx;
-    const start = Math.max(0, firstIdx - padBars);
-    const end = Math.min(all.length, lastIdx + padBars + 1);
-    bars = all.slice(start, end);
-  }
+  const frames = tfs.map((tf) => {
+    const { bars: all, source } = getBarsForTf(trade.instrument, tf);
+    return { tf, source, bars: windowBars(all, entryMs, exitMs, pad) };
+  });
 
   res.json({
     trade_id: id,
     instrument: trade.instrument,
-    tf,
     direction: trade.direction,
-    bars,
+    primary_tf: primaryTf,
+    frames,
     markers: {
       entry:
         trade.entry_time != null
@@ -1004,6 +1247,12 @@ function webhookTrade(req, res) {
     source: 'ea',
     ext_id: String(b.ext_id),
   };
+
+  // EA reports MT5 broker server time → convert to UTC like the CSV import.
+  const brokerTz = db
+    .prepare('SELECT broker_tz FROM accounts WHERE id = ?')
+    .get(accountId)?.broker_tz;
+  brokerTimesToUtc(trade, brokerTz);
 
   if (
     db

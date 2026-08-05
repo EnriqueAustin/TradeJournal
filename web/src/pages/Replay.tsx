@@ -5,11 +5,9 @@ import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { useFilters } from '../store/FilterContext';
 import { AsyncBoundary } from '../components/states';
-import CandleChart, {
-  type ChartMarker,
-  type PriceLineSpec,
-} from '../components/CandleChart';
-import type { ReplayResponse, Trade } from '../types';
+import ReplayGrid from '../components/ReplayGrid';
+import { frameTimes, snapToBar } from '../utils/replay';
+import type { ReplayResponse, ReplayFrame, Trade } from '../types';
 import { formatMoney, formatDateTime } from '../utils/format';
 
 const SPEEDS = [
@@ -19,21 +17,9 @@ const SPEEDS = [
   { label: '4×', ms: 60 },
 ];
 
-function toTime(iso: string): UTCTimestamp {
-  return Math.floor(new Date(iso).getTime() / 1000) as UTCTimestamp;
-}
-
-// Snap a marker time to the nearest bar time <= it (markers must land on a bar).
-function snapToBar(barTimes: UTCTimestamp[], iso?: string): UTCTimestamp | null {
-  if (!iso || barTimes.length === 0) return null;
-  const target = toTime(iso);
-  let best: UTCTimestamp | null = null;
-  for (const bt of barTimes) {
-    if (bt <= target) best = bt;
-    else break;
-  }
-  return best ?? barTimes[0];
-}
+// Timeframes shown in the grid + selectable as the per-trade primary.
+const GRID_TFS = ['M5', 'M15', 'M30', 'H1'];
+const TF_MIN: Record<string, number> = { M5: 5, M15: 15, M30: 30, H1: 60 };
 
 export default function Replay() {
   const { filters } = useFilters();
@@ -55,7 +41,7 @@ export default function Replay() {
   }, [tradeId, trades, setParams]);
 
   const replay = useApi<ReplayResponse>(
-    () => api.getReplay(tradeId as number, 'M1'),
+    () => api.getReplay(tradeId as number, GRID_TFS),
     [tradeId]
   );
 
@@ -65,7 +51,7 @@ export default function Replay() {
         <div>
           <h1 className="text-xl font-semibold text-slate-100">Replay</h1>
           <p className="text-sm text-slate-500">
-            Step through the price action around a trade.
+            Step through the price action around a trade across timeframes.
           </p>
         </div>
         <div>
@@ -102,74 +88,61 @@ export default function Replay() {
           onRetry={replay.reload}
           loadingLabel="Loading bars…"
         >
-          {replay.data && <ReplayView data={replay.data} />}
+          {replay.data && (
+            <ReplayView
+              key={tradeId}
+              data={replay.data}
+              tradeId={tradeId}
+              onPrimaryChange={replay.reload}
+            />
+          )}
         </AsyncBoundary>
       )}
     </div>
   );
 }
 
-function ReplayView({ data }: { data: ReplayResponse }) {
-  const bars = data.bars;
-  const total = bars.length;
+function ReplayView({
+  data,
+  tradeId,
+  onPrimaryChange,
+}: {
+  data: ReplayResponse;
+  tradeId: number;
+  onPrimaryChange: () => void;
+}) {
+  const frames = data.frames;
+  const hasAnyBars = frames.some((f) => f.bars.length > 0);
 
-  const barTimes = useMemo(
-    () => bars.map((b) => toTime(b.t)).sort((a, b) => a - b),
-    [bars]
+  // Driver = smallest TF that actually has bars — its bars define the timeline.
+  const driver: ReplayFrame | null = useMemo(() => {
+    const withBars = frames.filter((f) => f.bars.length > 0);
+    if (withBars.length === 0) return null;
+    return withBars.reduce((a, b) =>
+      (TF_MIN[a.tf] ?? 1e9) <= (TF_MIN[b.tf] ?? 1e9) ? a : b
+    );
+  }, [frames]);
+
+  const timeline = useMemo(
+    () => (driver ? frameTimes(driver.bars) : []),
+    [driver]
   );
+  const total = timeline.length;
 
-  const entrySnap = snapToBar(barTimes, data.markers.entry?.t);
-  const exitSnap = snapToBar(barTimes, data.markers.exit?.t);
-
-  const markers: ChartMarker[] = useMemo(() => {
-    const m: ChartMarker[] = [];
-    if (entrySnap != null && data.markers.entry) {
-      m.push({
-        time: entrySnap,
-        position: data.direction === 'long' ? 'belowBar' : 'aboveBar',
-        color: '#6366f1',
-        shape: data.direction === 'long' ? 'arrowUp' : 'arrowDown',
-        text: `Entry ${data.markers.entry.price}`,
-      });
-    }
-    if (exitSnap != null && data.markers.exit) {
-      m.push({
-        time: exitSnap,
-        position: data.direction === 'long' ? 'aboveBar' : 'belowBar',
-        color: '#f59e0b',
-        shape: 'square',
-        text: `Exit ${data.markers.exit.price}`,
-      });
-    }
-    return m.sort((a, b) => (a.time as number) - (b.time as number));
-  }, [entrySnap, exitSnap, data]);
-
-  const priceLines: PriceLineSpec[] = useMemo(() => {
-    const lines: PriceLineSpec[] = [];
-    if (data.markers.stop)
-      lines.push({ price: data.markers.stop.price, color: '#ef4444', title: 'Stop' });
-    if (data.markers.target)
-      lines.push({
-        price: data.markers.target.price,
-        color: '#10b981',
-        title: 'Target',
-      });
-    return lines;
-  }, [data]);
-
-  // Index of the entry bar — replay starts revealed up to entry.
+  // Reveal starts at the entry bar of the driver timeline.
   const entryIdx = useMemo(() => {
-    if (entrySnap == null) return Math.min(10, total);
-    const i = barTimes.findIndex((t) => t === entrySnap);
+    if (!driver) return 0;
+    const snap = snapToBar(timeline, data.markers.entry?.t);
+    if (snap == null) return Math.min(10, total);
+    const i = timeline.findIndex((t) => t === snap);
     return i === -1 ? Math.min(10, total) : i + 1;
-  }, [entrySnap, barTimes, total]);
+  }, [driver, timeline, data.markers.entry, total]);
 
   const [reveal, setReveal] = useState(entryIdx);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(SPEEDS[1].ms);
   const timerRef = useRef<number | null>(null);
 
-  // Reset when the trade (bars) changes.
   useEffect(() => {
     setReveal(entryIdx);
     setPlaying(false);
@@ -192,116 +165,146 @@ function ReplayView({ data }: { data: ReplayResponse }) {
   }, [playing, speed, total]);
 
   const atEnd = reveal >= total;
-  const revealedBar = bars[Math.max(0, Math.min(reveal, total) - 1)];
+  const clamped = Math.max(1, Math.min(reveal, total));
+  const revealTime: UTCTimestamp | undefined =
+    total > 0 ? timeline[clamped - 1] : undefined;
+  const currentIso =
+    revealTime != null ? new Date((revealTime as number) * 1000).toISOString() : null;
+
+  const setPrimary = async (tf: string) => {
+    if (tf === data.primary_tf) return;
+    try {
+      await api.patchTrade(tradeId, { preferred_tf: tf });
+      onPrimaryChange();
+    } catch {
+      /* non-fatal — highlight just won't persist */
+    }
+  };
+
+  if (!hasAnyBars) {
+    return (
+      <div className="card p-8 text-center text-sm text-slate-500">
+        No price bars found for {data.instrument}. Import bars on the Import page
+        (any of {GRID_TFS.join(', ')}, or M1 to auto-aggregate) to enable replay.
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
-      {total === 0 ? (
-        <div className="card p-8 text-center text-sm text-slate-500">
-          No price bars found for {data.instrument} {data.tf}. Import bars on the
-          Import page to enable replay.
-        </div>
-      ) : (
-        <>
-          <div className="card p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold text-slate-200">
-                {data.instrument} · {data.tf} · {data.direction}
-              </h2>
-              <div className="num text-xs text-slate-500">
-                bar {Math.min(reveal, total)} / {total}
-                {revealedBar && (
-                  <>
-                    {' · '}
-                    {formatDateTime(revealedBar.t)} · close {revealedBar.close}
-                  </>
-                )}
-              </div>
-            </div>
-            <CandleChart
-              bars={bars}
-              reveal={reveal}
-              markers={markers}
-              priceLines={priceLines}
-              lockRange
-            />
-          </div>
-
-          {/* Controls */}
-          <div className="card flex flex-wrap items-center gap-3 p-4">
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                if (atEnd) setReveal(entryIdx);
-                setPlaying((p) => !p);
-              }}
-            >
-              {playing ? '❚❚ Pause' : atEnd ? '↻ Replay' : '▶ Play'}
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setPlaying(false);
-                setReveal((r) => Math.max(1, r - 1));
-              }}
-            >
-              ◀ Step
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setPlaying(false);
-                setReveal((r) => Math.min(total, r + 1));
-              }}
-            >
-              Step ▶
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setPlaying(false);
-                setReveal(entryIdx);
-              }}
-            >
-              ⟲ Reset
-            </button>
-
-            <input
-              type="range"
-              min={1}
-              max={total}
-              value={Math.min(reveal, total)}
-              onChange={(e) => {
-                setPlaying(false);
-                setReveal(Number(e.target.value));
-              }}
-              className="min-w-[10rem] flex-1 accent-indigo-500"
-            />
-
+      <div className="card p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold text-slate-200">
+              {data.instrument} · {data.direction}
+            </h2>
             <div className="flex items-center gap-1">
-              {SPEEDS.map((s) => (
+              <span className="text-[11px] uppercase tracking-wide text-slate-500">
+                Primary
+              </span>
+              {GRID_TFS.map((tf) => (
                 <button
-                  key={s.ms}
-                  className={`btn px-2 py-1 text-xs ${
-                    speed === s.ms ? 'border-indigo-500 text-indigo-300' : ''
+                  key={tf}
+                  className={`btn px-2 py-0.5 text-xs ${
+                    tf === data.primary_tf
+                      ? 'border-indigo-500 text-indigo-300'
+                      : ''
                   }`}
-                  onClick={() => setSpeed(s.ms)}
+                  onClick={() => setPrimary(tf)}
                 >
-                  {s.label}
+                  {tf}
                 </button>
               ))}
             </div>
           </div>
-
-          {/* Trade summary */}
-          <div className="card grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
-            <Stat label="Entry" value={data.markers.entry?.price ?? '—'} />
-            <Stat label="Exit" value={data.markers.exit?.price ?? '—'} />
-            <Stat label="Stop" value={data.markers.stop?.price ?? '—'} />
-            <Stat label="Target" value={data.markers.target?.price ?? '—'} />
+          <div className="num text-xs text-slate-500">
+            {driver && <>{driver.tf} bar {clamped} / {total}</>}
+            {currentIso && <> · {formatDateTime(currentIso)}</>}
           </div>
-        </>
-      )}
+        </div>
+
+        <ReplayGrid
+          frames={frames}
+          markers={data.markers}
+          direction={data.direction}
+          revealTime={revealTime}
+          primaryTf={data.primary_tf}
+        />
+      </div>
+
+      {/* Controls */}
+      <div className="card flex flex-wrap items-center gap-3 p-4">
+        <button
+          className="btn btn-primary"
+          onClick={() => {
+            if (atEnd) setReveal(entryIdx);
+            setPlaying((p) => !p);
+          }}
+        >
+          {playing ? '❚❚ Pause' : atEnd ? '↻ Replay' : '▶ Play'}
+        </button>
+        <button
+          className="btn"
+          onClick={() => {
+            setPlaying(false);
+            setReveal((r) => Math.max(1, r - 1));
+          }}
+        >
+          ◀ Step
+        </button>
+        <button
+          className="btn"
+          onClick={() => {
+            setPlaying(false);
+            setReveal((r) => Math.min(total, r + 1));
+          }}
+        >
+          Step ▶
+        </button>
+        <button
+          className="btn"
+          onClick={() => {
+            setPlaying(false);
+            setReveal(entryIdx);
+          }}
+        >
+          ⟲ Reset
+        </button>
+
+        <input
+          type="range"
+          min={1}
+          max={total}
+          value={clamped}
+          onChange={(e) => {
+            setPlaying(false);
+            setReveal(Number(e.target.value));
+          }}
+          className="min-w-[10rem] flex-1 accent-indigo-500"
+        />
+
+        <div className="flex items-center gap-1">
+          {SPEEDS.map((s) => (
+            <button
+              key={s.ms}
+              className={`btn px-2 py-1 text-xs ${
+                speed === s.ms ? 'border-indigo-500 text-indigo-300' : ''
+              }`}
+              onClick={() => setSpeed(s.ms)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Trade summary */}
+      <div className="card grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
+        <Stat label="Entry" value={data.markers.entry?.price ?? '—'} />
+        <Stat label="Exit" value={data.markers.exit?.price ?? '—'} />
+        <Stat label="Stop" value={data.markers.stop?.price ?? '—'} />
+        <Stat label="Target" value={data.markers.target?.price ?? '—'} />
+      </div>
     </div>
   );
 }

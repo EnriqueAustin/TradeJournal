@@ -6,6 +6,7 @@ import type {
   PortfolioStats,
   Account,
   NewAccount,
+  TimeCheck,
   Trade,
   TradesResponse,
   TradeDetail,
@@ -29,6 +30,7 @@ import type {
   TiltStats,
   Bar,
   BarsImportResult,
+  BarsFetchResult,
   BarSeriesInfo,
   ReplayResponse,
   BacktestResponse,
@@ -106,6 +108,13 @@ export const api = {
     }),
   deleteAccount: (id: number) =>
     request<void>(`/accounts/${id}`, { method: 'DELETE' }),
+  checkAccountTime: (id: number) =>
+    request<TimeCheck>(`/accounts/${id}/time-check`),
+  realignAccountTimes: (id: number) =>
+    request<{ realigned: number; broker_tz: string; note?: string }>(
+      `/accounts/${id}/realign-times`,
+      { method: 'POST' }
+    ),
 
   // Trades
   getTrades: (f: Filters, limit: number, offset: number) =>
@@ -205,6 +214,18 @@ export const api = {
 
   // Phase 3 — Bars / Replay / Backtest / AI
   getBarSeries: () => request<BarSeriesInfo[]>('/bars/instruments'),
+  getBarsStatus: () => request<{ oanda: boolean }>('/bars/status'),
+  fetchBars: (body: {
+    instrument?: string;
+    instruments?: string[];
+    from?: string;
+    to?: string;
+    days?: number;
+  }) =>
+    request<BarsFetchResult>('/bars/fetch', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   getBars: (
     instrument: string,
     tf: string,
@@ -216,8 +237,11 @@ export const api = {
     if (to) p.set('to', to);
     return request<Bar[]>(`/bars?${p.toString()}`);
   },
-  getReplay: (tradeId: number, tf = 'M1') =>
-    request<ReplayResponse>(`/trades/${tradeId}/replay?tf=${encodeURIComponent(tf)}`),
+  getReplay: (tradeId: number, tfs: string[] = ['M5', 'M15', 'M30', 'H1'], pad?: number) => {
+    const p = new URLSearchParams({ tf: tfs.join(',') });
+    if (pad != null) p.set('pad', String(pad));
+    return request<ReplayResponse>(`/trades/${tradeId}/replay?${p.toString()}`);
+  },
   runBacktest: (body: {
     instrument: string;
     tf: string;

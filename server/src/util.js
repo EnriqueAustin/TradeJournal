@@ -74,6 +74,55 @@ export function parseBarTime(str) {
   return parseMt5Time(s);
 }
 
+// --- Timezone conversion (DST-aware, no external deps) ---
+// Minutes a named IANA zone is ahead of UTC at a given instant (ms since epoch).
+export function zoneOffsetMinutes(tz, ms) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const p = {};
+  for (const part of dtf.formatToParts(new Date(ms))) p[part.type] = part.value;
+  let hour = +p.hour;
+  if (hour === 24) hour = 0; // some engines emit '24' for midnight
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, hour, +p.minute, +p.second);
+  return (asUTC - ms) / 60000;
+}
+
+// Build a true-UTC ISO string from wall-clock components interpreted in `tz`.
+// tz null/'UTC' → treat the components as UTC (legacy behavior). DST-aware.
+export function mkIso(y, mo, d, h, mi, s, tz) {
+  const base = Date.UTC(y, mo - 1, d, h, mi, s);
+  if (!tz || tz === 'UTC') return new Date(base).toISOString();
+  // Two-pass to settle DST boundaries (offset depends on the instant).
+  let ms = base - zoneOffsetMinutes(tz, base) * 60000;
+  ms = base - zoneOffsetMinutes(tz, ms) * 60000;
+  return new Date(ms).toISOString();
+}
+
+// Reinterpret a "wall-clock-stored-as-UTC" ISO (how MT5 times were saved) as a
+// wall clock in `tz`, returning the true-UTC ISO. No-op when tz is UTC/empty.
+export function brokerIsoToUtc(iso, tz) {
+  if (!iso || !tz || tz === 'UTC') return iso;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return mkIso(
+    d.getUTCFullYear(),
+    d.getUTCMonth() + 1,
+    d.getUTCDate(),
+    d.getUTCHours(),
+    d.getUTCMinutes(),
+    d.getUTCSeconds(),
+    tz
+  );
+}
+
 // Derive session from a UTC entry_time ISO string.
 export function sessionFromTime(iso) {
   if (!iso) return null;

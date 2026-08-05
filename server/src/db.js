@@ -161,6 +161,22 @@ export function migrate() {
   }
   db.exec('CREATE INDEX IF NOT EXISTS idx_trades_backtest ON trades(is_backtest)');
 
+  // Preferred replay/chart timeframe remembered per trade (e.g. 'M30').
+  if (!tradeCols.some((c) => c.name === 'preferred_tf')) {
+    db.exec('ALTER TABLE trades ADD COLUMN preferred_tf TEXT');
+  }
+
+  // Broker server timezone (MT5 times are in this zone). Convert to UTC on
+  // import so trades share a clock with UTC price bars. times_realigned guards
+  // the one-shot bulk conversion of pre-existing (mislabeled) trade times.
+  const acctCols = db.prepare('PRAGMA table_info(accounts)').all();
+  if (!acctCols.some((c) => c.name === 'broker_tz')) {
+    db.exec("ALTER TABLE accounts ADD COLUMN broker_tz TEXT DEFAULT 'Europe/London'");
+  }
+  if (!acctCols.some((c) => c.name === 'times_realigned')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN times_realigned INTEGER NOT NULL DEFAULT 0');
+  }
+
   // Seed default account if none exists
   const count = db.prepare('SELECT COUNT(*) AS c FROM accounts').get().c;
   if (count === 0) {

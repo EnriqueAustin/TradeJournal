@@ -32,6 +32,10 @@ try {
 export const PORT = Number(fileVars.PORT || process.env.PORT || 4000);
 export const EA_TOKEN = process.env.EA_TOKEN || 'changeme';
 
+// OANDA market-data (free practice API). Token from server/.env.
+export const OANDA_API_TOKEN = process.env.OANDA_API_TOKEN || '';
+export const OANDA_ENV = (process.env.OANDA_ENV || 'practice').toLowerCase();
+
 export const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 export const AI_MODEL = process.env.AI_MODEL || 'claude-opus-4-8';
 export const AI_MODEL_FALLBACK = process.env.AI_MODEL_FALLBACK || 'claude-sonnet-5';

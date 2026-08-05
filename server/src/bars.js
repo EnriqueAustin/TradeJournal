@@ -1,4 +1,123 @@
 import { parseBarTime, normalizeInstrument } from './util.js';
+import { db } from './db.js';
+
+// Minutes per timeframe. Used for aggregation + choosing a base series.
+export const TF_MINUTES = {
+  M1: 1,
+  M5: 5,
+  M15: 15,
+  M30: 30,
+  H1: 60,
+  H4: 240,
+  D1: 1440,
+};
+
+export function tfMinutes(tf) {
+  return TF_MINUTES[tf] ?? null;
+}
+
+// Roll ascending base bars up into `tf` buckets (open=first, close=last,
+// high=max, low=min, volume=sum). baseBars MUST be sorted ascending by t.
+export function aggregateBars(baseBars, tf) {
+  const size = TF_MINUTES[tf];
+  if (!size) return [];
+  const ms = size * 60000;
+  const buckets = new Map();
+  for (const b of baseBars) {
+    const tms = new Date(b.t).getTime();
+    if (Number.isNaN(tms)) continue;
+    const bucket = Math.floor(tms / ms) * ms;
+    const a = buckets.get(bucket);
+    if (!a) {
+      buckets.set(bucket, {
+        t: new Date(bucket).toISOString(),
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume ?? 0,
+      });
+    } else {
+      if (b.high > a.high) a.high = b.high;
+      if (b.low < a.low) a.low = b.low;
+      a.close = b.close;
+      a.volume += b.volume ?? 0;
+    }
+  }
+  return [...buckets.values()].sort(
+    (x, y) => new Date(x.t).getTime() - new Date(y.t).getTime()
+  );
+}
+
+// Upsert bars into price_bars for (instrument, tf); returns row count written.
+export function upsertBars(instrument, tf, bars) {
+  const inst = normalizeInstrument(instrument);
+  const stmt = db.prepare(
+    `INSERT INTO price_bars (instrument, tf, t, open, high, low, close, volume)
+     VALUES (@instrument, @tf, @t, @open, @high, @low, @close, @volume)
+     ON CONFLICT(instrument, tf, t) DO UPDATE SET
+       open = excluded.open, high = excluded.high, low = excluded.low,
+       close = excluded.close, volume = excluded.volume`
+  );
+  const tx = db.transaction((rows) => {
+    let n = 0;
+    for (const b of rows) {
+      stmt.run({
+        instrument: inst,
+        tf,
+        t: b.t,
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume ?? null,
+      });
+      n++;
+    }
+    return n;
+  });
+  return tx(bars);
+}
+
+// Return bars for (instrument, tf), preferring stored bars and falling back to
+// aggregation from the largest finer stored TF that divides `tf` evenly.
+// → { bars, source: 'stored' | `agg:<baseTf>` | 'none' }.
+export function getBarsForTf(instrument, tf) {
+  const inst = normalizeInstrument(instrument);
+  const stored = db
+    .prepare(
+      `SELECT t, open, high, low, close, volume FROM price_bars
+       WHERE instrument = ? AND tf = ? ORDER BY t ASC`
+    )
+    .all(inst, tf);
+  if (stored.length) return { bars: stored, source: 'stored' };
+
+  const size = TF_MINUTES[tf];
+  if (!size) return { bars: [], source: 'none' };
+
+  const avail = db
+    .prepare('SELECT DISTINCT tf FROM price_bars WHERE instrument = ?')
+    .all(inst)
+    .map((r) => r.tf);
+  let base = null;
+  let baseM = 0;
+  for (const c of avail) {
+    const m = TF_MINUTES[c];
+    if (m && m < size && size % m === 0 && m > baseM) {
+      base = c;
+      baseM = m;
+    }
+  }
+  if (!base) return { bars: [], source: 'none' };
+
+  const src = db
+    .prepare(
+      `SELECT t, open, high, low, close, volume FROM price_bars
+       WHERE instrument = ? AND tf = ? ORDER BY t ASC`
+    )
+    .all(inst, base);
+  return { bars: aggregateBars(src, tf), source: `agg:${base}` };
+}
 
 // Minimal CSV splitter (bars files are simple, no embedded quotes/newlines).
 function splitCsv(text) {

@@ -49,6 +49,10 @@ export function signClass(v: number | null | undefined): string {
   return v > 0 ? 'text-pos' : 'text-neg';
 }
 
+// Display timezone for all times. Data is stored in UTC; this is purely the
+// lens. South Africa (UTC+2, no DST) matches the user's wall clock.
+export const DISPLAY_TZ = 'Africa/Johannesburg';
+
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -59,6 +63,7 @@ export function formatDateTime(iso: string | null | undefined): string {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: DISPLAY_TZ,
   });
 }
 
@@ -70,6 +75,7 @@ export function formatDate(iso: string | null | undefined): string {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
+    timeZone: DISPLAY_TZ,
   });
 }
 

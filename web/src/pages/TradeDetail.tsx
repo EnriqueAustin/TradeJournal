@@ -4,7 +4,13 @@ import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { useFilters } from '../store/FilterContext';
 import { AsyncBoundary } from '../components/states';
-import type { TradeDetail as TTradeDetail, TagCategory } from '../types';
+import CandleChart from '../components/CandleChart';
+import { buildMarkers, buildPriceLines, buildPositionBox } from '../utils/replay';
+import type {
+  TradeDetail as TTradeDetail,
+  TagCategory,
+  ReplayResponse,
+} from '../types';
 import {
   formatMoney,
   formatR,
@@ -197,6 +203,9 @@ function TradeBody({
         </div>
       </div>
 
+      {/* Chart with position indicator */}
+      <TradeChartCard trade={trade} onChanged={onChanged} />
+
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Edit stop / target */}
         <div className="card p-5">
@@ -325,6 +334,91 @@ function TradeBody({
 
       {/* Screenshots */}
       <ScreenshotsPanel trade={trade} onChanged={onChanged} />
+    </div>
+  );
+}
+
+const CHART_TFS = ['M5', 'M15', 'M30', 'H1'];
+
+function TradeChartCard({
+  trade,
+  onChanged,
+}: {
+  trade: TTradeDetail;
+  onChanged: () => void;
+}) {
+  const [tf, setTf] = useState(trade.preferred_tf || 'M30');
+
+  // Keep local TF in sync if the trade's stored preference changes elsewhere.
+  useEffect(() => {
+    setTf(trade.preferred_tf || 'M30');
+  }, [trade.id, trade.preferred_tf]);
+
+  const { data, loading, error, reload } = useApi<ReplayResponse>(
+    () => api.getReplay(trade.id, [tf]),
+    [trade.id, tf]
+  );
+
+  const frame = data?.frames.find((f) => f.tf === tf) ?? data?.frames[0];
+  const markers =
+    data && frame ? buildMarkers(frame.bars, data.markers, data.direction) : [];
+  const priceLines = data ? buildPriceLines(data.markers) : [];
+  const positionBox =
+    data && frame ? buildPositionBox(frame.bars, data.markers, data.direction) : null;
+
+  const changeTf = async (next: string) => {
+    setTf(next);
+    try {
+      await api.patchTrade(trade.id, { preferred_tf: next });
+      onChanged();
+    } catch {
+      /* non-fatal — chart still shows the chosen TF this session */
+    }
+  };
+
+  return (
+    <div className="card p-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-200">Chart</h2>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            {CHART_TFS.map((t) => (
+              <button
+                key={t}
+                className={`btn px-2 py-0.5 text-xs ${
+                  t === tf ? 'border-indigo-500 text-indigo-300' : ''
+                }`}
+                onClick={() => changeTf(t)}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <Link to={`/replay?trade=${trade.id}`} className="btn text-xs">
+            Full replay →
+          </Link>
+        </div>
+      </div>
+      <AsyncBoundary
+        loading={loading}
+        error={error}
+        onRetry={reload}
+        loadingLabel="Loading chart…"
+      >
+        {!frame || frame.bars.length === 0 ? (
+          <div className="flex h-[320px] items-center justify-center text-sm text-slate-500">
+            No {tf} bars for {trade.instrument}. Import bars to see the chart.
+          </div>
+        ) : (
+          <CandleChart
+            bars={frame.bars}
+            markers={markers}
+            priceLines={priceLines}
+            positionBox={positionBox}
+            height={340}
+          />
+        )}
+      </AsyncBoundary>
     </div>
   );
 }
