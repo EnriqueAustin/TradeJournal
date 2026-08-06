@@ -141,7 +141,19 @@ function ReplayView({
   const [reveal, setReveal] = useState(entryIdx);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(SPEEDS[1].ms);
+  const [layout, setLayout] = useState<'grid' | 'single'>('grid');
+  const [showBox, setShowBox] = useState(true);
   const timerRef = useRef<number | null>(null);
+
+  // Frames shown: all four in grid view, just the primary TF in single view.
+  const shownFrames = useMemo(() => {
+    if (layout === 'grid') return frames;
+    const primary =
+      frames.find((f) => f.tf === data.primary_tf && f.bars.length > 0) ??
+      driver ??
+      frames.find((f) => f.tf === data.primary_tf);
+    return primary ? [primary] : frames;
+  }, [layout, frames, data.primary_tf, driver]);
 
   useEffect(() => {
     setReveal(entryIdx);
@@ -217,18 +229,50 @@ function ReplayView({
               ))}
             </div>
           </div>
-          <div className="num text-xs text-slate-500">
-            {driver && <>{driver.tf} bar {clamped} / {total}</>}
-            {currentIso && <> · {formatDateTime(currentIso)}</>}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1">
+              <button
+                className={`btn px-2 py-0.5 text-xs ${
+                  layout === 'single' ? 'border-indigo-500 text-indigo-300' : ''
+                }`}
+                onClick={() => setLayout('single')}
+                title="Single chart (primary timeframe)"
+              >
+                ▭ 1
+              </button>
+              <button
+                className={`btn px-2 py-0.5 text-xs ${
+                  layout === 'grid' ? 'border-indigo-500 text-indigo-300' : ''
+                }`}
+                onClick={() => setLayout('grid')}
+                title="Four-chart grid"
+              >
+                ▦ 4
+              </button>
+              <button
+                className={`btn px-2 py-0.5 text-xs ${
+                  showBox ? 'border-indigo-500 text-indigo-300' : ''
+                }`}
+                onClick={() => setShowBox((v) => !v)}
+                title="Show / hide the position indicator"
+              >
+                ◱ Box
+              </button>
+            </div>
+            <div className="num text-xs text-slate-500">
+              {driver && <>{driver.tf} bar {clamped} / {total}</>}
+              {currentIso && <> · {formatDateTime(currentIso)}</>}
+            </div>
           </div>
         </div>
 
         <ReplayGrid
-          frames={frames}
+          frames={shownFrames}
           markers={data.markers}
           direction={data.direction}
           revealTime={revealTime}
           primaryTf={data.primary_tf}
+          showBox={showBox}
         />
       </div>
 

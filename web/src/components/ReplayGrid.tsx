@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { UTCTimestamp } from 'lightweight-charts';
 import type { ReplayFrame, ReplayMarkers, Direction } from '../types';
 import CandleChart from './CandleChart';
-import { buildMarkers, buildPriceLines } from '../utils/replay';
+import { buildMarkers, buildPriceLines, buildPositionBox } from '../utils/replay';
 
 // A 2-up grid of synced candle charts — one per timeframe, all revealed to the
 // same wall-clock `revealTime`. Markers are snapped per frame; price lines are
@@ -13,6 +13,7 @@ export default function ReplayGrid({
   direction,
   revealTime,
   primaryTf,
+  showBox = false,
   height = 300,
 }: {
   frames: ReplayFrame[];
@@ -20,12 +21,14 @@ export default function ReplayGrid({
   direction: Direction;
   revealTime?: UTCTimestamp;
   primaryTf?: string;
+  showBox?: boolean;
   height?: number;
 }) {
   const priceLines = useMemo(() => buildPriceLines(markers), [markers]);
+  const single = frames.length === 1;
 
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+    <div className={`grid grid-cols-1 gap-4 ${single ? '' : 'xl:grid-cols-2'}`}>
       {frames.map((f) => (
         <FrameChart
           key={f.tf}
@@ -35,7 +38,8 @@ export default function ReplayGrid({
           priceLines={priceLines}
           revealTime={revealTime}
           isPrimary={f.tf === primaryTf}
-          height={height}
+          showBox={showBox}
+          height={single ? Math.round(height * 1.4) : height}
         />
       ))}
     </div>
@@ -49,6 +53,7 @@ function FrameChart({
   priceLines,
   revealTime,
   isPrimary,
+  showBox,
   height,
 }: {
   frame: ReplayFrame;
@@ -57,11 +62,16 @@ function FrameChart({
   priceLines: ReturnType<typeof buildPriceLines>;
   revealTime?: UTCTimestamp;
   isPrimary: boolean;
+  showBox: boolean;
   height: number;
 }) {
   const frameMarkers = useMemo(
     () => buildMarkers(frame.bars, markers, direction),
     [frame.bars, markers, direction]
+  );
+  const positionBox = useMemo(
+    () => (showBox ? buildPositionBox(frame.bars, markers, direction) : null),
+    [showBox, frame.bars, markers, direction]
   );
 
   return (
@@ -100,6 +110,7 @@ function FrameChart({
           revealTime={revealTime}
           markers={frameMarkers}
           priceLines={priceLines}
+          positionBox={positionBox}
           lockRange
           height={height}
         />

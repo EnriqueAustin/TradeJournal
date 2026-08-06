@@ -303,6 +303,7 @@ function TradeChartCard({
 }) {
   const [tf, setTf] = useState(trade.preferred_tf || 'M30');
   const [refetching, setRefetching] = useState(false);
+  const [showBox, setShowBox] = useState(true);
 
   // Keep local TF in sync if the trade's stored preference changes elsewhere.
   useEffect(() => {
@@ -362,6 +363,13 @@ function TradeChartCard({
             ))}
           </div>
           <button
+            className={`btn text-xs ${showBox ? 'border-indigo-500 text-indigo-300' : ''}`}
+            onClick={() => setShowBox((v) => !v)}
+            title="Show / hide the position indicator"
+          >
+            ◱ Box
+          </button>
+          <button
             className="btn text-xs"
             onClick={refetchBars}
             disabled={refetching}
@@ -389,7 +397,7 @@ function TradeChartCard({
             bars={frame.bars}
             markers={markers}
             priceLines={priceLines}
-            positionBox={positionBox}
+            positionBox={showBox ? positionBox : null}
             height={340}
           />
         )}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   createChart,
   ColorType,
@@ -12,6 +12,7 @@ import {
 } from 'lightweight-charts';
 import type { Bar } from '../types';
 import { DISPLAY_TZ } from '../utils/format';
+import { PositionBoxPrimitive } from './positionBoxPrimitive';
 
 // Format a lightweight-charts UTC timestamp (seconds) in the display timezone.
 function tzTime(t: number, withDate: boolean): string {
@@ -46,19 +47,6 @@ export interface PositionBox {
   targetPrice?: number | null;
   /** true when targetPrice is a real TP, false when it's the exit fallback */
   targetIsTP?: boolean;
-}
-
-type Rect = { left: number; top: number; width: number; height: number };
-interface BoxGeom {
-  left: number;
-  width: number;
-  entryY: number;
-  reward?: Rect;
-  risk?: Rect;
-  targetY?: number | null;
-  stopY?: number | null;
-  targetProfitSide?: boolean;
-  rr?: number;
 }
 
 function toTime(iso: string): UTCTimestamp {
@@ -98,10 +86,9 @@ export default function CandleChart({
   const linesRef = useRef<IPriceLine[]>([]);
   const clickRef = useRef(onClickPrice);
   clickRef.current = onClickPrice;
-
   const boxRef = useRef<PositionBox | null | undefined>(positionBox);
   boxRef.current = positionBox;
-  const [geom, setGeom] = useState<BoxGeom | null>(null);
+  const boxPrimRef = useRef<PositionBoxPrimitive | null>(null);
 
   // Create the chart once.
   useEffect(() => {
@@ -153,6 +140,12 @@ export default function CandleChart({
     chartRef.current = chart;
     seriesRef.current = series;
 
+    // Position box drawn on the canvas (redraws with the chart — no resize lag).
+    const boxPrim = new PositionBoxPrimitive();
+    series.attachPrimitive(boxPrim);
+    boxPrim.setBox(boxRef.current ?? null);
+    boxPrimRef.current = boxPrim;
+
     const handler = (param: MouseEventParams) => {
       const cb = clickRef.current;
       if (!cb || !param.point || param.time == null) return;
@@ -169,6 +162,7 @@ export default function CandleChart({
       chartRef.current = null;
       seriesRef.current = null;
       linesRef.current = [];
+      boxPrimRef.current = null;
     };
     // height is intentionally fixed for the lifetime of the chart
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -257,213 +251,14 @@ export default function CandleChart({
     }
   }, [priceLines]);
 
-  // Position box overlay — recompute pixel geometry on data / pan / zoom / resize.
+  // Feed the canvas position-box primitive; it redraws with the chart itself.
   useEffect(() => {
-    const chart = chartRef.current;
-    const series = seriesRef.current;
-    const el = containerRef.current;
-    if (!chart || !series || !el) return;
+    boxPrimRef.current?.setBox(positionBox ?? null);
+  }, [positionBox]);
 
-    const recompute = () => {
-      const box = boxRef.current;
-      if (!box) {
-        setGeom(null);
-        return;
-      }
-      const W = el.clientWidth;
-      const H = el.clientHeight;
-      const ts = chart.timeScale();
-
-      // Time → x, clamped to the pane (off-screen edges pin to a border).
-      const toX = (t: UTCTimestamp): number | null => {
-        const raw = ts.timeToCoordinate(t);
-        let x: number | null = raw == null ? null : (raw as number);
-        if (x == null) {
-          const vr = ts.getVisibleRange();
-          if (!vr) return null;
-          x = (t as number) < (vr.from as number) ? 0 : W;
-        }
-        return Math.max(0, Math.min(W, x));
-      };
-      const toY = (p: number): number | null => {
-        const y = series.priceToCoordinate(p);
-        return y == null ? null : Math.max(0, Math.min(H, y as number));
-      };
-
-      // Box spans entry → a few bars past exit (rightTime), like TradingView's
-      // position tool — it stays stuck to the trade instead of running to the
-      // chart edge.
-      const x1 = toX(box.entryTime);
-      const x2 = toX(box.rightTime);
-      const entryY = toY(box.entryPrice);
-      if (x1 == null || x2 == null || entryY == null) {
-        setGeom(null);
-        return;
-      }
-      const left = Math.min(x1, x2);
-      const width = Math.max(2, Math.abs(x2 - x1));
-
-      // Which side of entry is "profit" for this direction.
-      const profitUp = box.direction === 'long';
-
-      let reward: Rect | undefined;
-      let targetY: number | null = null;
-      let targetProfitSide: boolean | undefined;
-      if (box.targetPrice != null) {
-        targetY = toY(box.targetPrice);
-        if (targetY != null) {
-          targetProfitSide = profitUp
-            ? box.targetPrice >= box.entryPrice
-            : box.targetPrice <= box.entryPrice;
-          reward = {
-            left,
-            width,
-            top: Math.min(entryY, targetY),
-            height: Math.abs(targetY - entryY),
-          };
-        }
-      }
-      let risk: Rect | undefined;
-      let stopY: number | null = null;
-      if (box.stopPrice != null) {
-        stopY = toY(box.stopPrice);
-        if (stopY != null)
-          risk = { left, width, top: Math.min(entryY, stopY), height: Math.abs(stopY - entryY) };
-      }
-      let rr: number | undefined;
-      if (box.targetPrice != null && box.stopPrice != null) {
-        const r = Math.abs(box.entryPrice - box.stopPrice);
-        if (r > 0) rr = Math.abs(box.targetPrice - box.entryPrice) / r;
-      }
-      setGeom({ left, width, entryY, reward, risk, targetY, stopY, targetProfitSide, rr });
-    };
-
-    // Double rAF so coordinates are read after the chart has laid out.
-    const schedule = () =>
-      window.requestAnimationFrame(() => window.requestAnimationFrame(recompute));
-    const ts = chart.timeScale();
-    ts.subscribeVisibleLogicalRangeChange(schedule);
-    ts.subscribeVisibleTimeRangeChange(schedule); // fires on the initial auto-fit
-    const ro = new ResizeObserver(schedule);
-    ro.observe(el);
-    recompute(); // synchronous first pass (rAF is paused when tab isn't compositing)
-    schedule();
-
-    return () => {
-      ts.unsubscribeVisibleLogicalRangeChange(schedule);
-      ts.unsubscribeVisibleTimeRangeChange(schedule);
-      ro.disconnect();
-    };
-  }, [positionBox, bars, reveal, revealTime, lockRange]);
-
-  const box = positionBox;
   return (
     <div className="relative w-full" style={{ height }}>
       <div ref={containerRef} style={{ height }} className="w-full" />
-      {box && geom && (() => {
-        // Reward zone is green for a genuine take-profit (or a profit-side exit
-        // fallback); amber when the fallback exit sat on the loss side.
-        const rewardGreen = geom.targetProfitSide !== false;
-        const rewardRGB = rewardGreen ? '16,185,129' : '245,158,11';
-        const targetLabel = box.targetIsTP ? 'TP' : 'Exit';
-        const priceTag = (
-          top: number,
-          rgb: string,
-          title: string,
-          price: number
-        ) => (
-          <div
-            className="absolute rounded px-1 text-[10px] font-medium tabular-nums text-white"
-            style={{
-              left: geom.left + geom.width - 2,
-              top: top - 8,
-              transform: 'translateX(-100%)',
-              background: `rgba(${rgb},0.9)`,
-            }}
-          >
-            {title} {price.toFixed(2)}
-          </div>
-        );
-        return (
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            {geom.reward && (
-              <div
-                className="absolute"
-                style={{
-                  left: geom.reward.left,
-                  top: geom.reward.top,
-                  width: geom.reward.width,
-                  height: geom.reward.height,
-                  background: `rgba(${rewardRGB},0.14)`,
-                  borderTop: `1px solid rgba(${rewardRGB},0.55)`,
-                  borderBottom: `1px solid rgba(${rewardRGB},0.55)`,
-                }}
-              />
-            )}
-            {geom.risk && (
-              <div
-                className="absolute"
-                style={{
-                  left: geom.risk.left,
-                  top: geom.risk.top,
-                  width: geom.risk.width,
-                  height: geom.risk.height,
-                  background: 'rgba(239,68,68,0.14)',
-                  borderTop: '1px solid rgba(239,68,68,0.55)',
-                  borderBottom: '1px solid rgba(239,68,68,0.55)',
-                }}
-              />
-            )}
-            {/* left (entry) and right edges of the box */}
-            <div
-              className="absolute"
-              style={{
-                left: geom.left,
-                top: Math.min(geom.entryY, geom.targetY ?? geom.entryY, geom.stopY ?? geom.entryY),
-                width: 1,
-                height:
-                  Math.max(geom.entryY, geom.targetY ?? geom.entryY, geom.stopY ?? geom.entryY) -
-                  Math.min(geom.entryY, geom.targetY ?? geom.entryY, geom.stopY ?? geom.entryY),
-                background: 'rgba(148,163,184,0.5)',
-              }}
-            />
-            {/* entry line across the hold */}
-            <div
-              className="absolute"
-              style={{
-                left: geom.left,
-                top: geom.entryY - 0.5,
-                width: geom.width,
-                height: 1,
-                background: '#6366f1',
-              }}
-            />
-            {/* direction + R:R badge, anchored at entry */}
-            <div
-              className="absolute rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
-              style={{
-                left: geom.left + 2,
-                top: Math.max(2, geom.entryY - 18),
-                background: box.direction === 'long' ? '#059669' : '#dc2626',
-              }}
-            >
-              {box.direction}
-              {geom.rr != null && (
-                <span className="ml-1 font-normal opacity-90">
-                  {geom.rr.toFixed(1)}R
-                </span>
-              )}
-            </div>
-            {/* price tags on the right edge */}
-            {geom.targetY != null &&
-              box.targetPrice != null &&
-              priceTag(geom.targetY, rewardRGB, targetLabel, box.targetPrice)}
-            {geom.stopY != null &&
-              box.stopPrice != null &&
-              priceTag(geom.stopY, '239,68,68', 'SL', box.stopPrice)}
-          </div>
-        );
-      })()}
     </div>
   );
 }
