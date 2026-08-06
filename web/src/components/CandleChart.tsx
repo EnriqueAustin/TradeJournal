@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   createChart,
   ColorType,
@@ -89,6 +89,9 @@ export default function CandleChart({
   const boxRef = useRef<PositionBox | null | undefined>(positionBox);
   boxRef.current = positionBox;
   const boxPrimRef = useRef<PositionBoxPrimitive | null>(null);
+  // Position-box readout is shown only while the box is "selected" (clicked),
+  // TradingView-style, so the chart stays clean until you ask for the numbers.
+  const [boxSelected, setBoxSelected] = useState(false);
 
   // Create the chart once.
   useEffect(() => {
@@ -147,6 +150,32 @@ export default function CandleChart({
     boxPrimRef.current = boxPrim;
 
     const handler = (param: MouseEventParams) => {
+      // Toggle the box readout when the click lands inside the box; clicking
+      // elsewhere dismisses it.
+      const box = boxRef.current;
+      const el = containerRef.current;
+      if (param.point && box && el) {
+        const ts = chart.timeScale();
+        const W = el.clientWidth;
+        const x1: number = ts.timeToCoordinate(box.entryTime) ?? 0;
+        const x2: number = ts.timeToCoordinate(box.rightTime) ?? W;
+        const ys: number[] = [];
+        for (const p of [box.entryPrice, box.stopPrice, box.targetPrice]) {
+          if (p == null) continue;
+          const c = series.priceToCoordinate(p);
+          if (c != null) ys.push(c);
+        }
+        if (ys.length) {
+          const left = Math.min(x1, x2) - 6;
+          const right = Math.max(x1, x2) + 6;
+          const top = Math.min(...ys) - 6;
+          const bot = Math.max(...ys) + 6;
+          const { x, y } = param.point;
+          const inside = x >= left && x <= right && y >= top && y <= bot;
+          setBoxSelected((prev) => (inside ? !prev : false));
+        }
+      }
+
       const cb = clickRef.current;
       if (!cb || !param.point || param.time == null) return;
       const price = series.coordinateToPrice(param.point.y);
@@ -254,11 +283,107 @@ export default function CandleChart({
   // Feed the canvas position-box primitive; it redraws with the chart itself.
   useEffect(() => {
     boxPrimRef.current?.setBox(positionBox ?? null);
+    if (!positionBox) setBoxSelected(false);
   }, [positionBox]);
 
   return (
     <div className="relative w-full" style={{ height }}>
       <div ref={containerRef} style={{ height }} className="w-full" />
+      {positionBox && boxSelected && (
+        <PositionBoxInfo box={positionBox} onClose={() => setBoxSelected(false)} />
+      )}
+    </div>
+  );
+}
+
+// The click-to-reveal readout for the position box: direction, R:R, entry,
+// stop, target, and the risk/reward distances (price move + %). Shown only
+// while the box is selected.
+function PositionBoxInfo({
+  box,
+  onClose,
+}: {
+  box: PositionBox;
+  onClose: () => void;
+}) {
+  const { direction, entryPrice, stopPrice, targetPrice } = box;
+  const risk = stopPrice != null ? Math.abs(entryPrice - stopPrice) : null;
+  const reward = targetPrice != null ? Math.abs(targetPrice - entryPrice) : null;
+  const rr = risk && reward ? reward / risk : null;
+  const pct = (d: number) => (entryPrice ? (d / entryPrice) * 100 : 0);
+  const fmt = (n: number) => n.toFixed(2);
+
+  return (
+    <div className="absolute left-2 top-2 z-10 w-52 rounded-lg border border-slate-700 bg-slate-900/95 p-2.5 text-xs shadow-lg backdrop-blur">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="flex items-center gap-2">
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+              direction === 'long'
+                ? 'bg-emerald-500/15 text-emerald-400'
+                : 'bg-red-500/15 text-red-400'
+            }`}
+          >
+            {direction}
+          </span>
+          {rr != null && (
+            <span className="num font-semibold text-slate-200">
+              {rr.toFixed(2)}R
+            </span>
+          )}
+        </span>
+        <button
+          onClick={onClose}
+          className="text-slate-500 hover:text-slate-300"
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+      <dl className="flex flex-col gap-0.5">
+        <Row label="Entry" value={fmt(entryPrice)} />
+        <Row
+          label={box.targetIsTP ? 'Target' : 'Exit'}
+          value={targetPrice != null ? fmt(targetPrice) : '—'}
+          className="text-emerald-400"
+        />
+        <Row
+          label="Stop"
+          value={stopPrice != null ? fmt(stopPrice) : '—'}
+          className="text-red-400"
+        />
+        <div className="my-1 border-t border-slate-800" />
+        <Row
+          label="Reward"
+          value={reward != null ? `${fmt(reward)}  (${pct(reward).toFixed(2)}%)` : '—'}
+        />
+        <Row
+          label="Risk"
+          value={risk != null ? `${fmt(risk)}  (${pct(risk).toFixed(2)}%)` : '—'}
+        />
+      </dl>
+      {stopPrice == null && (
+        <p className="mt-1.5 text-[10px] leading-tight text-slate-500">
+          No stop set — add one in Risk Levels to see risk / R:R.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  className = '',
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className={`num ${className || 'text-slate-300'}`}>{value}</dd>
     </div>
   );
 }

@@ -149,26 +149,15 @@ class PositionBoxRenderer implements ISeriesPrimitivePaneRenderer {
       ctx.lineWidth = 1;
       line(ctx, left, top, left, bot);
 
-      // Entry line — bold, across the box.
+      // Entry line — bold, across the box. No on-chart text labels: the numeric
+      // readout (direction, R:R, entry/stop/target, risk/reward) lives in a
+      // panel that appears only when the box is clicked, TradingView-style, so
+      // the candles stay uncluttered.
       ctx.strokeStyle = `rgb(${INDIGO})`;
       ctx.lineWidth = 2;
       line(ctx, left, entryY, left + width, entryY);
-
-      // Price tags on the right edge.
-      if (targetY != null && box.targetPrice != null)
-        tag(ctx, left + width, targetY, rewardRGB, box.targetIsTP ? 'TP' : 'Exit', box.targetPrice);
-      if (stopY != null && box.stopPrice != null)
-        tag(ctx, left + width, stopY, RED, 'SL', box.stopPrice);
-
-      // Direction + R:R badge at entry (top-left of the box).
-      let rr: number | undefined;
-      if (box.targetPrice != null && box.stopPrice != null) {
-        const r = Math.abs(box.entryPrice - box.stopPrice);
-        if (r > 0) rr = Math.abs(box.targetPrice - box.entryPrice) / r;
-      }
-      const badge =
-        box.direction.toUpperCase() + (rr != null ? `  ${rr.toFixed(1)}R` : '');
-      badgeLabel(ctx, left + 2, entryY - 9, profitUp ? `5,150,105` : `220,38,38`, badge);
+      void targetY;
+      void stopY;
     });
   }
 }
@@ -201,67 +190,4 @@ function fillBand(
   ctx.strokeStyle = `rgba(${rgb},0.9)`;
   ctx.lineWidth = 1;
   ctx.strokeRect(left + 0.5, top + 0.5, width - 1, h - 1);
-}
-
-// A price tag pinned to the right edge (right-aligned).
-function tag(
-  ctx: CanvasRenderingContext2D,
-  rightX: number,
-  y: number,
-  rgb: string,
-  title: string,
-  price: number
-): void {
-  const text = `${title} ${price.toFixed(2)}`;
-  ctx.font = '10px ui-monospace, monospace';
-  const padX = 4;
-  const w = ctx.measureText(text).width + padX * 2;
-  const h = 15;
-  const x = rightX - w;
-  ctx.fillStyle = `rgba(${rgb},0.95)`;
-  roundRect(ctx, x, y - h / 2, w, h, 3);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'left';
-  ctx.fillText(text, x + padX, y + 0.5);
-}
-
-function badgeLabel(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  rgb: string,
-  text: string
-): void {
-  ctx.font = '600 10px ui-monospace, monospace';
-  const padX = 5;
-  const w = ctx.measureText(text).width + padX * 2;
-  const h = 15;
-  const top = Math.max(1, y - h);
-  ctx.fillStyle = `rgb(${rgb})`;
-  roundRect(ctx, x, top, w, h, 3);
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'left';
-  ctx.fillText(text, x + padX, top + h / 2 + 0.5);
-}
-
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number
-): void {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
 }
