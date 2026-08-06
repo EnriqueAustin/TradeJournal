@@ -540,8 +540,25 @@ function buildTrade(accountId, deals, extId, source, positions) {
       ? positions.get(String(firstIn.position)) ||
         positions.get(String(firstIn.order))
       : null;
-  const stop_price = posInfo ? posInfo.stop_price : null;
-  const target_price = posInfo ? posInfo.target_price : null;
+  let stop_price = posInfo ? posInfo.stop_price : null;
+  let target_price = posInfo ? posInfo.target_price : null;
+  // MT5 reports only the FINAL S/L (and T/P) — typically a trailing/breakeven
+  // stop dragged into profit while managing the trade, NOT the original risk
+  // stop, which the statement doesn't retain. A protective stop must sit on the
+  // loss side of entry (below for a long, above for a short); anything on the
+  // profit side is a trail, so drop it rather than mislabel it as the original.
+  if (stop_price != null) {
+    const valid =
+      direction === 'long' ? stop_price < entry_price : stop_price > entry_price;
+    if (!valid) stop_price = null;
+  }
+  if (target_price != null) {
+    const valid =
+      direction === 'long'
+        ? target_price > entry_price
+        : target_price < entry_price;
+    if (!valid) target_price = null;
+  }
   const r_multiple = computeRMultiple({
     entry_price,
     exit_price,
@@ -603,41 +620,41 @@ function groupDeals(accountId, deals, source, positions) {
     trades.push(buildTrade(accountId, sorted, String(pos), source, positions));
   }
 
-  // FIFO fallback for deals lacking a Position id — pair in→out per symbol
+  // Netting fallback for deals lacking a Position id (e.g. MT5 HTML statements,
+  // whose Deals section carries no Position column — deals only reference the
+  // Order that spawned them, and scale-out orders differ from the entry order).
+  // Accumulate a position per symbol and only close it once the running volume
+  // returns to flat, so multi-partial scale-outs stay in ONE trade instead of
+  // the first exit closing it and the rest being dropped.
   const bySymbol = new Map();
   for (const d of withoutPosition) {
     const key = d.symbol;
     if (!bySymbol.has(key)) bySymbol.set(key, []);
     bySymbol.get(key).push(d);
   }
-  for (const [, arr] of bySymbol) {
-    const sorted = [...arr].sort((a, b) => a.time.localeCompare(b.time));
-    let open = null;
-    for (const d of sorted) {
-      const side = inferSide(d, open !== null);
-      d._side = side;
-      if (side === 'in') {
-        if (open) {
-          trades.push(
-            buildTrade(accountId, open, open[0].deal || open[0].time, source, positions)
-          );
-        }
-        open = [d];
-      } else {
-        if (open) {
-          open.push(d);
-          trades.push(
-            buildTrade(accountId, open, open[0].deal || open[0].time, source, positions)
-          );
-          open = null;
-        }
-      }
-    }
-    if (open) {
+  const flushOpen = (open) => {
+    if (open.length)
       trades.push(
         buildTrade(accountId, open, open[0].deal || open[0].time, source, positions)
       );
+  };
+  for (const [, arr] of bySymbol) {
+    const sorted = [...arr].sort((a, b) => a.time.localeCompare(b.time));
+    let open = [];
+    let openVol = 0;
+    for (const d of sorted) {
+      const side = inferSide(d, open.length > 0);
+      d._side = side;
+      open.push(d);
+      openVol += side === 'in' ? d.volume : -d.volume;
+      // Flat again → the round-trip is complete; emit and reset.
+      if (Math.abs(openVol) < 1e-6) {
+        flushOpen(open);
+        open = [];
+        openVol = 0;
+      }
     }
+    flushOpen(open); // leftover still-open position, if any
   }
 
   return trades;

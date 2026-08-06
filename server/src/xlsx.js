@@ -13,6 +13,24 @@ export function isZip(buffer) {
   return buffer.length >= 4 && buffer.readUInt32LE(0) === SIG_LOCAL;
 }
 
+// Decode an inflated XML part to text, honouring a UTF-16 BOM. MetaTrader 5's
+// .xlsx export writes its parts (sheetN.xml, sharedStrings.xml) as UTF-16LE with
+// an FF FE BOM; reading those as UTF-8 yields NUL-interleaved garbage that no
+// regex matches, so the sheet parses to zero rows. Real Excel writes UTF-8.
+function xmlText(buf) {
+  if (!buf) return '';
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe)
+    return buf.subarray(2).toString('utf16le');
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
+    const swapped = Buffer.from(buf.subarray(2));
+    swapped.swap16(); // UTF-16BE → LE
+    return swapped.toString('utf16le');
+  }
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf)
+    return buf.subarray(3).toString('utf8');
+  return buf.toString('utf8');
+}
+
 function decodeEntities(s) {
   return String(s)
     .replace(/&lt;/g, '<')
@@ -71,7 +89,7 @@ function readEntry(zip, name) {
 
 function parseSharedStrings(buf) {
   if (!buf) return [];
-  const xml = buf.toString('utf8');
+  const xml = xmlText(buf);
   const out = [];
   const siRe = /<si\b[^>]*>([\s\S]*?)<\/si>/gi;
   let m;
@@ -138,6 +156,6 @@ export function parseXlsx(buffer) {
     .filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/i.test(n))
     .sort()[0];
   if (!sheetName) throw new Error('invalid xlsx (no worksheet)');
-  const sheetXml = readEntry(zip, sheetName).toString('utf8');
+  const sheetXml = xmlText(readEntry(zip, sheetName));
   return parseSheet(sheetXml, shared);
 }
