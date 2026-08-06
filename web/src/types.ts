@@ -93,6 +93,9 @@ export interface Execution {
   price: number;
   size: number;
   side: 'in' | 'out';
+  profit?: number | null;
+  commission?: number | null;
+  swap?: number | null;
 }
 
 export interface Tag {

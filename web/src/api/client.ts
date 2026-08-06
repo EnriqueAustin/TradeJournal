@@ -242,6 +242,11 @@ export const api = {
     if (pad != null) p.set('pad', String(pad));
     return request<ReplayResponse>(`/trades/${tradeId}/replay?${p.toString()}`);
   },
+  refetchTradeBars: (tradeId: number) =>
+    request<{ trade_id: number; bars: unknown }>(
+      `/trades/${tradeId}/bars/refetch`,
+      { method: 'POST' }
+    ),
   runBacktest: (body: {
     instrument: string;
     tf: string;

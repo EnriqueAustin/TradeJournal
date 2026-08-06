@@ -58,8 +58,24 @@ export function buildMarkers(
   return out.sort((a, b) => (a.time as number) - (b.time as number));
 }
 
-// A long/short position box snapped to this frame's bars (times snapped so
-// they land on candles; prices are exact). Null when there's no entry.
+// Bars after exit to extend the box, TradingView-style, so it "stays stuck to
+// the trade" and stops a few candles later instead of running to the edge.
+const BOX_BARS_AFTER_EXIT = 4;
+
+// Smallest positive gap between consecutive bar times = the timeframe's spacing.
+function barStep(times: UTCTimestamp[]): number {
+  let step = Infinity;
+  for (let i = 1; i < times.length; i++) {
+    const d = (times[i] as number) - (times[i - 1] as number);
+    if (d > 0 && d < step) step = d;
+  }
+  return Number.isFinite(step) ? step : 1800; // default 30m
+}
+
+// A long/short position box snapped to this frame's bars (times snapped so they
+// land on candles; prices are exact). The right edge sits a few bars past exit.
+// Target is the real TP if set, otherwise the exit level as a fallback. Null
+// when there's no entry.
 export function buildPositionBox(
   bars: Bar[],
   markers: ReplayMarkers,
@@ -71,13 +87,18 @@ export function buildPositionBox(
   if (entryTime == null) return null;
   const exitTime =
     snapToBar(times, markers.exit?.t) ?? times[times.length - 1] ?? entryTime;
+  const rightTime = ((exitTime as number) +
+    BOX_BARS_AFTER_EXIT * barStep(times)) as UTCTimestamp;
+  const targetIsTP = markers.target?.price != null;
+  const targetPrice = markers.target?.price ?? markers.exit?.price ?? null;
   return {
     direction,
     entryTime,
-    exitTime,
+    rightTime,
     entryPrice: markers.entry.price,
     stopPrice: markers.stop?.price ?? null,
-    targetPrice: markers.target?.price ?? null,
+    targetPrice,
+    targetIsTP,
   };
 }
 

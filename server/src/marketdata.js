@@ -75,7 +75,9 @@ export async function fetchOandaM1(instrument, from, to) {
   const host = OANDA_HOSTS[OANDA_ENV] || OANDA_HOSTS.practice;
 
   let start = new Date(from).getTime();
-  const end = new Date(to).getTime();
+  // OANDA rejects a 'to' in the future (e.g. a trade closed today padded forward
+  // for chart context). Clamp to just before now; the forming candle is skipped.
+  const end = Math.min(new Date(to).getTime(), Date.now() - 60000);
   if (Number.isNaN(start) || Number.isNaN(end) || start >= end) return [];
 
   const all = [];

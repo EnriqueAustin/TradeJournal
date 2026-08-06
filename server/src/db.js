@@ -166,6 +166,15 @@ export function migrate() {
     db.exec('ALTER TABLE trades ADD COLUMN preferred_tf TEXT');
   }
 
+  // Per-execution P&L — lets the journal show each partial close's own result
+  // (MT5 deals carry a profit/commission/swap per fill). Nullable + guarded.
+  const execCols = db.prepare('PRAGMA table_info(executions)').all();
+  for (const col of ['profit', 'commission', 'swap']) {
+    if (!execCols.some((c) => c.name === col)) {
+      db.exec(`ALTER TABLE executions ADD COLUMN ${col} REAL`);
+    }
+  }
+
   // Broker server timezone (MT5 times are in this zone). Convert to UTC on
   // import so trades share a clock with UTC price bars. times_realigned guards
   // the one-shot bulk conversion of pre-existing (mislabeled) trade times.

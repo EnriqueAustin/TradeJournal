@@ -299,12 +299,18 @@ function rowsToMatchTraderTrades(rows, accountId, source) {
           price: entry_price,
           size,
           side: 'in',
+          profit: 0,
+          commission: null,
+          swap: null,
         },
         ...sorted.map((row) => ({
           exec_time: row.closeTime,
           price: row.closePrice,
           size: row.volume,
           side: 'out',
+          profit: row.profit,
+          commission: Math.abs(row.commission),
+          swap: row.swap,
         })),
       ],
     });
@@ -595,6 +601,9 @@ function buildTrade(accountId, deals, extId, source, positions) {
       price: d.price,
       size: d.volume,
       side: d._side,
+      profit: d.profit,
+      commission: Math.abs(d.commission + d.fee),
+      swap: d.swap,
     })),
   };
 }

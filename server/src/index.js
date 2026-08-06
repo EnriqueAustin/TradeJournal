@@ -108,11 +108,20 @@ function insertTradeTx(t) {
   const tradeId = info.lastInsertRowid;
   if (t._executions && t._executions.length) {
     const es = db.prepare(
-      `INSERT INTO executions (trade_id, exec_time, price, size, side)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO executions (trade_id, exec_time, price, size, side, profit, commission, swap)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const e of t._executions) {
-      es.run(tradeId, e.exec_time, e.price, e.size, e.side);
+      es.run(
+        tradeId,
+        e.exec_time,
+        e.price,
+        e.size,
+        e.side,
+        e.profit ?? null,
+        e.commission ?? null,
+        e.swap ?? null
+      );
     }
   }
   return tradeId;
@@ -676,9 +685,16 @@ function brokerTimesToUtc(trade, tz) {
 // Merge padded per-trade windows per instrument, then pull M1 from OANDA for
 // each merged span and upsert. No-op (returns null) when OANDA isn't configured
 // so imports never fail on a missing token / network hiccup.
+// Pad enough M1 either side of a trade to build the largest replay timeframe's
+// window contiguously. Replay shows up to H1 (60m) padded 20 bars = 20h each
+// side; without this much M1, aggregated M30/H1 bars near the trade are too few
+// and windowBars splices in bars from other days, leaving a visual gap. 26h
+// covers H1×20 with margin (still one OANDA chunk).
+const BAR_FETCH_PAD_MS = 26 * 60 * 60 * 1000;
+
 async function autoFetchBarsForTrades(trades) {
   if (!oandaConfigured()) return null;
-  const pad = 2 * 60 * 60 * 1000; // 2h either side of the trade
+  const pad = BAR_FETCH_PAD_MS;
   const byInst = new Map();
   for (const t of trades) {
     const inst = normalizeInstrument(t.instrument);
@@ -919,7 +935,12 @@ app.get('/api/bars/instruments', (req, res) => {
 });
 
 // Slice ascending bars to a window of `pad` bars either side of entry↔exit.
-function windowBars(all, entryMs, exitMs, pad) {
+// Window `all` to ~`pad` bars either side of the trade, but never expand across
+// a time gap larger than `maxGapMs` — so leftover real gaps (weekends, missing
+// data) don't splice in bars from a distant day and warp the chart. `tfMs` is
+// the timeframe's bar spacing; a gap up to 6× that (covers the daily maintenance
+// break) is tolerated, anything bigger stops the window.
+function windowBars(all, entryMs, exitMs, pad, tfMs) {
   if (!all.length || (entryMs == null && exitMs == null)) return all;
   const times = all.map((b) => new Date(b.t).getTime());
   const lo = entryMs ?? exitMs;
@@ -934,9 +955,21 @@ function windowBars(all, entryMs, exitMs, pad) {
     }
   }
   if (lastIdx === -1) lastIdx = firstIdx;
-  const start = Math.max(0, firstIdx - pad);
-  const end = Math.min(all.length, lastIdx + pad + 1);
-  return all.slice(start, end);
+
+  const maxGap = tfMs ? tfMs * 6 : Infinity;
+  // Walk left from the trade, stopping at pad bars or the first oversized gap.
+  let start = firstIdx;
+  for (let i = firstIdx; i > 0 && firstIdx - i < pad; i--) {
+    if (times[i] - times[i - 1] > maxGap) break;
+    start = i - 1;
+  }
+  // Walk right similarly.
+  let end = lastIdx;
+  for (let i = lastIdx; i < all.length - 1 && i - lastIdx < pad; i++) {
+    if (times[i + 1] - times[i] > maxGap) break;
+    end = i + 1;
+  }
+  return all.slice(start, end + 1);
 }
 
 // GET /api/trades/:id/replay?tf=M5,M15,M30,H1&pad=20
@@ -962,7 +995,8 @@ app.get('/api/trades/:id/replay', (req, res) => {
 
   const frames = tfs.map((tf) => {
     const { bars: all, source } = getBarsForTf(trade.instrument, tf);
-    return { tf, source, bars: windowBars(all, entryMs, exitMs, pad) };
+    const tfMs = (TF_MINUTES[tf] || 0) * 60000;
+    return { tf, source, bars: windowBars(all, entryMs, exitMs, pad, tfMs) };
   });
 
   res.json({
@@ -984,6 +1018,23 @@ app.get('/api/trades/:id/replay', (req, res) => {
       target: trade.target_price != null ? { price: trade.target_price } : null,
     },
   });
+});
+
+// POST /api/trades/:id/bars/refetch — pull a fresh, wide M1 window around this
+// trade from OANDA so its chart has contiguous higher-TF data (repairs trades
+// imported before the wider fetch window, without a full re-import).
+app.post('/api/trades/:id/bars/refetch', async (req, res) => {
+  const id = Number(req.params.id);
+  const trade = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
+  if (!trade) return res.status(404).json({ error: 'trade not found' });
+  if (!oandaConfigured())
+    return res.status(400).json({ error: 'OANDA not configured' });
+  try {
+    const bars = await autoFetchBarsForTrades([trade]);
+    res.json({ trade_id: id, bars });
+  } catch (e) {
+    res.status(502).json({ error: String(e.message || e) });
+  }
 });
 
 // ---------- Phase 3: Backtest ----------

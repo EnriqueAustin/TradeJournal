@@ -32,15 +32,20 @@ export interface PriceLineSpec {
 
 export type ChartMarker = SeriesMarker<UTCTimestamp>;
 
-// A long/short position overlay: shaded reward (entry→TP) and risk (entry→SL)
-// zones spanning entry→exit, drawn from price/time→pixel coordinates.
+// A TradingView-style long/short position overlay: a shaded reward (entry→TP)
+// and risk (entry→SL) box bounded on the left at entry and on the right a few
+// bars past the exit, drawn from price/time→pixel coordinates.
 export interface PositionBox {
   direction: 'long' | 'short';
   entryTime: UTCTimestamp;
-  exitTime: UTCTimestamp;
+  /** right edge of the box (a few bars after exit) */
+  rightTime: UTCTimestamp;
   entryPrice: number;
   stopPrice?: number | null;
+  /** take-profit price, or the exit level used as a fallback */
   targetPrice?: number | null;
+  /** true when targetPrice is a real TP, false when it's the exit fallback */
+  targetIsTP?: boolean;
 }
 
 type Rect = { left: number; top: number; width: number; height: number };
@@ -50,6 +55,9 @@ interface BoxGeom {
   entryY: number;
   reward?: Rect;
   risk?: Rect;
+  targetY?: number | null;
+  stopY?: number | null;
+  targetProfitSide?: boolean;
   rr?: number;
 }
 
@@ -282,35 +290,52 @@ export default function CandleChart({
         return y == null ? null : Math.max(0, Math.min(H, y as number));
       };
 
-      // Zones span from entry rightward to the chart edge (horizontal SL/TP
-      // bands), so they read clearly regardless of hold time / timeframe.
+      // Box spans entry → a few bars past exit (rightTime), like TradingView's
+      // position tool — it stays stuck to the trade instead of running to the
+      // chart edge.
       const x1 = toX(box.entryTime);
+      const x2 = toX(box.rightTime);
       const entryY = toY(box.entryPrice);
-      if (x1 == null || entryY == null) {
+      if (x1 == null || x2 == null || entryY == null) {
         setGeom(null);
         return;
       }
-      const left = x1;
-      const width = Math.max(2, W - x1);
+      const left = Math.min(x1, x2);
+      const width = Math.max(2, Math.abs(x2 - x1));
+
+      // Which side of entry is "profit" for this direction.
+      const profitUp = box.direction === 'long';
 
       let reward: Rect | undefined;
-      let risk: Rect | undefined;
+      let targetY: number | null = null;
+      let targetProfitSide: boolean | undefined;
       if (box.targetPrice != null) {
-        const ty = toY(box.targetPrice);
-        if (ty != null)
-          reward = { left, width, top: Math.min(entryY, ty), height: Math.abs(ty - entryY) };
+        targetY = toY(box.targetPrice);
+        if (targetY != null) {
+          targetProfitSide = profitUp
+            ? box.targetPrice >= box.entryPrice
+            : box.targetPrice <= box.entryPrice;
+          reward = {
+            left,
+            width,
+            top: Math.min(entryY, targetY),
+            height: Math.abs(targetY - entryY),
+          };
+        }
       }
+      let risk: Rect | undefined;
+      let stopY: number | null = null;
       if (box.stopPrice != null) {
-        const sy = toY(box.stopPrice);
-        if (sy != null)
-          risk = { left, width, top: Math.min(entryY, sy), height: Math.abs(sy - entryY) };
+        stopY = toY(box.stopPrice);
+        if (stopY != null)
+          risk = { left, width, top: Math.min(entryY, stopY), height: Math.abs(stopY - entryY) };
       }
       let rr: number | undefined;
       if (box.targetPrice != null && box.stopPrice != null) {
         const r = Math.abs(box.entryPrice - box.stopPrice);
         if (r > 0) rr = Math.abs(box.targetPrice - box.entryPrice) / r;
       }
-      setGeom({ left, width, entryY, reward, risk, rr });
+      setGeom({ left, width, entryY, reward, risk, targetY, stopY, targetProfitSide, rr });
     };
 
     // Double rAF so coordinates are read after the chart has laid out.
@@ -335,65 +360,110 @@ export default function CandleChart({
   return (
     <div className="relative w-full" style={{ height }}>
       <div ref={containerRef} style={{ height }} className="w-full" />
-      {box && geom && (
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          {geom.reward && (
-            <div
-              className="absolute"
-              style={{
-                left: geom.reward.left,
-                top: geom.reward.top,
-                width: geom.reward.width,
-                height: geom.reward.height,
-                background: 'rgba(16,185,129,0.14)',
-                borderTop: '1px solid rgba(16,185,129,0.55)',
-                borderBottom: '1px solid rgba(16,185,129,0.55)',
-              }}
-            />
-          )}
-          {geom.risk && (
-            <div
-              className="absolute"
-              style={{
-                left: geom.risk.left,
-                top: geom.risk.top,
-                width: geom.risk.width,
-                height: geom.risk.height,
-                background: 'rgba(239,68,68,0.14)',
-                borderTop: '1px solid rgba(239,68,68,0.55)',
-                borderBottom: '1px solid rgba(239,68,68,0.55)',
-              }}
-            />
-          )}
-          {/* entry line across the hold */}
+      {box && geom && (() => {
+        // Reward zone is green for a genuine take-profit (or a profit-side exit
+        // fallback); amber when the fallback exit sat on the loss side.
+        const rewardGreen = geom.targetProfitSide !== false;
+        const rewardRGB = rewardGreen ? '16,185,129' : '245,158,11';
+        const targetLabel = box.targetIsTP ? 'TP' : 'Exit';
+        const priceTag = (
+          top: number,
+          rgb: string,
+          title: string,
+          price: number
+        ) => (
           <div
-            className="absolute"
+            className="absolute rounded px-1 text-[10px] font-medium tabular-nums text-white"
             style={{
-              left: geom.left,
-              top: geom.entryY - 0.5,
-              width: geom.width,
-              height: 1,
-              background: '#6366f1',
-            }}
-          />
-          {/* direction + R:R badge, anchored at entry */}
-          <div
-            className="absolute rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
-            style={{
-              left: geom.left + 2,
-              top: Math.max(2, geom.entryY - 18),
-              background: box.direction === 'long' ? '#059669' : '#dc2626',
+              left: geom.left + geom.width - 2,
+              top: top - 8,
+              transform: 'translateX(-100%)',
+              background: `rgba(${rgb},0.9)`,
             }}
           >
-            {box.direction}
-            {geom.rr != null && (
-              <span className="ml-1 font-normal opacity-90">
-                {geom.rr.toFixed(1)}R
-              </span>
-            )}
+            {title} {price.toFixed(2)}
           </div>
-        </div>
-      )}
+        );
+        return (
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            {geom.reward && (
+              <div
+                className="absolute"
+                style={{
+                  left: geom.reward.left,
+                  top: geom.reward.top,
+                  width: geom.reward.width,
+                  height: geom.reward.height,
+                  background: `rgba(${rewardRGB},0.14)`,
+                  borderTop: `1px solid rgba(${rewardRGB},0.55)`,
+                  borderBottom: `1px solid rgba(${rewardRGB},0.55)`,
+                }}
+              />
+            )}
+            {geom.risk && (
+              <div
+                className="absolute"
+                style={{
+                  left: geom.risk.left,
+                  top: geom.risk.top,
+                  width: geom.risk.width,
+                  height: geom.risk.height,
+                  background: 'rgba(239,68,68,0.14)',
+                  borderTop: '1px solid rgba(239,68,68,0.55)',
+                  borderBottom: '1px solid rgba(239,68,68,0.55)',
+                }}
+              />
+            )}
+            {/* left (entry) and right edges of the box */}
+            <div
+              className="absolute"
+              style={{
+                left: geom.left,
+                top: Math.min(geom.entryY, geom.targetY ?? geom.entryY, geom.stopY ?? geom.entryY),
+                width: 1,
+                height:
+                  Math.max(geom.entryY, geom.targetY ?? geom.entryY, geom.stopY ?? geom.entryY) -
+                  Math.min(geom.entryY, geom.targetY ?? geom.entryY, geom.stopY ?? geom.entryY),
+                background: 'rgba(148,163,184,0.5)',
+              }}
+            />
+            {/* entry line across the hold */}
+            <div
+              className="absolute"
+              style={{
+                left: geom.left,
+                top: geom.entryY - 0.5,
+                width: geom.width,
+                height: 1,
+                background: '#6366f1',
+              }}
+            />
+            {/* direction + R:R badge, anchored at entry */}
+            <div
+              className="absolute rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+              style={{
+                left: geom.left + 2,
+                top: Math.max(2, geom.entryY - 18),
+                background: box.direction === 'long' ? '#059669' : '#dc2626',
+              }}
+            >
+              {box.direction}
+              {geom.rr != null && (
+                <span className="ml-1 font-normal opacity-90">
+                  {geom.rr.toFixed(1)}R
+                </span>
+              )}
+            </div>
+            {/* price tags on the right edge */}
+            {geom.targetY != null &&
+              box.targetPrice != null &&
+              priceTag(geom.targetY, rewardRGB, targetLabel, box.targetPrice)}
+            {geom.stopY != null &&
+              box.stopPrice != null &&
+              priceTag(geom.stopY, '239,68,68', 'SL', box.stopPrice)}
+          </div>
+        );
+      })()}
     </div>
   );
 }
