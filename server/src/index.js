@@ -152,9 +152,19 @@ app.post('/api/accounts', (req, res) => {
     .prepare(
       `INSERT INTO accounts
         (name, broker, platform, account_type, currency, starting_balance,
-         prop_daily_loss, prop_max_dd, prop_target)
+         prop_daily_loss, prop_max_dd, prop_target,
+         prop_firm, prop_plan, prop_phase, prop_dd_type,
+         prop_min_days, prop_profit_split, prop_news_window_min,
+         prop_weekend_hold, prop_consistency_pct,
+         prop_min_hold_sec, prop_hold_deduct_threshold_pct,
+         prop_safety_buffer_pct, prop_max_inactivity_days)
        VALUES (@name,@broker,@platform,@account_type,@currency,@starting_balance,
-               @prop_daily_loss,@prop_max_dd,@prop_target)`
+               @prop_daily_loss,@prop_max_dd,@prop_target,
+               @prop_firm,@prop_plan,@prop_phase,@prop_dd_type,
+               @prop_min_days,@prop_profit_split,@prop_news_window_min,
+               @prop_weekend_hold,@prop_consistency_pct,
+               @prop_min_hold_sec,@prop_hold_deduct_threshold_pct,
+               @prop_safety_buffer_pct,@prop_max_inactivity_days)`
     )
     .run({
       name: b.name,
@@ -166,6 +176,19 @@ app.post('/api/accounts', (req, res) => {
       prop_daily_loss: b.prop_daily_loss ?? null,
       prop_max_dd: b.prop_max_dd ?? null,
       prop_target: b.prop_target ?? null,
+      prop_firm: b.prop_firm ?? null,
+      prop_plan: b.prop_plan ?? null,
+      prop_phase: b.prop_phase ?? 0,
+      prop_dd_type: b.prop_dd_type ?? null,
+      prop_min_days: b.prop_min_days ?? null,
+      prop_profit_split: b.prop_profit_split ?? null,
+      prop_news_window_min: b.prop_news_window_min ?? null,
+      prop_weekend_hold: b.prop_weekend_hold ?? null,
+      prop_consistency_pct: b.prop_consistency_pct ?? null,
+      prop_min_hold_sec: b.prop_min_hold_sec ?? null,
+      prop_hold_deduct_threshold_pct: b.prop_hold_deduct_threshold_pct ?? null,
+      prop_safety_buffer_pct: b.prop_safety_buffer_pct ?? null,
+      prop_max_inactivity_days: b.prop_max_inactivity_days ?? null,
     });
   res.status(201).json(
     db.prepare('SELECT * FROM accounts WHERE id = ?').get(info.lastInsertRowid)
@@ -187,6 +210,19 @@ app.patch('/api/accounts/:id', (req, res) => {
     'prop_daily_loss',
     'prop_max_dd',
     'prop_target',
+    'prop_firm',
+    'prop_plan',
+    'prop_phase',
+    'prop_dd_type',
+    'prop_min_days',
+    'prop_profit_split',
+    'prop_news_window_min',
+    'prop_weekend_hold',
+    'prop_consistency_pct',
+    'prop_min_hold_sec',
+    'prop_hold_deduct_threshold_pct',
+    'prop_safety_buffer_pct',
+    'prop_max_inactivity_days',
     'broker_tz',
   ];
   const sets = [];

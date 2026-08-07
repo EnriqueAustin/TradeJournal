@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
 import type { Account, NewAccount, TimeCheck } from '../types';
 import { formatMoney, formatDate, DISPLAY_TZ } from '../utils/format';
+import { FIRM_OPTIONS, getPlanOptions, getPreset, getPhaseRules } from '../data/propPresets';
 
 const BROKER_TZS = [
   'Europe/London',
@@ -19,7 +20,7 @@ const PLATFORMS = ['MT5', 'MT4', 'cTrader', 'Other'];
 const ACCOUNT_TYPES = ['live', 'demo', 'prop'];
 const CURRENCIES = ['USD', 'EUR', 'GBP'];
 
-const emptyForm: NewAccount = {
+const emptyForm: NewAccount & { _firm: string; _plan: string } = {
   name: '',
   broker: '',
   platform: 'MT5',
@@ -29,6 +30,21 @@ const emptyForm: NewAccount = {
   prop_daily_loss: null,
   prop_max_dd: null,
   prop_target: null,
+  prop_firm: null,
+  prop_plan: null,
+  prop_phase: 0,
+  prop_dd_type: null,
+  prop_min_days: null,
+  prop_profit_split: null,
+  prop_news_window_min: null,
+  prop_weekend_hold: null,
+  prop_consistency_pct: null,
+  prop_min_hold_sec: null,
+  prop_hold_deduct_threshold_pct: null,
+  prop_safety_buffer_pct: null,
+  prop_max_inactivity_days: null,
+  _firm: '',
+  _plan: '',
 };
 
 function BrokerTimePanel({
@@ -169,18 +185,55 @@ function BrokerTimePanel({
 }
 
 export default function Accounts() {
+  type FormState = NewAccount & { _firm: string; _plan: string };
+
   const { refreshAccounts } = useFilters();
   const { data, loading, error, reload } = useApi(() => api.getAccounts(), []);
-  const [form, setForm] = useState<NewAccount>(emptyForm);
+  const [form, setForm] = useState<FormState>(emptyForm);
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [formErr, setFormErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
   const isProp = form.account_type === 'prop';
+  const planOptions = useMemo(() => getPlanOptions(form._firm), [form._firm]);
+  const selectedPreset = useMemo(
+    () => (form._firm && form._plan ? getPreset(form._firm, form._plan) : null),
+    [form._firm, form._plan],
+  );
 
-  const set = <K extends keyof NewAccount>(k: K, v: NewAccount[K]) =>
+  const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
+
+  const applyPreset = (firmKey: string, planKey: string) => {
+    const preset = getPreset(firmKey, planKey);
+    if (!preset) return;
+    const bal = form.starting_balance || 10000;
+    const isInstant = preset.phases.length === 0;
+    const phase = isInstant ? 0 : 1;
+    const rules = getPhaseRules(preset, phase);
+    setForm((f) => ({
+      ...f,
+      _firm: firmKey,
+      _plan: planKey,
+      prop_firm: firmKey,
+      prop_plan: planKey,
+      prop_phase: phase,
+      prop_daily_loss: Math.round(bal * (rules.daily_loss_pct / 100) * 100) / 100,
+      prop_max_dd: Math.round(bal * (rules.max_dd_pct / 100) * 100) / 100,
+      prop_target: rules.target_pct ? Math.round(bal * (rules.target_pct / 100) * 100) / 100 : null,
+      prop_dd_type: rules.dd_type,
+      prop_min_days: rules.min_trading_days || null,
+      prop_profit_split: preset.funded.profit_split,
+      prop_min_hold_sec: preset.min_hold_sec,
+      prop_hold_deduct_threshold_pct: preset.hold_deduct_threshold_pct,
+      prop_safety_buffer_pct: preset.safety_buffer_pct,
+      prop_max_inactivity_days: preset.max_inactivity_days,
+      prop_news_window_min: preset.news_window_min,
+      prop_weekend_hold: preset.weekend_hold ? 1 : 0,
+      prop_consistency_pct: preset.consistency_pct,
+    }));
+  };
 
   const num = (v: string): number | null => (v === '' ? null : Number(v));
 
@@ -194,11 +247,25 @@ export default function Accounts() {
     setFormErr(null);
     setOk(null);
     try {
+      const { _firm, _plan, ...rest } = form;
       const payload: NewAccount = {
-        ...form,
+        ...rest,
         prop_daily_loss: isProp ? form.prop_daily_loss : null,
         prop_max_dd: isProp ? form.prop_max_dd : null,
         prop_target: isProp ? form.prop_target : null,
+        prop_firm: isProp ? form.prop_firm : null,
+        prop_plan: isProp ? form.prop_plan : null,
+        prop_phase: isProp ? form.prop_phase : 0,
+        prop_dd_type: isProp ? form.prop_dd_type : null,
+        prop_min_days: isProp ? form.prop_min_days : null,
+        prop_profit_split: isProp ? form.prop_profit_split : null,
+        prop_news_window_min: isProp ? form.prop_news_window_min : null,
+        prop_weekend_hold: isProp ? form.prop_weekend_hold : null,
+        prop_consistency_pct: isProp ? form.prop_consistency_pct : null,
+        prop_min_hold_sec: isProp ? form.prop_min_hold_sec : null,
+        prop_hold_deduct_threshold_pct: isProp ? form.prop_hold_deduct_threshold_pct : null,
+        prop_safety_buffer_pct: isProp ? form.prop_safety_buffer_pct : null,
+        prop_max_inactivity_days: isProp ? form.prop_max_inactivity_days : null,
       };
       const created = await api.createAccount(payload);
       setOk(`Created "${created.name}"`);
@@ -405,58 +472,195 @@ export default function Accounts() {
                 step="any"
                 className="input w-full"
                 value={form.starting_balance}
-                onChange={(e) =>
-                  set('starting_balance', Number(e.target.value))
-                }
+                onChange={(e) => {
+                  const bal = Number(e.target.value);
+                  set('starting_balance', bal);
+                  if (form._firm && form._plan && bal > 0) {
+                    const preset = getPreset(form._firm, form._plan);
+                    if (preset) {
+                      const rules = getPhaseRules(preset, form.prop_phase ?? 1);
+                      setForm((f) => ({
+                        ...f,
+                        starting_balance: bal,
+                        prop_daily_loss: Math.round(bal * (rules.daily_loss_pct / 100) * 100) / 100,
+                        prop_max_dd: Math.round(bal * (rules.max_dd_pct / 100) * 100) / 100,
+                        prop_target: rules.target_pct ? Math.round(bal * (rules.target_pct / 100) * 100) / 100 : null,
+                      }));
+                    }
+                  }
+                }}
               />
             </div>
           </div>
 
           {isProp && (
-            <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-800 bg-slate-900/40 p-3">
-              <div className="col-span-3 text-xs font-medium uppercase tracking-wide text-slate-500">
-                Prop limits
+            <div className="flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Prop firm preset
               </div>
-              <div>
-                <label className="label" htmlFor="a-dl">
-                  Daily Loss
-                </label>
-                <input
-                  id="a-dl"
-                  type="number"
-                  step="any"
-                  className="input w-full"
-                  value={form.prop_daily_loss ?? ''}
-                  onChange={(e) =>
-                    set('prop_daily_loss', num(e.target.value))
-                  }
-                />
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="label" htmlFor="a-firm">Firm</label>
+                  <select
+                    id="a-firm"
+                    className="input w-full"
+                    value={form._firm}
+                    onChange={(e) => {
+                      const fk = e.target.value;
+                      setForm((f) => ({ ...f, _firm: fk, _plan: '', prop_firm: fk || null, prop_plan: null }));
+                    }}
+                  >
+                    <option value="">Select firm...</option>
+                    {FIRM_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label" htmlFor="a-plan">Challenge type</label>
+                  <select
+                    id="a-plan"
+                    className="input w-full"
+                    value={form._plan}
+                    disabled={!form._firm || form._firm === 'custom'}
+                    onChange={(e) => {
+                      const pk = e.target.value;
+                      if (pk && form._firm) applyPreset(form._firm, pk);
+                      else setForm((f) => ({ ...f, _plan: pk, prop_plan: pk || null }));
+                    }}
+                  >
+                    <option value="">Select type...</option>
+                    {planOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className="label" htmlFor="a-dd">
-                  Max DD
-                </label>
-                <input
-                  id="a-dd"
-                  type="number"
-                  step="any"
-                  className="input w-full"
-                  value={form.prop_max_dd ?? ''}
-                  onChange={(e) => set('prop_max_dd', num(e.target.value))}
-                />
+
+              {selectedPreset && (
+                <div className="flex flex-wrap gap-1.5 text-xs text-slate-400">
+                  <span className="rounded bg-slate-800 px-1.5 py-0.5">
+                    {form.prop_dd_type === 'trailing' ? 'Trailing' : 'Static'} DD
+                  </span>
+                  {selectedPreset.phases.length > 0 && (
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5">
+                      Phase {form.prop_phase}/{selectedPreset.phases.length}
+                    </span>
+                  )}
+                  {selectedPreset.phases.length === 0 && (
+                    <span className="rounded bg-indigo-900/60 px-1.5 py-0.5 text-indigo-300">
+                      Instant Funded
+                    </span>
+                  )}
+                  <span className="rounded bg-slate-800 px-1.5 py-0.5">
+                    {selectedPreset.funded.profit_split}% split
+                  </span>
+                  {!selectedPreset.weekend_hold && (
+                    <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-amber-300">
+                      No weekend hold
+                    </span>
+                  )}
+                  {selectedPreset.news_window_min > 0 && (
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5">
+                      {selectedPreset.news_window_min}min news window
+                    </span>
+                  )}
+                  {selectedPreset.consistency_pct && (
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5">
+                      {selectedPreset.consistency_pct}% consistency
+                    </span>
+                  )}
+                  {selectedPreset.min_hold_sec && (
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5">
+                      {selectedPreset.min_hold_sec}s min hold
+                    </span>
+                  )}
+                  {selectedPreset.safety_buffer_pct && (
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5">
+                      {selectedPreset.safety_buffer_pct}% safety buffer
+                    </span>
+                  )}
+                  {selectedPreset.max_inactivity_days && (
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5">
+                      {selectedPreset.max_inactivity_days}d inactivity limit
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {selectedPreset && selectedPreset.phases.length > 1 && (
+                <div>
+                  <label className="label" htmlFor="a-phase">Starting phase</label>
+                  <select
+                    id="a-phase"
+                    className="input w-full"
+                    value={form.prop_phase ?? 1}
+                    onChange={(e) => {
+                      const phase = Number(e.target.value);
+                      if (form._firm && form._plan) {
+                        const preset = getPreset(form._firm, form._plan)!;
+                        const rules = getPhaseRules(preset, phase);
+                        const bal = form.starting_balance || 10000;
+                        setForm((f) => ({
+                          ...f,
+                          prop_phase: phase,
+                          prop_daily_loss: Math.round(bal * (rules.daily_loss_pct / 100) * 100) / 100,
+                          prop_max_dd: Math.round(bal * (rules.max_dd_pct / 100) * 100) / 100,
+                          prop_target: rules.target_pct ? Math.round(bal * (rules.target_pct / 100) * 100) / 100 : null,
+                          prop_dd_type: rules.dd_type,
+                          prop_min_days: rules.min_trading_days || null,
+                        }));
+                      }
+                    }}
+                  >
+                    {selectedPreset.phases.map((_, i) => (
+                      <option key={i + 1} value={i + 1}>Phase {i + 1}</option>
+                    ))}
+                    <option value={0}>Funded</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Limits {selectedPreset ? '(auto-filled)' : ''}
               </div>
-              <div>
-                <label className="label" htmlFor="a-tg">
-                  Target
-                </label>
-                <input
-                  id="a-tg"
-                  type="number"
-                  step="any"
-                  className="input w-full"
-                  value={form.prop_target ?? ''}
-                  onChange={(e) => set('prop_target', num(e.target.value))}
-                />
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="label" htmlFor="a-dl">Daily Loss</label>
+                  <input
+                    id="a-dl"
+                    type="number"
+                    step="any"
+                    className="input w-full"
+                    value={form.prop_daily_loss ?? ''}
+                    onChange={(e) => set('prop_daily_loss', num(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="a-dd">
+                    Max DD {form.prop_dd_type ? `(${form.prop_dd_type})` : ''}
+                  </label>
+                  <input
+                    id="a-dd"
+                    type="number"
+                    step="any"
+                    className="input w-full"
+                    value={form.prop_max_dd ?? ''}
+                    onChange={(e) => set('prop_max_dd', num(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="a-tg">Target</label>
+                  <input
+                    id="a-tg"
+                    type="number"
+                    step="any"
+                    className="input w-full"
+                    value={form.prop_target ?? ''}
+                    onChange={(e) => set('prop_target', num(e.target.value))}
+                  />
+                </div>
               </div>
             </div>
           )}

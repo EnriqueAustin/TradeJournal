@@ -54,11 +54,33 @@ function AccountRow({ a }: { a: PortfolioAccount }) {
   return (
     <tr className="border-b border-slate-800/60 align-top">
       <td className="px-4 py-3">
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-1">
           <span className="font-medium text-slate-100">{a.name}</span>
           <span className="text-xs text-slate-500">
             {a.broker || '—'} · #{a.account_id}
           </span>
+          <div className="flex flex-wrap gap-1">
+            {a.dd_type && (
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                {a.dd_type === 'trailing' ? 'trailing' : 'static'} DD
+              </span>
+            )}
+            {a.phase > 0 && (
+              <span className="rounded bg-indigo-900/50 px-1.5 py-0.5 text-[10px] text-indigo-300">
+                Phase {a.phase}
+              </span>
+            )}
+            {a.phase === 0 && a.profit_split != null && (
+              <span className="rounded bg-emerald-900/50 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                Funded {a.profit_split}%
+              </span>
+            )}
+            {a.weekend_hold === false && (
+              <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300">
+                No wknd
+              </span>
+            )}
+          </div>
         </div>
       </td>
       <td className="px-4 py-3">
@@ -91,7 +113,7 @@ function AccountRow({ a }: { a: PortfolioAccount }) {
       </td>
       <td className="px-4 py-3">
         <Meter
-          label="Max DD"
+          label={`Max DD${a.dd_type === 'trailing' ? ' (trail)' : ''}`}
           pct={a.max_dd_used_pct}
           limit={a.max_dd_limit}
           used={a.max_dd}
@@ -106,6 +128,37 @@ function AccountRow({ a }: { a: PortfolioAccount }) {
           used={Math.max(0, a.total_pnl)}
           currency={a.currency}
         />
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-col gap-1.5 min-w-[100px]">
+          {a.consistency_pct != null && (
+            <div>
+              <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide text-slate-500">
+                <span>Consistency</span>
+                <span className="num text-slate-400">
+                  {a.best_day_pct_of_total != null ? `${(a.best_day_pct_of_total * 100).toFixed(1)}%` : '—'} / {a.consistency_pct}%
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded bg-slate-800">
+                <div
+                  className={`h-full ${a.consistency_used_pct != null && a.consistency_used_pct >= 1 ? 'bg-red-500' : a.consistency_used_pct != null && a.consistency_used_pct >= 0.8 ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                  style={{ width: `${Math.min(100, (a.consistency_used_pct ?? 0) * 100).toFixed(1)}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {a.min_trading_days != null && a.min_trading_days > 0 && (
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="uppercase tracking-wide text-slate-500">Min days</span>
+              <span className={`num font-medium ${a.trading_days_count >= a.min_trading_days ? 'text-emerald-400' : 'text-slate-400'}`}>
+                {a.trading_days_count}/{a.min_trading_days}
+              </span>
+            </div>
+          )}
+          {a.consistency_pct == null && (a.min_trading_days == null || a.min_trading_days <= 0) && (
+            <span className="text-xs text-slate-600">—</span>
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -185,6 +238,7 @@ export default function Portfolio() {
                       <th className="px-4 py-2.5 font-medium">Daily loss</th>
                       <th className="px-4 py-2.5 font-medium">Max DD</th>
                       <th className="px-4 py-2.5 font-medium">Target</th>
+                      <th className="px-4 py-2.5 font-medium">Rules</th>
                     </tr>
                   </thead>
                   <tbody>

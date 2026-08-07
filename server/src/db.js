@@ -186,6 +186,27 @@ export function migrate() {
     db.exec('ALTER TABLE accounts ADD COLUMN times_realigned INTEGER NOT NULL DEFAULT 0');
   }
 
+  // Prop-firm preset metadata on accounts.
+  for (const col of [
+    ['prop_firm', 'TEXT'],
+    ['prop_plan', 'TEXT'],
+    ['prop_phase', 'INTEGER NOT NULL DEFAULT 0'],
+    ['prop_dd_type', 'TEXT'],
+    ['prop_min_days', 'INTEGER'],
+    ['prop_profit_split', 'REAL'],
+    ['prop_news_window_min', 'INTEGER'],
+    ['prop_weekend_hold', 'INTEGER'],
+    ['prop_consistency_pct', 'REAL'],
+    ['prop_min_hold_sec', 'INTEGER'],
+    ['prop_hold_deduct_threshold_pct', 'REAL'],
+    ['prop_safety_buffer_pct', 'REAL'],
+    ['prop_max_inactivity_days', 'INTEGER'],
+  ]) {
+    if (!acctCols.some((c) => c.name === col[0])) {
+      db.exec(`ALTER TABLE accounts ADD COLUMN ${col[0]} ${col[1]}`);
+    }
+  }
+
   // Seed default account if none exists
   const count = db.prepare('SELECT COUNT(*) AS c FROM accounts').get().c;
   if (count === 0) {

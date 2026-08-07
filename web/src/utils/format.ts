@@ -81,9 +81,10 @@ export function formatDate(iso: string | null | undefined): string {
 
 export function formatDuration(sec: number | null | undefined): string {
   if (sec === null || sec === undefined || Number.isNaN(sec)) return '—';
-  if (sec < 60) return `${Math.round(sec)}s`;
-  const m = Math.floor(sec / 60);
-  if (m < 60) return `${m}m ${Math.round(sec % 60)}s`;
+  const r = Math.round(sec);
+  if (r < 60) return `${r}s`;
+  const m = Math.floor(r / 60);
+  if (m < 60) return `${m}m ${r % 60}s`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ${m % 60}m`;
   const d = Math.floor(h / 24);

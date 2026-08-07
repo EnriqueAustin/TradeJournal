@@ -10,6 +10,7 @@ import HourlyBars from '../components/HourlyBars';
 import AiReviewPanel from '../components/AiReviewPanel';
 import LivePositions from '../components/LivePositions';
 import { AsyncBoundary } from '../components/states';
+import type { PropStats } from '../types';
 import {
   formatMoney,
   formatR,
@@ -45,12 +46,74 @@ function SectionCard({
   );
 }
 
+function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
+  const hasLimits = p.day_loss_limit != null || p.max_dd_limit != null || p.target != null;
+  if (!hasLimits) return null;
+
+  const statusMap = {
+    ok: 'border-emerald-800/60 bg-emerald-950/30 text-emerald-400',
+    warn: 'border-amber-800/60 bg-amber-950/30 text-amber-400',
+    breach: 'border-red-800/60 bg-red-950/30 text-red-400',
+  } as const;
+
+  function MiniMeter({ label, pct, danger }: { label: string; pct: number | null; danger?: boolean }) {
+    if (pct == null) return null;
+    const w = Math.min(100, Math.max(0, pct * 100));
+    const color = pct >= 1 ? 'bg-red-500' : pct >= 0.8 ? 'bg-amber-500' : danger === false ? 'bg-indigo-500' : 'bg-emerald-500';
+    return (
+      <div className="min-w-[100px] flex-1">
+        <div className="mb-0.5 flex items-center justify-between text-[10px] text-slate-500">
+          <span>{label}</span>
+          <span className="num">{formatPct(pct)}</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-slate-800">
+          <div className={`h-full rounded-full ${color}`} style={{ width: `${w}%` }} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 ${statusMap[p.status]}`}>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide">
+            {p.status === 'ok' ? 'OK' : p.status === 'warn' ? 'Warning' : 'Breach'}
+          </span>
+          <span className="num text-xs opacity-70">
+            Equity {formatMoney(p.current_equity, currency)}
+          </span>
+          {p.dd_type && (
+            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">
+              {p.dd_type === 'trailing' ? 'trailing' : 'static'} DD
+            </span>
+          )}
+          {p.phase > 0 && (
+            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">
+              Phase {p.phase}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-1 items-center gap-4">
+          <MiniMeter label="Daily Loss" pct={p.day_loss_used_pct} />
+          <MiniMeter label={`Max DD${p.dd_type === 'trailing' ? ' (trail)' : ''}`} pct={p.max_dd_used_pct} />
+          <MiniMeter label="Target" pct={p.target_progress_pct} danger={false} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { filters, accounts } = useFilters();
   const [month, setMonth] = useState(currentMonth);
 
   const currency = useMemo(
     () => accounts.find((a) => a.id === filters.account)?.currency ?? 'USD',
+    [accounts, filters.account]
+  );
+  const isProp = useMemo(
+    () => accounts.find((a) => a.id === filters.account)?.account_type === 'prop',
     [accounts, filters.account]
   );
 
@@ -64,6 +127,7 @@ export default function Dashboard() {
   );
   const session = useApi(() => api.getSession(filters), [key]);
   const hourly = useApi(() => api.getHourly(filters), [key]);
+  const prop = useApi(() => (isProp ? api.getProp(filters) : Promise.resolve(null)), [key, isProp]);
 
   const s = summary.data;
 
@@ -78,6 +142,9 @@ export default function Dashboard() {
 
       {/* Live open positions (rendered only when EA snapshot present) */}
       <LivePositions account={filters.account} currency={currency} />
+
+      {/* Prop status banner */}
+      {isProp && prop.data && <PropBanner p={prop.data} currency={currency} />}
 
       {/* Stat tiles */}
       <AsyncBoundary

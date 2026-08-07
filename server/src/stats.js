@@ -397,15 +397,17 @@ export function propStats(q) {
   const { where, params } = buildFilter({ ...q, account: account.id });
   const rows = db
     .prepare(
-      `SELECT COALESCE(exit_time, entry_time) AS t, net_pnl FROM trades ${where}
+      `SELECT COALESCE(exit_time, entry_time) AS t, net_pnl, hold_time_sec FROM trades ${where}
        ORDER BY COALESCE(exit_time, entry_time) ASC, id ASC`
     )
     .all(params);
 
   const starting_balance = account.starting_balance || 0;
+  const ddType = account.prop_dd_type || 'static';
   let cum = 0;
-  let peak = 0; // peak equity delta above starting balance
-  let max_dd = 0; // largest peak-to-trough drop in account currency
+  let peak = 0;
+  let max_dd = 0; // largest peak-to-trough (static) or trailing high-water mark drop
+  let trailingFloor = 0; // for trailing DD: floor = hwm - limit (rises, never falls)
   const dayMap = new Map();
   for (const r of rows) {
     cum += r.net_pnl || 0;
@@ -418,7 +420,10 @@ export function propStats(q) {
   const total_pnl = cum;
   const current_equity = starting_balance + total_pnl;
 
-  // "Current day" = most recent trading day in the (filtered) data.
+  // For trailing DD the effective drawdown is how far equity is below the high-water mark.
+  // The limit itself trails up, so used_pct = (hwm - equity) / limit.
+  // For static DD it's peak-to-trough vs the fixed dollar limit.
+
   const days = [...dayMap.keys()].sort();
   const currentDay = days.length ? days[days.length - 1] : null;
   const day_pnl = currentDay ? dayMap.get(currentDay) : 0;
@@ -438,13 +443,78 @@ export function propStats(q) {
   const target_progress_pct =
     target && target > 0 ? round(Math.max(0, total_pnl) / target, 4) : null;
 
+  // Consistency: largest single day profit vs total profit
+  let consistency_used_pct = null;
+  let best_day_pnl = 0;
+  const consistencyLimit = account.prop_consistency_pct ?? null;
+  for (const [, dp] of dayMap) {
+    if (dp > best_day_pnl) best_day_pnl = dp;
+  }
+  const best_day_pct_of_total = total_pnl > 0 ? round(best_day_pnl / total_pnl, 4) : null;
+  if (consistencyLimit && total_pnl > 0) {
+    consistency_used_pct = round((best_day_pnl / total_pnl) * 100 / consistencyLimit, 4);
+  }
+
+  // Largest single trade win/loss for loss-size rule
+  let largest_single_win = 0;
+  let largest_single_loss = 0;
+  for (const r of rows) {
+    const pnl = r.net_pnl || 0;
+    if (pnl > largest_single_win) largest_single_win = pnl;
+    if (pnl < largest_single_loss) largest_single_loss = pnl;
+  }
+
+  // Hold time analysis for min-hold-sec rule
+  const minHoldSec = account.prop_min_hold_sec ?? null;
+  const holdDeductPct = account.prop_hold_deduct_threshold_pct ?? null;
+  let totalHoldSec = 0;
+  let holdCount = 0;
+  let subHoldCount = 0;
+  let subHoldProfit = 0;
+  for (const r of rows) {
+    if (r.hold_time_sec != null) {
+      totalHoldSec += r.hold_time_sec;
+      holdCount++;
+      if (minHoldSec != null && r.hold_time_sec < minHoldSec && (r.net_pnl || 0) > 0) {
+        subHoldCount++;
+        subHoldProfit += r.net_pnl || 0;
+      }
+    }
+  }
+  const avgHoldSec = holdCount > 0 ? round(totalHoldSec / holdCount, 1) : null;
+  const avgHoldOk = minHoldSec != null && avgHoldSec != null ? avgHoldSec >= minHoldSec : null;
+  const subHoldPctOfProfit = total_pnl > 0 ? round(subHoldProfit / total_pnl, 4) : null;
+  const subHoldAtRisk = holdDeductPct != null && subHoldPctOfProfit != null
+    ? subHoldPctOfProfit * 100 >= holdDeductPct
+    : false;
+
+  // Safety buffer
+  const safetyBufferPct = account.prop_safety_buffer_pct ?? null;
+  const safetyBufferAmount = safetyBufferPct != null ? round(starting_balance * (safetyBufferPct / 100)) : null;
+  const safetyBufferMet = safetyBufferAmount != null ? total_pnl >= safetyBufferAmount : null;
+
+  // Inactivity
+  const maxInactivityDays = account.prop_max_inactivity_days ?? null;
+  const lastTradeDate = days.length ? days[days.length - 1] : null;
+  let daysSinceLastTrade = null;
+  if (lastTradeDate) {
+    const now = new Date();
+    const last = new Date(lastTradeDate + 'T00:00:00Z');
+    daysSinceLastTrade = Math.floor((now - last) / 86400000);
+  }
+
+  // Trading days count for min-days rule
+  const trading_days_count = dayMap.size;
+
   const breaches = [];
   if (day_loss_used_pct != null && day_loss_used_pct >= 1)
     breaches.push('daily_loss');
   if (max_dd_used_pct != null && max_dd_used_pct >= 1) breaches.push('max_dd');
+  if (consistency_used_pct != null && consistency_used_pct >= 1)
+    breaches.push('consistency');
 
-  // Overall status: worst of the two loss-limit meters (target doesn't breach).
   const statuses = [pctStatus(day_loss_used_pct), pctStatus(max_dd_used_pct)];
+  if (consistency_used_pct != null) statuses.push(pctStatus(consistency_used_pct));
   const status = statuses.includes('breach')
     ? 'breach'
     : statuses.includes('warn')
@@ -464,8 +534,38 @@ export function propStats(q) {
     max_dd: round(max_dd),
     max_dd_limit,
     max_dd_used_pct,
+    dd_type: ddType,
     target,
     target_progress_pct,
+    phase: account.prop_phase || 0,
+    total_phases: account.prop_plan ? (account.prop_phase || 0) : 0,
+    min_trading_days: account.prop_min_days ?? null,
+    trading_days_count,
+    profit_split: account.prop_profit_split ?? null,
+    news_window_min: account.prop_news_window_min ?? null,
+    weekend_hold: account.prop_weekend_hold != null ? !!account.prop_weekend_hold : null,
+    consistency_pct: consistencyLimit,
+    consistency_used_pct,
+    best_day_pnl: round(best_day_pnl),
+    best_day_pct_of_total,
+    largest_single_win: round(largest_single_win),
+    largest_single_loss: round(largest_single_loss),
+    prop_firm: account.prop_firm ?? null,
+    prop_plan: account.prop_plan ?? null,
+    min_hold_sec: minHoldSec,
+    hold_deduct_threshold_pct: holdDeductPct,
+    avg_hold_sec: avgHoldSec,
+    avg_hold_ok: avgHoldOk,
+    sub_hold_count: subHoldCount,
+    sub_hold_profit: round(subHoldProfit),
+    sub_hold_pct_of_profit: subHoldPctOfProfit,
+    sub_hold_at_risk: subHoldAtRisk,
+    safety_buffer_pct: safetyBufferPct,
+    safety_buffer_amount: safetyBufferAmount,
+    safety_buffer_met: safetyBufferMet,
+    max_inactivity_days: maxInactivityDays,
+    last_trade_date: lastTradeDate,
+    days_since_last_trade: daysSinceLastTrade,
     breaches,
     status,
   };
