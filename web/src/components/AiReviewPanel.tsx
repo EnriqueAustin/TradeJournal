@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
-import type { AiReview } from '../types';
+import type { AiReview, AiConfig } from '../types';
 import { Spinner } from './states';
 
 export default function AiReviewPanel() {
@@ -9,6 +9,11 @@ export default function AiReviewPanel() {
   const [review, setReview] = useState<AiReview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
+
+  useEffect(() => {
+    api.getAiConfig().then(setAiConfig).catch(() => {});
+  }, []);
 
   const run = async () => {
     setLoading(true);
@@ -35,6 +40,12 @@ export default function AiReviewPanel() {
       ? `${filters.from || '…'} → ${filters.to || '…'}`
       : 'all available history';
 
+  const providerLabel = aiConfig
+    ? aiConfig.provider === 'ollama'
+      ? `Ollama · ${aiConfig.model}`
+      : `Anthropic · ${aiConfig.model}`
+    : null;
+
   return (
     <div className="card p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -43,6 +54,23 @@ export default function AiReviewPanel() {
           <p className="text-xs text-slate-500">
             Coaching review of {period} using the current filters.
           </p>
+          {providerLabel && (
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              <span
+                className={
+                  aiConfig?.provider === 'ollama'
+                    ? 'text-emerald-400'
+                    : 'text-indigo-400'
+                }
+              >
+                ●
+              </span>{' '}
+              {providerLabel}
+              {aiConfig?.provider === 'ollama' && (
+                <span className="ml-1 text-slate-600">(local)</span>
+              )}
+            </p>
+          )}
         </div>
         <button className="btn btn-primary" onClick={run} disabled={loading}>
           {loading ? (
@@ -65,7 +93,7 @@ export default function AiReviewPanel() {
 
       {!review && !error && !loading && (
         <p className="text-sm text-slate-500">
-          Click “Run AI review” to summarize this period’s trades, notes and
+          Click "Run AI review" to summarize this period's trades, notes and
           patterns.
         </p>
       )}

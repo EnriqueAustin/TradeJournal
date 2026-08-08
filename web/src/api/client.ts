@@ -36,6 +36,7 @@ import type {
   BacktestResponse,
   NewBacktestTrade,
   AiReview,
+  AiConfig,
 } from '../types';
 
 const BASE = '/api';
@@ -284,6 +285,7 @@ export const api = {
     const s = p.toString();
     return request<StatsSummary>(`/backtest/stats${s ? `?${s}` : ''}`);
   },
+  getAiConfig: () => request<AiConfig>('/ai/config'),
   aiReview: (body: Record<string, unknown>) =>
     request<AiReview>('/ai/review', {
       method: 'POST',

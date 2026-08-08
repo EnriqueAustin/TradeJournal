@@ -1,13 +1,23 @@
 import { db } from './db.js';
 import { summary } from './stats.js';
 import { buildFilter } from './stats.js';
-import { ANTHROPIC_API_KEY, AI_MODEL, AI_MODEL_FALLBACK } from './env.js';
+import {
+  ANTHROPIC_API_KEY,
+  AI_PROVIDER,
+  OLLAMA_BASE_URL,
+  AI_MODEL,
+  AI_MODEL_FALLBACK,
+} from './env.js';
 
-const UNAVAILABLE = {
-  summary: 'AI review unavailable — set ANTHROPIC_API_KEY',
-  patterns: [],
-  suggestions: [],
-};
+export function getAiConfig() {
+  return {
+    provider: AI_PROVIDER,
+    model: AI_MODEL,
+    fallbackModel: AI_MODEL_FALLBACK,
+    ollamaBaseUrl: OLLAMA_BASE_URL,
+    configured: AI_PROVIDER === 'ollama' || Boolean(ANTHROPIC_API_KEY),
+  };
+}
 
 // Gather the period's real-trade stats + trades + notes for the prompt.
 function gatherContext(q) {
@@ -101,22 +111,108 @@ function extractJson(text) {
   }
 }
 
-// Main entry: returns {summary, patterns:[], suggestions:[]} (always HTTP 200).
-// ---------- Auto-tag ----------
-// Classify a batch of trades: pick a setup_id (or null) + tags per category.
-// Categories other than 'setup' are permitted (setup category is unused — trades
-// track the playbook via setup_id, not tags). Tags reuse existing vocab.
+// Low-level LLM caller supporting both Anthropic API and Ollama local server
+async function callLLM({ system, prompt, provider, model }) {
+  const activeProvider = (provider || AI_PROVIDER).toLowerCase();
+  const modelsToTry = [...new Set([model, AI_MODEL, AI_MODEL_FALLBACK].filter(Boolean))];
+  let lastErr = null;
+
+  if (activeProvider === 'ollama') {
+    const cleanBaseUrl = OLLAMA_BASE_URL.replace(/\/+$/, '');
+    for (const targetModel of modelsToTry) {
+      try {
+        // 1. Try OpenAI-compatible endpoint first
+        try {
+          const v1Res = await fetch(`${cleanBaseUrl}/v1/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: targetModel,
+              messages: [
+                { role: 'system', content: system },
+                { role: 'user', content: prompt },
+              ],
+              temperature: 0.2,
+              response_format: { type: 'json_object' },
+            }),
+          });
+          if (v1Res.ok) {
+            const json = await v1Res.json();
+            const content = json.choices?.[0]?.message?.content;
+            if (content) return content;
+          }
+        } catch {
+          // Fallback to Ollama native /api/chat
+        }
+
+        // 2. Try native Ollama /api/chat endpoint
+        const apiRes = await fetch(`${cleanBaseUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: targetModel,
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: prompt },
+            ],
+            format: 'json',
+            stream: false,
+          }),
+        });
+
+        if (apiRes.ok) {
+          const json = await apiRes.json();
+          const content = json.message?.content;
+          if (content) return content;
+        } else {
+          const errText = await apiRes.text().catch(() => '');
+          throw new Error(
+            `Ollama HTTP ${apiRes.status} for model "${targetModel}": ${errText || apiRes.statusText}`
+          );
+        }
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr || new Error(`Failed to call Ollama at ${OLLAMA_BASE_URL}`);
+  } else {
+    // Anthropic API
+    if (!ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY is not configured');
+    }
+    let Anthropic;
+    try {
+      ({ default: Anthropic } = await import('@anthropic-ai/sdk'));
+    } catch {
+      throw new Error('@anthropic-ai/sdk is not installed');
+    }
+    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+    for (const targetModel of modelsToTry) {
+      try {
+        const resp = await client.messages.create({
+          model: targetModel,
+          max_tokens: 2048,
+          system,
+          messages: [{ role: 'user', content: prompt }],
+        });
+        const text = (resp.content || [])
+          .filter((b) => b.type === 'text')
+          .map((b) => b.text)
+          .join('\n');
+        if (text) return text;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr || new Error('Anthropic API request failed');
+  }
+}
+
 const TAG_CATS_ALLOWED = ['session', 'emotion', 'mistake', 'grade'];
 
-async function classifyBatch(trades, setups, tagVocab) {
-  if (!ANTHROPIC_API_KEY) return null;
-
-  let Anthropic;
-  try {
-    ({ default: Anthropic } = await import('@anthropic-ai/sdk'));
-  } catch {
-    return null;
-  }
+async function classifyBatch(trades, setups, tagVocab, options = {}) {
+  const provider = options.provider || AI_PROVIDER;
+  if (provider === 'anthropic' && !ANTHROPIC_API_KEY) return null;
 
   const setupLines = setups.length
     ? setups.map((s) => `- id=${s.id} "${s.name}"${s.instrument ? ` (${s.instrument})` : ''}${s.rules ? `: ${s.rules}` : ''}`).join('\n')
@@ -130,7 +226,7 @@ async function classifyBatch(trades, setups, tagVocab) {
     'For each trade you MUST return an object of the exact shape ' +
     '{"id": number, "setup_id": number|null, "tags": [{"category": string, "name": string}]}. ' +
     'Categories allowed: session, emotion, mistake, grade. ' +
-    "Prefer reusing existing tag names when they fit. Keep names short (1-3 words), lowercase. " +
+    'Prefer reusing existing tag names when they fit. Keep names short (1-3 words), lowercase. ' +
     'Choose setup_id ONLY from the provided ids when it plainly matches; otherwise null. ' +
     'Do not invent trade ids. Respond ONLY with JSON: {"results":[ ... ]}. No markdown.';
 
@@ -153,33 +249,25 @@ async function classifyBatch(trades, setups, tagVocab) {
     `Existing tag vocabulary:\n${vocabLines}\n\n` +
     `Trades (JSON):\n${JSON.stringify(rows)}`;
 
-  const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
-  const models = [AI_MODEL, AI_MODEL_FALLBACK].filter(Boolean);
-  let lastErr = null;
-  for (const model of models) {
-    try {
-      const resp = await client.messages.create({
-        model,
-        max_tokens: 2048,
-        system,
-        messages: [{ role: 'user', content: prompt }],
-      });
-      const text = (resp.content || [])
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text)
-        .join('\n');
-      const parsed = extractJson(text);
-      if (parsed && Array.isArray(parsed.results)) return parsed.results;
-    } catch (err) {
-      lastErr = err;
-    }
+  try {
+    const text = await callLLM({
+      system,
+      prompt,
+      provider,
+      model: options.model,
+    });
+    const parsed = extractJson(text);
+    if (parsed && Array.isArray(parsed.results)) return parsed.results;
+  } catch (err) {
+    console.error('Auto-tag classification error:', err);
+    throw err;
   }
-  if (lastErr) throw lastErr;
   return null;
 }
 
-export async function autoTagTrades(tradeIds) {
-  if (!ANTHROPIC_API_KEY)
+export async function autoTagTrades(tradeIds, options = {}) {
+  const provider = options.provider || AI_PROVIDER;
+  if (provider === 'anthropic' && !ANTHROPIC_API_KEY)
     return { tagged: 0, skipped: tradeIds.length, error: 'ANTHROPIC_API_KEY not set' };
   if (!tradeIds || tradeIds.length === 0) return { tagged: 0, skipped: 0 };
 
@@ -207,7 +295,7 @@ export async function autoTagTrades(tradeIds) {
   const allResults = [];
   for (let i = 0; i < trades.length; i += BATCH) {
     const chunk = trades.slice(i, i + BATCH);
-    const out = await classifyBatch(chunk, setups, tagVocab);
+    const out = await classifyBatch(chunk, setups, tagVocab, options);
     if (Array.isArray(out)) allResults.push(...out);
   }
 
@@ -255,7 +343,16 @@ export async function autoTagTrades(tradeIds) {
 }
 
 export async function aiReview(body = {}) {
-  if (!ANTHROPIC_API_KEY) return { ...UNAVAILABLE };
+  const provider = body.provider || AI_PROVIDER;
+  const model = body.model || AI_MODEL;
+
+  if (provider === 'anthropic' && !ANTHROPIC_API_KEY) {
+    return {
+      summary: 'AI review unavailable — set ANTHROPIC_API_KEY or configure local Ollama (AI_PROVIDER=ollama)',
+      patterns: [],
+      suggestions: [],
+    };
+  }
 
   const q = periodFilters(body);
   const ctx = gatherContext(q);
@@ -277,54 +374,30 @@ export async function aiReview(body = {}) {
     'suggestions are concrete improvements. No markdown, no extra keys.';
   const prompt = buildPrompt(ctx, q);
 
-  let Anthropic;
   try {
-    ({ default: Anthropic } = await import('@anthropic-ai/sdk'));
-  } catch {
+    const text = await callLLM({
+      system,
+      prompt,
+      provider,
+      model,
+    });
+
+    const parsed = extractJson(text);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        summary: String(parsed.summary ?? '').trim() || 'No summary produced.',
+        patterns: Array.isArray(parsed.patterns) ? parsed.patterns.map(String) : [],
+        suggestions: Array.isArray(parsed.suggestions)
+          ? parsed.suggestions.map(String)
+          : [],
+      };
+    }
+    return { summary: String(text || '').trim() || 'No response.', patterns: [], suggestions: [] };
+  } catch (err) {
     return {
-      summary: 'AI review unavailable — @anthropic-ai/sdk is not installed.',
+      summary: `AI review failed (${provider}/${model}): ${String(err?.message || err)}`,
       patterns: [],
       suggestions: [],
     };
   }
-
-  const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
-  const models = [AI_MODEL, AI_MODEL_FALLBACK].filter(Boolean);
-
-  let lastErr = null;
-  for (const model of models) {
-    try {
-      const resp = await client.messages.create({
-        model,
-        max_tokens: 1024,
-        system,
-        messages: [{ role: 'user', content: prompt }],
-      });
-      const text = (resp.content || [])
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text)
-        .join('\n');
-      const parsed = extractJson(text);
-      if (parsed && typeof parsed === 'object') {
-        return {
-          summary: String(parsed.summary ?? '').trim() || 'No summary produced.',
-          patterns: Array.isArray(parsed.patterns) ? parsed.patterns.map(String) : [],
-          suggestions: Array.isArray(parsed.suggestions)
-            ? parsed.suggestions.map(String)
-            : [],
-        };
-      }
-      // Model returned unparseable text — surface it as the summary.
-      return { summary: text.trim() || 'No response.', patterns: [], suggestions: [] };
-    } catch (err) {
-      lastErr = err;
-      // Try the fallback model on the next iteration.
-    }
-  }
-
-  return {
-    summary: `AI review failed: ${String(lastErr?.message || lastErr || 'unknown error')}`,
-    patterns: [],
-    suggestions: [],
-  };
 }

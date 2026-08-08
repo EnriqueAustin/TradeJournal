@@ -444,6 +444,14 @@ export interface AiReview {
   suggestions: string[];
 }
 
+export interface AiConfig {
+  provider: string;
+  model: string;
+  fallbackModel: string;
+  ollamaBaseUrl: string;
+  configured: boolean;
+}
+
 export interface PortfolioAccount extends PropStats {
   name: string;
   broker: string | null;

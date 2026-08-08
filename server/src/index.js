@@ -11,7 +11,7 @@ import { db, migrate } from './db.js';
 import { parseImport } from './import.js';
 import { parseBarsCsv, getBarsForTf, upsertBars, TF_MINUTES } from './bars.js';
 import { fetchOandaM1, oandaConfigured, oandaSymbol } from './marketdata.js';
-import { aiReview, autoTagTrades } from './ai.js';
+import { aiReview, autoTagTrades, getAiConfig } from './ai.js';
 import {
   sessionFromTime,
   normalizeInstrument,
@@ -1259,7 +1259,11 @@ app.post('/api/ai/autotag', async (req, res) => {
   }
 });
 
-// ---------- Phase 3: AI review ----------
+// ---------- Phase 3: AI config & review ----------
+app.get('/api/ai/config', (_req, res) => {
+  res.json(getAiConfig());
+});
+
 app.post('/api/ai/review', async (req, res) => {
   try {
     const result = await aiReview(req.body || {});

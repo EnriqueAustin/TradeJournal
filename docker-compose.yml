@@ -7,11 +7,15 @@ services:
     environment:
       PORT: "4000"
       EA_TOKEN: "${EA_TOKEN:-changeme}"
+      AI_PROVIDER: "${AI_PROVIDER:-ollama}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      AI_MODEL: "${AI_MODEL:-claude-opus-4-8}"
-      AI_MODEL_FALLBACK: "${AI_MODEL_FALLBACK:-claude-sonnet-5}"
+      AI_MODEL: "${AI_MODEL:-qwen2.5:9b}"
+      AI_MODEL_FALLBACK: "${AI_MODEL_FALLBACK:-qwen2.5:9b}"
       OANDA_API_TOKEN: "${OANDA_API_TOKEN:-}"
       OANDA_ENV: "${OANDA_ENV:-practice}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - journal-data:/app/data
     restart: unless-stopped

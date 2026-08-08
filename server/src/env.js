@@ -37,5 +37,11 @@ export const OANDA_API_TOKEN = process.env.OANDA_API_TOKEN || '';
 export const OANDA_ENV = (process.env.OANDA_ENV || 'practice').toLowerCase();
 
 export const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
-export const AI_MODEL = process.env.AI_MODEL || 'claude-opus-4-8';
-export const AI_MODEL_FALLBACK = process.env.AI_MODEL_FALLBACK || 'claude-sonnet-5';
+export const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || process.env.AI_BASE_URL || 'http://host.docker.internal:11434';
+export const AI_PROVIDER = (
+  process.env.AI_PROVIDER || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : 'ollama')
+).toLowerCase();
+export const AI_MODEL =
+  process.env.AI_MODEL || (AI_PROVIDER === 'ollama' ? 'qwen2.5:9b' : 'claude-opus-4-8');
+export const AI_MODEL_FALLBACK =
+  process.env.AI_MODEL_FALLBACK || (AI_PROVIDER === 'ollama' ? 'qwen2.5:9b' : 'claude-sonnet-5');
