@@ -6,10 +6,12 @@ import { useFilters } from '../store/FilterContext';
 import { AsyncBoundary } from '../components/states';
 import CandleChart from '../components/CandleChart';
 import { buildMarkers, buildPriceLines, buildPositionBox } from '../utils/replay';
+import SocialShareModal from '../components/SocialShareModal';
 import type {
   TradeDetail as TTradeDetail,
   TagCategory,
   ReplayResponse,
+  ReplayFrame,
 } from '../types';
 import {
   formatMoney,
@@ -56,6 +58,24 @@ export default function TradeDetail() {
     () => api.getTrade(tradeId),
     [tradeId]
   );
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareFrames, setShareFrames] = useState<ReplayFrame[]>([]);
+  const [loadingShare, setLoadingShare] = useState(false);
+
+  const openShareModal = async () => {
+    setLoadingShare(true);
+    try {
+      const res = await api.getReplay(tradeId, ['M1', 'M5', 'M15', 'M30', 'H1']);
+      setShareFrames(res.frames);
+      setShowShareModal(true);
+    } catch {
+      // Fallback empty frames if bars not loaded yet
+      setShareFrames([]);
+      setShowShareModal(true);
+    } finally {
+      setLoadingShare(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -66,9 +86,18 @@ export default function TradeDetail() {
         >
           ← Back to trades
         </Link>
-        <Link to={`/replay?trade=${tradeId}`} className="btn">
-          ▶ Replay
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openShareModal}
+            disabled={loadingShare}
+            className="btn bg-indigo-600/30 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/40"
+          >
+            {loadingShare ? 'Loading Card…' : '📸 Share Card'}
+          </button>
+          <Link to={`/replay?trade=${tradeId}`} className="btn">
+            ▶ Replay
+          </Link>
+        </div>
       </div>
       <AsyncBoundary
         loading={loading}
@@ -76,8 +105,22 @@ export default function TradeDetail() {
         onRetry={reload}
         loadingLabel="Loading trade…"
       >
-        {data && <TradeBody trade={data} onChanged={reload} />}
+        {data && (
+          <TradeBody
+            trade={data}
+            onChanged={reload}
+            onOpenShare={openShareModal}
+          />
+        )}
       </AsyncBoundary>
+
+      {showShareModal && data && (
+        <SocialShareModal
+          trade={data}
+          frames={shareFrames}
+          onClose={() => setShowShareModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -85,9 +128,11 @@ export default function TradeDetail() {
 function TradeBody({
   trade,
   onChanged,
+  onOpenShare,
 }: {
   trade: TTradeDetail;
   onChanged: () => void;
+  onOpenShare: () => void;
 }) {
   const { setups } = useFilters();
   const [stop, setStop] = useState(trade.stop_price?.toString() ?? '');
@@ -204,7 +249,7 @@ function TradeBody({
       </div>
 
       {/* Chart with position indicator */}
-      <TradeChartCard trade={trade} onChanged={onChanged} />
+      <TradeChartCard trade={trade} onChanged={onChanged} onOpenShare={onOpenShare} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Edit stop / target */}
@@ -297,9 +342,11 @@ const CHART_TFS = ['M5', 'M15', 'M30', 'H1'];
 function TradeChartCard({
   trade,
   onChanged,
+  onOpenShare,
 }: {
   trade: TTradeDetail;
   onChanged: () => void;
+  onOpenShare: () => void;
 }) {
   const [tf, setTf] = useState(trade.preferred_tf || 'M30');
   const [refetching, setRefetching] = useState(false);
@@ -376,6 +423,13 @@ function TradeChartCard({
             title="Re-pull price bars around this trade from OANDA"
           >
             {refetching ? 'Fetching…' : '↻ Bars'}
+          </button>
+          <button
+            onClick={onOpenShare}
+            className="btn text-xs bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border-indigo-500/40"
+            title="Generate social share graphic"
+          >
+            📸 Share Card
           </button>
           <Link to={`/replay?trade=${trade.id}`} className="btn text-xs">
             Full replay →

@@ -6,8 +6,9 @@ import { useApi } from '../hooks/useApi';
 import { useFilters } from '../store/FilterContext';
 import { AsyncBoundary } from '../components/states';
 import ReplayGrid from '../components/ReplayGrid';
+import SocialShareModal from '../components/SocialShareModal';
 import { frameTimes, snapToBar } from '../utils/replay';
-import type { ReplayResponse, ReplayFrame, Trade } from '../types';
+import type { ReplayResponse, ReplayFrame, Trade, TradeDetail } from '../types';
 import { formatMoney, formatDateTime } from '../utils/format';
 
 const SPEEDS = [
@@ -143,7 +144,19 @@ function ReplayView({
   const [speed, setSpeed] = useState(SPEEDS[1].ms);
   const [layout, setLayout] = useState<'grid' | 'single'>('grid');
   const [showBox, setShowBox] = useState(true);
+  const [showShare, setShowShare] = useState(false);
+  const [tradeDetail, setTradeDetail] = useState<TradeDetail | null>(null);
   const timerRef = useRef<number | null>(null);
+
+  const openShare = async () => {
+    try {
+      const full = await api.getTrade(tradeId);
+      setTradeDetail(full);
+    } catch {
+      /* ignore, fallback synthetic trade will be used */
+    }
+    setShowShare(true);
+  };
 
   // Frames shown: all four in grid view, just the primary TF in single view.
   const shownFrames = useMemo(() => {
@@ -258,6 +271,13 @@ function ReplayView({
               >
                 ◱ Box
               </button>
+              <button
+                onClick={openShare}
+                className="btn px-2 py-0.5 text-xs bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border-indigo-500/40"
+                title="Generate social share graphic"
+              >
+                📸 Share Card
+              </button>
             </div>
             <div className="num text-xs text-slate-500">
               {driver && <>{driver.tf} bar {clamped} / {total}</>}
@@ -274,71 +294,66 @@ function ReplayView({
           primaryTf={data.primary_tf}
           showBox={showBox}
         />
-      </div>
 
-      {/* Controls */}
-      <div className="card flex flex-wrap items-center gap-3 p-4">
-        <button
-          className="btn btn-primary"
-          onClick={() => {
-            if (atEnd) setReveal(entryIdx);
-            setPlaying((p) => !p);
-          }}
-        >
-          {playing ? '❚❚ Pause' : atEnd ? '↻ Replay' : '▶ Play'}
-        </button>
-        <button
-          className="btn"
-          onClick={() => {
-            setPlaying(false);
-            setReveal((r) => Math.max(1, r - 1));
-          }}
-        >
-          ◀ Step
-        </button>
-        <button
-          className="btn"
-          onClick={() => {
-            setPlaying(false);
-            setReveal((r) => Math.min(total, r + 1));
-          }}
-        >
-          Step ▶
-        </button>
-        <button
-          className="btn"
-          onClick={() => {
-            setPlaying(false);
-            setReveal(entryIdx);
-          }}
-        >
-          ⟲ Reset
-        </button>
-
-        <input
-          type="range"
-          min={1}
-          max={total}
-          value={clamped}
-          onChange={(e) => {
-            setPlaying(false);
-            setReveal(Number(e.target.value));
-          }}
-          className="min-w-[10rem] flex-1 accent-indigo-500"
-        />
-
-        <div className="flex items-center gap-1">
-          {SPEEDS.map((s) => (
+        {/* Playback bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-3">
+          <div className="flex items-center gap-2">
             <button
-              key={s.ms}
-              className={`btn px-2 py-1 text-xs ${
-                speed === s.ms ? 'border-indigo-500 text-indigo-300' : ''
-              }`}
-              onClick={() => setSpeed(s.ms)}
+              className="btn px-3 text-xs"
+              onClick={() => setReveal(1)}
+              title="Jump to start"
             >
-              {s.label}
+              ⏮
             </button>
-          ))}
+            <button
+              className="btn px-3 text-xs"
+              onClick={() => { setPlaying(false); setReveal((r) => Math.max(1, r - 1)); }}
+              title="Step backward 1 bar"
+            >
+              ◀ Step
+            </button>
+            <button
+              className="btn px-4 text-xs font-semibold text-indigo-400"
+              onClick={() => {
+                if (atEnd) setReveal(1);
+                setPlaying((p) => !p);
+              }}
+            >
+              {playing ? '⏸ Pause' : atEnd ? '↺ Replay' : '▶ Play'}
+            </button>
+            <button
+              className="btn px-3 text-xs"
+              onClick={() => { setPlaying(false); setReveal((r) => Math.min(total, r + 1)); }}
+              title="Step forward 1 bar"
+            >
+              Step ▶
+            </button>
+            <button
+              className="btn px-3 text-xs"
+              onClick={() => setReveal(total)}
+              title="Jump to latest"
+            >
+              ⏭
+            </button>
+          </div>
+
+          {/* Speed picker */}
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] uppercase tracking-wide text-slate-500">
+              Speed
+            </span>
+            {SPEEDS.map((s) => (
+              <button
+                key={s.ms}
+                className={`btn px-2 py-1 text-xs ${
+                  speed === s.ms ? 'border-indigo-500 text-indigo-300' : ''
+                }`}
+                onClick={() => setSpeed(s.ms)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -349,6 +364,45 @@ function ReplayView({
         <Stat label="Stop" value={data.markers.stop?.price ?? '—'} />
         <Stat label="Target" value={data.markers.target?.price ?? '—'} />
       </div>
+
+      {showShare && (
+        <SocialShareModal
+          trade={
+            tradeDetail || {
+              id: tradeId,
+              account_id: 1,
+              instrument: data.instrument,
+              direction: data.direction,
+              entry_time: data.markers.entry?.t || '',
+              exit_time: data.markers.exit?.t || '',
+              entry_price: data.markers.entry?.price || 0,
+              exit_price: data.markers.exit?.price || 0,
+              stop_price: data.markers.stop?.price ?? null,
+              target_price: data.markers.target?.price ?? null,
+              size: 1,
+              gross_pnl: 0,
+              commission: 0,
+              swap: 0,
+              net_pnl: 0,
+              r_multiple: null,
+              mae: null,
+              mfe: null,
+              hold_time_sec: null,
+              session: 'london',
+              source: 'replay',
+              ext_id: null,
+              setup_id: null,
+              created_at: new Date().toISOString(),
+              executions: [],
+              tags: [],
+              notes: [],
+              screenshots: [],
+            }
+          }
+          frames={data.frames}
+          onClose={() => setShowShare(false)}
+        />
+      )}
     </div>
   );
 }
