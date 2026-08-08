@@ -10,8 +10,8 @@ services:
       AI_PROVIDER: "${AI_PROVIDER:-ollama}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      AI_MODEL: "${AI_MODEL:-qwen2.5:9b}"
-      AI_MODEL_FALLBACK: "${AI_MODEL_FALLBACK:-qwen2.5:9b}"
+      AI_MODEL: "${AI_MODEL:-qwen3.5:9b}"
+      AI_MODEL_FALLBACK: "${AI_MODEL_FALLBACK:-qwen3.5:9b}"
       OANDA_API_TOKEN: "${OANDA_API_TOKEN:-}"
       OANDA_ENV: "${OANDA_ENV:-practice}"
     extra_hosts:

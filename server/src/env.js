@@ -42,6 +42,6 @@ export const AI_PROVIDER = (
   process.env.AI_PROVIDER || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : 'ollama')
 ).toLowerCase();
 export const AI_MODEL =
-  process.env.AI_MODEL || (AI_PROVIDER === 'ollama' ? 'qwen2.5:9b' : 'claude-opus-4-8');
+  process.env.AI_MODEL || (AI_PROVIDER === 'ollama' ? 'qwen3.5:9b' : 'claude-opus-4-8');
 export const AI_MODEL_FALLBACK =
-  process.env.AI_MODEL_FALLBACK || (AI_PROVIDER === 'ollama' ? 'qwen2.5:9b' : 'claude-sonnet-5');
+  process.env.AI_MODEL_FALLBACK || (AI_PROVIDER === 'ollama' ? 'qwen3.5:9b' : 'claude-sonnet-5');
