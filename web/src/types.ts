@@ -470,6 +470,9 @@ export interface NewsStatus {
   earliest: string | null;
   latest: string | null;
   last_refresh: string | null;
+  refreshing?: boolean;
+  auto?: boolean;
+  last_error?: string | null;
 }
 
 export interface PortfolioAccount extends PropStats {

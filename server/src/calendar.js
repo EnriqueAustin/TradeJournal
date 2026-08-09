@@ -159,6 +159,50 @@ export function getNews(q = {}) {
     .all(params);
 }
 
+// ---------- background scheduler ----------
+// Keeps the cache warm and pulls fresh actuals as ForexFactory publishes them,
+// independent of any client. Survives client resets because it lives on the
+// server; on server boot we refresh once, then poll on an interval.
+let schedulerTimer = null;
+let refreshing = false;
+let lastError = null;
+
+/** Refresh guarded against overlapping runs; never throws. */
+export async function safeRefresh(feeds) {
+  if (refreshing) return { skipped: true };
+  refreshing = true;
+  try {
+    const r = await refreshNews(feeds);
+    lastError = null;
+    return r;
+  } catch (e) {
+    lastError = e.message;
+    console.error('[news] refresh failed:', e.message);
+    return { error: e.message };
+  } finally {
+    refreshing = false;
+  }
+}
+
+export function startNewsScheduler(intervalSec = 300) {
+  if (process.env.NODE_ENV === 'test') return null;
+  stopNewsScheduler();
+  // Kick off an initial fetch shortly after boot without blocking startup.
+  setTimeout(() => safeRefresh(), 1000).unref?.();
+  const ms = Math.max(60, intervalSec) * 1000;
+  schedulerTimer = setInterval(() => safeRefresh(), ms);
+  schedulerTimer.unref?.();
+  console.log(`[news] scheduler running every ${Math.round(ms / 1000)}s`);
+  return schedulerTimer;
+}
+
+export function stopNewsScheduler() {
+  if (schedulerTimer) {
+    clearInterval(schedulerTimer);
+    schedulerTimer = null;
+  }
+}
+
 export function newsStatus() {
   const row = db
     .prepare(
@@ -174,5 +218,8 @@ export function newsStatus() {
     earliest: row.earliest || null,
     latest: row.latest || null,
     last_refresh: row.last_refresh || null,
+    refreshing,
+    auto: schedulerTimer != null,
+    last_error: lastError,
   };
 }
