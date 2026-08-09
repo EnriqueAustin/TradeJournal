@@ -12,6 +12,7 @@ import { parseImport } from './import.js';
 import { parseBarsCsv, getBarsForTf, upsertBars, TF_MINUTES } from './bars.js';
 import { fetchOandaM1, oandaConfigured, oandaSymbol } from './marketdata.js';
 import { aiReview, autoTagTrades, getAiConfig } from './ai.js';
+import { refreshNews, getNews, newsStatus } from './calendar.js';
 import {
   sessionFromTime,
   normalizeInstrument,
@@ -700,6 +701,21 @@ app.get('/api/stats/streaks', (req, res) => res.json(streaks(req.query)));
 app.get('/api/stats/tilt', (req, res) => res.json(tilt(req.query)));
 app.get('/api/stats/optimizer', (req, res) => res.json(optimizer(req.query)));
 app.get('/api/stats/portfolio', (req, res) => res.json(portfolio(req.query)));
+
+// ---------- Economic calendar / news ----------
+app.get('/api/news', (req, res) => res.json(getNews(req.query)));
+app.get('/api/news/status', (req, res) => res.json(newsStatus()));
+app.post('/api/news/refresh', async (req, res) => {
+  try {
+    const feeds = req.body?.feeds;
+    const result = await refreshNews(
+      Array.isArray(feeds) && feeds.length ? feeds : undefined
+    );
+    res.json({ ...result, status: newsStatus() });
+  } catch (e) {
+    res.status(502).json({ error: `News refresh failed: ${e.message}` });
+  }
+});
 
 // ---------- Import ----------
 // Convert a parsed trade's broker-local times (stored wall-clock-as-UTC) into

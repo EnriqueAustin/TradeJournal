@@ -452,6 +452,26 @@ export interface AiConfig {
   configured: boolean;
 }
 
+export type NewsImpact = 'high' | 'medium' | 'low' | 'holiday';
+
+export interface NewsEvent {
+  id: string;
+  dt: string; // ISO UTC
+  currency: string;
+  impact: NewsImpact;
+  title: string;
+  forecast: string | null;
+  previous: string | null;
+  actual: string | null;
+}
+
+export interface NewsStatus {
+  count: number;
+  earliest: string | null;
+  latest: string | null;
+  last_refresh: string | null;
+}
+
 export interface PortfolioAccount extends PropStats {
   name: string;
   broker: string | null;

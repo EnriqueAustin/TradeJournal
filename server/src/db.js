@@ -146,6 +146,20 @@ export function migrate() {
       updated_at TEXT DEFAULT (datetime('now')),
       PRIMARY KEY (account_id, ext_id)
     );
+
+    CREATE TABLE IF NOT EXISTS news_events (
+      id TEXT PRIMARY KEY,           -- stable hash of currency+dt+title
+      dt TEXT NOT NULL,              -- event time, ISO UTC
+      currency TEXT,                 -- affected currency, e.g. USD
+      impact TEXT,                   -- high | medium | low | holiday
+      title TEXT,
+      forecast TEXT,
+      previous TEXT,
+      actual TEXT,
+      source TEXT DEFAULT 'forexfactory',
+      fetched_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_news_dt ON news_events(dt);
   `);
 
   // Phase 1: add trades.setup_id (guarded so re-running the migration is safe).
