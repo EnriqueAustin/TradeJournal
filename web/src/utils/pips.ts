@@ -42,6 +42,23 @@ export function getPipMultiplier(instrument: string): number {
 }
 
 /**
+ * Approximate USD value of one pip per 1.0 standard lot, for a USD account.
+ * These are broker-dependent (especially index CFDs), so the calculator always
+ * lets the user override the value; this is just a sensible starting point.
+ * - XAUUSD: 1 lot = 100oz, 1 pip = $0.10 move → $10 / pip / lot
+ * - US100 / indices: 1 pip = 1 point, common CFD spec → $1 / point / lot
+ * - JPY pairs: ~$9.1 / pip / lot (varies with the USDJPY rate)
+ * - standard forex: 1 lot = 100k, 1 pip = 0.0001 → $10 / pip / lot
+ */
+export function defaultPipValuePerLot(instrument: string): number {
+  const m = getPipMultiplier(instrument);
+  if (m === 10) return 10; // gold
+  if (m === 1) return 1; // indices
+  if (m === 100) return 9.1; // JPY pairs
+  return 10; // standard forex
+}
+
+/**
  * Calculate comprehensive pip move metrics for a trade.
  */
 export function calculateTradePips(

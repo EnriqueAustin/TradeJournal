@@ -37,6 +37,8 @@ import type {
   NewBacktestTrade,
   AiReview,
   AiConfig,
+  NewsEvent,
+  NewsStatus,
 } from '../types';
 
 const BASE = '/api';
@@ -285,6 +287,27 @@ export const api = {
     const s = p.toString();
     return request<StatsSummary>(`/backtest/stats${s ? `?${s}` : ''}`);
   },
+  // Economic calendar / news
+  getNews: (q: {
+    from?: string;
+    to?: string;
+    impact?: string;
+    currency?: string;
+  } = {}) => {
+    const p = new URLSearchParams();
+    if (q.from) p.set('from', q.from);
+    if (q.to) p.set('to', q.to);
+    if (q.impact) p.set('impact', q.impact);
+    if (q.currency) p.set('currency', q.currency);
+    const s = p.toString();
+    return request<NewsEvent[]>(`/news${s ? `?${s}` : ''}`);
+  },
+  getNewsStatus: () => request<NewsStatus>('/news/status'),
+  refreshNews: (feeds?: string[]) =>
+    request<{ inserted: number; feeds: string[]; status: NewsStatus }>(
+      '/news/refresh',
+      { method: 'POST', body: JSON.stringify(feeds ? { feeds } : {}) }
+    ),
   getAiConfig: () => request<AiConfig>('/ai/config'),
   aiReview: (body: Record<string, unknown>) =>
     request<AiReview>('/ai/review', {

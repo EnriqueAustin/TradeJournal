@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
@@ -6,12 +6,15 @@ import { useFilters } from '../store/FilterContext';
 import { AsyncBoundary } from '../components/states';
 import CandleChart from '../components/CandleChart';
 import { buildMarkers, buildPriceLines, buildPositionBox } from '../utils/replay';
+import { newsToMarkers, currenciesForInstrument } from '../utils/news';
+import NewsPanel from '../components/NewsPanel';
 import SocialShareModal from '../components/SocialShareModal';
 import type {
   TradeDetail as TTradeDetail,
   TagCategory,
   ReplayResponse,
   ReplayFrame,
+  NewsEvent,
 } from '../types';
 import {
   formatMoney,
@@ -375,8 +378,55 @@ function TradeChartCard({
   };
 
   const frame = data?.frames.find((f) => f.tf === tf) ?? data?.frames[0];
-  const markers =
+
+  // Economic-calendar window: the span covered by the loaded bars.
+  const [from, to] = useMemo(() => {
+    const bars = frame?.bars ?? [];
+    if (bars.length === 0) return [null, null] as const;
+    const times = bars.map((b) => b.t).sort();
+    return [times[0], times[times.length - 1]] as const;
+  }, [frame]);
+
+  const currencies = useMemo(
+    () => currenciesForInstrument(trade.instrument)?.join(',') ?? undefined,
+    [trade.instrument]
+  );
+
+  const [refreshing, setRefreshing] = useState(false);
+  const news = useApi<NewsEvent[]>(
+    () =>
+      from && to
+        ? api.getNews({ from, to, impact: 'high,medium', currency: currencies })
+        : Promise.resolve([]),
+    [from, to, currencies]
+  );
+  const newsStatus = useApi(() => api.getNewsStatus(), []);
+
+  const refreshNews = async () => {
+    setRefreshing(true);
+    try {
+      await api.refreshNews();
+      news.reload();
+      newsStatus.reload();
+    } catch {
+      /* non-fatal — keep whatever is cached */
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const newsMarkers = useMemo(
+    () => newsToMarkers(news.data ?? [], 'medium'),
+    [news.data]
+  );
+
+  const tradeMarkers =
     data && frame ? buildMarkers(frame.bars, data.markers, data.direction) : [];
+  // lightweight-charts requires markers in ascending time order; trade and news
+  // markers interleave, so sort the merged set before handing it to the chart.
+  const markers = [...tradeMarkers, ...newsMarkers].sort(
+    (a, b) => (a.time as number) - (b.time as number)
+  );
   const priceLines = data ? buildPriceLines(data.markers) : [];
   const positionBox =
     data && frame ? buildPositionBox(frame.bars, data.markers, data.direction) : null;
@@ -392,6 +442,7 @@ function TradeChartCard({
   };
 
   return (
+    <>
     <div className="card p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-slate-200">Chart</h2>
@@ -457,6 +508,20 @@ function TradeChartCard({
         )}
       </AsyncBoundary>
     </div>
+    <NewsPanel
+      events={news.data ?? []}
+      status={newsStatus.data}
+      onRefresh={refreshNews}
+      refreshing={refreshing}
+      entryTime={trade.entry_time}
+      exitTime={trade.exit_time}
+      emptyHint={
+        news.error
+          ? 'Could not load news for this window.'
+          : undefined
+      }
+    />
+    </>
   );
 }
 

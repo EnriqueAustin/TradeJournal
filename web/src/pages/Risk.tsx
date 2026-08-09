@@ -14,6 +14,7 @@ import {
 } from '../utils/format';
 import type { PropStats } from '../types';
 import { getPreset } from '../data/propPresets';
+import RiskCalculator from '../components/RiskCalculator';
 
 function SectionCard({
   title,
@@ -453,6 +454,18 @@ export default function Risk() {
 
       {/* Prop rules compliance — full rule-by-rule status */}
       {p && <PropRulesCompliance p={p} currency={currency} />}
+
+      {/* Position-size / risk calculator */}
+      <SectionCard
+        title="Position Size Calculator"
+        right={<span className="text-xs text-slate-500">lot size from risk %</span>}
+      >
+        <RiskCalculator
+          key={filters.account ?? 'all'}
+          currency={currency}
+          equity={p?.current_equity ?? null}
+        />
+      </SectionCard>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         {/* Adherence */}
