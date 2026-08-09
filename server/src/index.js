@@ -17,6 +17,7 @@ import {
   getNews,
   newsStatus,
   startNewsScheduler,
+  ingestNews,
 } from './calendar.js';
 import {
   sessionFromTime,
@@ -721,6 +722,19 @@ app.post('/api/news/refresh', async (req, res) => {
       .json({ error: `News refresh failed: ${result.error}`, status: newsStatus() });
   }
   res.json({ ...result, status: newsStatus() });
+});
+
+// Ingest raw ForexFactory JSON fetched by a client on a residential IP (the
+// server's own outbound IP is Cloudflare-blocked). Body is either a bare FF
+// array or { thisweek:[...], nextweek:[...] }. Uses a larger body limit than
+// the global parser since a full week's feed can exceed the 100kb default.
+app.post('/api/news/ingest', express.json({ limit: '10mb' }), (req, res) => {
+  try {
+    const result = ingestNews(req.body);
+    res.json({ ...result, status: newsStatus() });
+  } catch (e) {
+    res.status(400).json({ error: `News ingest failed: ${e.message}` });
+  }
 });
 
 // ---------- Import ----------
@@ -1484,5 +1498,10 @@ app.listen(PORT, () => {
   console.log(`Trade Journal API listening on http://localhost:${PORT}`);
   // Poll ForexFactory in the background so cached actuals stay fresh even when
   // no client is open. Interval configurable via NEWS_REFRESH_SEC (min 60s).
-  startNewsScheduler(Number(process.env.NEWS_REFRESH_SEC) || 300);
+  // Set NEWS_REFRESH_SEC=0 to disable server-side polling entirely — use this
+  // when data is supplied via /api/news/ingest from a residential IP instead,
+  // so the server never hits (and logs 429s from) the Cloudflare-blocked feed.
+  const newsSec = Number(process.env.NEWS_REFRESH_SEC ?? 300);
+  if (newsSec > 0) startNewsScheduler(newsSec);
+  else console.log('[news] server-side polling disabled (NEWS_REFRESH_SEC=0)');
 });

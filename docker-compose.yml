@@ -6,6 +6,11 @@ services:
     build: ./server
     environment:
       PORT: "4000"
+      # Cloudflare blocks the container's outbound IP from the ForexFactory feed,
+      # so server-side polling is disabled — calendar data is supplied instead by
+      # scripts/ingest-news.mjs running on the host (a residential IP) and POSTed
+      # to /api/news/ingest. Set back to 300 to re-enable in-server polling.
+      NEWS_REFRESH_SEC: "${NEWS_REFRESH_SEC:-0}"
       EA_TOKEN: "${EA_TOKEN:-changeme}"
       AI_PROVIDER: "${AI_PROVIDER:-ollama}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"

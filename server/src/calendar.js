@@ -35,14 +35,58 @@ function eventId(currency, dt, title) {
     .slice(0, 16);
 }
 
-async function fetchFeed(url) {
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json', 'User-Agent': 'TradeJournal/1.0' },
-  });
-  if (!res.ok) throw new Error(`ForexFactory ${res.status} for ${url}`);
-  const json = await res.json();
-  if (!Array.isArray(json)) throw new Error('Unexpected ForexFactory payload');
-  return json;
+// ForexFactory's CDN aggressively throttles non-browser clients (429) and can
+// briefly 404 a feed while it republishes. Use a browser-like User-Agent and
+// retry transient statuses with exponential backoff before giving up.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A real browser UA — the plain 'TradeJournal/1.0' agent gets 429'd on sight.
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+// A full browser header set — Cloudflare fingerprints on more than just the UA,
+// so send the sec-ch-ua / sec-fetch hints a real Chrome request carries.
+const BROWSER_HEADERS = {
+  'User-Agent': BROWSER_UA,
+  Accept: 'application/json,text/plain,*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Cache-Control': 'no-cache',
+  Referer: 'https://www.forexfactory.com/',
+  Origin: 'https://www.forexfactory.com',
+  'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Windows"',
+  'Sec-Fetch-Dest': 'empty',
+  'Sec-Fetch-Mode': 'cors',
+  'Sec-Fetch-Site': 'same-site',
+};
+
+async function fetchFeed(url, { retries = 2, baseDelayMs = 2000 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) await sleep(baseDelayMs * 2 ** (attempt - 1));
+    let res;
+    try {
+      res = await fetch(url, { headers: BROWSER_HEADERS });
+    } catch (e) {
+      lastErr = new Error(`ForexFactory network error for ${url}: ${e.message}`);
+      continue;
+    }
+    // A 404 is not transient here — ForexFactory just hasn't published that
+    // week's file yet — so surface it immediately instead of hammering the CDN.
+    if (res.status === 404) throw new Error(`ForexFactory 404 for ${url}`);
+    // 429 (rate limit) and 5xx are transient; back off and retry.
+    if (res.status === 429 || res.status >= 500) {
+      lastErr = new Error(`ForexFactory ${res.status} for ${url}`);
+      continue;
+    }
+    if (!res.ok) throw new Error(`ForexFactory ${res.status} for ${url}`);
+    const json = await res.json();
+    if (!Array.isArray(json)) throw new Error('Unexpected ForexFactory payload');
+    return json;
+  }
+  throw lastErr;
 }
 
 const upsertStmt = () =>
@@ -57,6 +101,69 @@ const upsertStmt = () =>
       fetched_at = excluded.fetched_at
   `);
 
+// Map raw ForexFactory feed items into upsert rows, skipping anything without a
+// parseable date or title. Shared by the server-side fetch and the browser/CLI
+// ingest path so both normalize identically.
+function mapFeedItems(items) {
+  const rows = [];
+  if (!Array.isArray(items)) return rows;
+  for (const it of items) {
+    const dt = toUtcIso(it.date);
+    if (!dt) continue;
+    const currency = String(it.country || it.currency || '').toUpperCase();
+    const title = String(it.title || '').trim();
+    if (!title) continue;
+    rows.push({
+      id: eventId(currency, dt, title),
+      dt,
+      currency,
+      impact: normImpact(it.impact),
+      title,
+      forecast: it.forecast ? String(it.forecast) : null,
+      previous: it.previous ? String(it.previous) : null,
+      actual: it.actual ? String(it.actual) : null,
+    });
+  }
+  return rows;
+}
+
+// Upsert mapped rows in a single transaction; returns the number written.
+function upsertRows(rows) {
+  const stmt = upsertStmt();
+  let count = 0;
+  const tx = db.transaction((list) => {
+    for (const r of list) {
+      stmt.run(r);
+      count++;
+    }
+  });
+  tx(rows);
+  return count;
+}
+
+/**
+ * Ingest raw ForexFactory feed data supplied by a client (browser or CLI on a
+ * residential IP), bypassing the CDN block on the server's own outbound IP.
+ * Accepts either a bare array of FF items, or an object keyed by feed name
+ * ({ thisweek: [...], nextweek: [...] }) as posted by scripts/ingest-news.
+ * @returns {{ inserted:number, received:number }}
+ */
+export function ingestNews(payload) {
+  let items = [];
+  if (Array.isArray(payload)) {
+    items = payload;
+  } else if (payload && typeof payload === 'object') {
+    for (const v of Object.values(payload)) {
+      if (Array.isArray(v)) items = items.concat(v);
+    }
+  }
+  if (!items.length) throw new Error('No calendar items in payload');
+  const rows = mapFeedItems(items);
+  const inserted = upsertRows(rows);
+  lastError = null;
+  return { inserted, received: items.length };
+}
+
 /**
  * Fetch one or more ForexFactory weekly feeds and upsert them.
  * @param {string[]} feeds subset of ['lastweek','thisweek','nextweek']
@@ -64,8 +171,6 @@ const upsertStmt = () =>
  */
 export async function refreshNews(feeds = ['thisweek', 'nextweek']) {
   const want = feeds.filter((f) => FF_FEEDS[f]);
-  const stmt = upsertStmt();
-  let count = 0;
 
   const rows = [];
   const errors = [];
@@ -80,23 +185,7 @@ export async function refreshNews(feeds = ['thisweek', 'nextweek']) {
       errors.push(`${f}: ${e.message}`);
       continue;
     }
-    for (const it of items) {
-      const dt = toUtcIso(it.date);
-      if (!dt) continue;
-      const currency = String(it.country || it.currency || '').toUpperCase();
-      const title = String(it.title || '').trim();
-      if (!title) continue;
-      rows.push({
-        id: eventId(currency, dt, title),
-        dt,
-        currency,
-        impact: normImpact(it.impact),
-        title,
-        forecast: it.forecast ? String(it.forecast) : null,
-        previous: it.previous ? String(it.previous) : null,
-        actual: it.actual ? String(it.actual) : null,
-      });
-    }
+    rows.push(...mapFeedItems(items));
   }
 
   // All requested feeds failed → surface the error so the caller can 502.
@@ -104,13 +193,7 @@ export async function refreshNews(feeds = ['thisweek', 'nextweek']) {
     throw new Error(errors.join('; ') || 'No feeds fetched');
   }
 
-  const tx = db.transaction((list) => {
-    for (const r of list) {
-      stmt.run(r);
-      count++;
-    }
-  });
-  tx(rows);
+  const count = upsertRows(rows);
   return { inserted: count, feeds: want, errors };
 }
 

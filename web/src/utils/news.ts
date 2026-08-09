@@ -88,6 +88,63 @@ export const IMPACT_RANK: Record<NewsImpact, number> = {
   holiday: 0,
 };
 
+// Currency → flag emoji + readable name, for the calendar's country column.
+// The ForexFactory feed keys events by the 3-letter currency code.
+export const CURRENCY_FLAG: Record<string, string> = {
+  USD: '🇺🇸',
+  EUR: '🇪🇺',
+  GBP: '🇬🇧',
+  JPY: '🇯🇵',
+  AUD: '🇦🇺',
+  NZD: '🇳🇿',
+  CAD: '🇨🇦',
+  CHF: '🇨🇭',
+  CNY: '🇨🇳',
+  HKD: '🇭🇰',
+  SGD: '🇸🇬',
+  SEK: '🇸🇪',
+  NOK: '🇳🇴',
+  MXN: '🇲🇽',
+  ZAR: '🇿🇦',
+  INR: '🇮🇳',
+  BRL: '🇧🇷',
+  KRW: '🇰🇷',
+  ALL: '🌐',
+};
+
+export function currencyFlag(ccy: string): string {
+  return CURRENCY_FLAG[(ccy || '').toUpperCase()] || '🏳️';
+}
+
+/**
+ * Raw beat/miss of an actual vs its forecast. Neutral direction — 'up' just
+ * means actual > forecast (not "good"); the reader decides what that means for
+ * a given indicator. Returns null when either value isn't numeric or they tie.
+ */
+export function beatMiss(
+  actual: string | null,
+  forecast: string | null
+): 'up' | 'down' | null {
+  const a = parseNewsValue(actual);
+  const f = parseNewsValue(forecast);
+  if (a == null || f == null || a === f) return null;
+  return a > f ? 'up' : 'down';
+}
+
+/** "2h 15m" / "15m" / "45s" / "now" — compact countdown for a future instant. */
+export function formatCountdown(ms: number): string {
+  if (ms <= 0) return 'now';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (h < 24) return rem ? `${h}h ${rem}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
+}
+
 // Which currencies are relevant to a traded instrument, so overlays aren't
 // swamped by unrelated events. XAUUSD/US100 are USD-driven.
 export function currenciesForInstrument(instrument: string): string[] | null {

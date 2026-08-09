@@ -6,7 +6,7 @@ const links = [
   { to: '/playbook', label: 'Playbook', icon: '◎' },
   { to: '/analytics', label: 'Analytics', icon: '◔' },
   { to: '/risk', label: 'Risk', icon: '⚠' },
-  { to: '/calendar', label: 'Calendar', icon: '📅' },
+  { to: '/calendar', label: 'Calendar', icon: '▤' },
   { to: '/portfolio', label: 'Portfolio', icon: '⌘' },
   { to: '/replay', label: 'Replay', icon: '▶' },
   { to: '/backtest', label: 'Backtest', icon: '⟲' },
