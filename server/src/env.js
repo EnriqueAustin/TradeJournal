@@ -45,3 +45,6 @@ export const AI_MODEL =
   process.env.AI_MODEL || (AI_PROVIDER === 'ollama' ? 'qwen3.5:9b' : 'claude-opus-4-8');
 export const AI_MODEL_FALLBACK =
   process.env.AI_MODEL_FALLBACK || (AI_PROVIDER === 'ollama' ? 'qwen3.5:9b' : 'claude-sonnet-5');
+export const AI_REQUEST_TIMEOUT_MS = Number(
+  process.env.AI_REQUEST_TIMEOUT_MS || 120000
+);

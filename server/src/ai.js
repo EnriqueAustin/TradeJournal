@@ -7,6 +7,7 @@ import {
   OLLAMA_BASE_URL,
   AI_MODEL,
   AI_MODEL_FALLBACK,
+  AI_REQUEST_TIMEOUT_MS,
 } from './env.js';
 
 export function getAiConfig() {
@@ -111,8 +112,21 @@ function extractJson(text) {
   }
 }
 
+async function fetchWithTimeout(url, init = {}, timeoutMs = AI_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`Request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Low-level LLM caller supporting both Anthropic API and Ollama local server
-async function callLLM({ system, prompt, provider, model }) {
+export async function callLLM({ system, prompt, provider, model, timeoutMs = AI_REQUEST_TIMEOUT_MS }) {
   const activeProvider = (provider || AI_PROVIDER).toLowerCase();
   const modelsToTry = [...new Set([model, AI_MODEL, AI_MODEL_FALLBACK].filter(Boolean))];
   let lastErr = null;
@@ -123,19 +137,23 @@ async function callLLM({ system, prompt, provider, model }) {
       try {
         // 1. Try OpenAI-compatible endpoint first
         try {
-          const v1Res = await fetch(`${cleanBaseUrl}/v1/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: targetModel,
-              messages: [
-                { role: 'system', content: system },
-                { role: 'user', content: prompt },
-              ],
-              temperature: 0.2,
-              response_format: { type: 'json_object' },
-            }),
-          });
+          const v1Res = await fetchWithTimeout(
+            `${cleanBaseUrl}/v1/chat/completions`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: targetModel,
+                messages: [
+                  { role: 'system', content: system },
+                  { role: 'user', content: prompt },
+                ],
+                temperature: 0.2,
+                response_format: { type: 'json_object' },
+              }),
+            },
+            timeoutMs
+          );
           if (v1Res.ok) {
             const json = await v1Res.json();
             const content = json.choices?.[0]?.message?.content;
@@ -146,19 +164,23 @@ async function callLLM({ system, prompt, provider, model }) {
         }
 
         // 2. Try native Ollama /api/chat endpoint
-        const apiRes = await fetch(`${cleanBaseUrl}/api/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: targetModel,
-            messages: [
-              { role: 'system', content: system },
-              { role: 'user', content: prompt },
-            ],
-            format: 'json',
-            stream: false,
-          }),
-        });
+        const apiRes = await fetchWithTimeout(
+          `${cleanBaseUrl}/api/chat`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: targetModel,
+              messages: [
+                { role: 'system', content: system },
+                { role: 'user', content: prompt },
+              ],
+              format: 'json',
+              stream: false,
+            }),
+          },
+          timeoutMs
+        );
 
         if (apiRes.ok) {
           const json = await apiRes.json();
