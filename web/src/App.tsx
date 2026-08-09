@@ -11,6 +11,7 @@ import Risk from './pages/Risk';
 import Replay from './pages/Replay';
 import Backtest from './pages/Backtest';
 import Portfolio from './pages/Portfolio';
+import CalendarPage from './pages/Calendar';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="playbook" element={<Playbook />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="risk" element={<Risk />} />
+        <Route path="calendar" element={<CalendarPage />} />
         <Route path="portfolio" element={<Portfolio />} />
         <Route path="replay" element={<Replay />} />
         <Route path="backtest" element={<Backtest />} />
