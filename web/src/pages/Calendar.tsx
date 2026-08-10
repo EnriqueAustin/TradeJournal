@@ -133,7 +133,24 @@ function EventRow({ e, isNext }: { e: NewsEvent; isNext: boolean }) {
       <td className="py-2 pr-3 align-middle">
         <CurrencyCell ccy={e.currency} />
       </td>
-      <td className="py-2 pr-3 align-middle text-sm text-slate-200">{e.title}</td>
+      <td className="py-2 pr-3 align-middle text-sm text-slate-200">
+        {e.url ? (
+          <a
+            href={e.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group inline-flex items-center gap-1 hover:text-indigo-300"
+            title="Open on ForexFactory"
+          >
+            {e.title}
+            <span className="text-[10px] text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">
+              ↗
+            </span>
+          </a>
+        ) : (
+          e.title
+        )}
+      </td>
       <td className="num whitespace-nowrap py-2 pr-3 text-right align-middle text-sm">
         <ActualCell e={e} />
       </td>

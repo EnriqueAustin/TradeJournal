@@ -463,6 +463,7 @@ export interface NewsEvent {
   forecast: string | null;
   previous: string | null;
   actual: string | null;
+  url?: string | null; // ForexFactory event permalink (from the browser scrape)
 }
 
 export interface NewsStatus {

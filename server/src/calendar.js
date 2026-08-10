@@ -91,12 +91,15 @@ async function fetchFeed(url, { retries = 2, baseDelayMs = 2000 } = {}) {
 
 const upsertStmt = () =>
   db.prepare(`
-    INSERT INTO news_events (id, dt, currency, impact, title, forecast, previous, actual, source, fetched_at)
-    VALUES (@id, @dt, @currency, @impact, @title, @forecast, @previous, @actual, 'forexfactory', datetime('now'))
+    INSERT INTO news_events (id, dt, currency, impact, title, forecast, previous, actual, url, source, fetched_at)
+    VALUES (@id, @dt, @currency, @impact, @title, @forecast, @previous, @actual, @url, 'forexfactory', datetime('now'))
     ON CONFLICT(id) DO UPDATE SET
       forecast = excluded.forecast,
       previous = excluded.previous,
-      actual   = excluded.actual,
+      -- actual/url only arrive from the browser scrape, not the JSON feed, so
+      -- keep the existing value when a source (the feed) supplies none.
+      actual   = COALESCE(excluded.actual, actual),
+      url      = COALESCE(excluded.url, url),
       impact   = excluded.impact,
       fetched_at = excluded.fetched_at
   `);
@@ -122,6 +125,7 @@ function mapFeedItems(items) {
       forecast: it.forecast ? String(it.forecast) : null,
       previous: it.previous ? String(it.previous) : null,
       actual: it.actual ? String(it.actual) : null,
+      url: it.url ? String(it.url) : null,
     });
   }
   return rows;
@@ -236,7 +240,7 @@ export function getNews(q = {}) {
   const limit = Math.min(Number(q.limit) || 500, 2000);
   return db
     .prepare(
-      `SELECT id, dt, currency, impact, title, forecast, previous, actual
+      `SELECT id, dt, currency, impact, title, forecast, previous, actual, url
          FROM news_events ${where} ORDER BY dt ASC LIMIT ${limit}`
     )
     .all(params);

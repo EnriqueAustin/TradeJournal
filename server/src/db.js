@@ -162,6 +162,13 @@ export function migrate() {
     CREATE INDEX IF NOT EXISTS idx_news_dt ON news_events(dt);
   `);
 
+  // Per-event ForexFactory permalink (from the browser userscript scrape) so
+  // the calendar can open an event's page on FF. Nullable + guarded.
+  const newsCols = db.prepare('PRAGMA table_info(news_events)').all();
+  if (!newsCols.some((c) => c.name === 'url')) {
+    db.exec('ALTER TABLE news_events ADD COLUMN url TEXT');
+  }
+
   // Phase 1: add trades.setup_id (guarded so re-running the migration is safe).
   const tradeCols = db.prepare('PRAGMA table_info(trades)').all();
   if (!tradeCols.some((c) => c.name === 'setup_id')) {
