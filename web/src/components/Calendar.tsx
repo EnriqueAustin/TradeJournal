@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { CalendarDay } from '../types';
 import { formatMoney } from '../utils/format';
+import DayTradesModal from './DayTradesModal';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -49,6 +50,8 @@ export default function Calendar({
     [days]
   );
 
+  const [openDay, setOpenDay] = useState<string | null>(null);
+
   return (
     <div>
       <div className="mb-2 grid grid-cols-7 gap-1.5">
@@ -68,10 +71,23 @@ export default function Calendar({
           ) : (
             <div
               key={c.day}
+              onClick={c.trade_count > 0 ? () => setOpenDay(c.day) : undefined}
+              role={c.trade_count > 0 ? 'button' : undefined}
+              tabIndex={c.trade_count > 0 ? 0 : undefined}
+              onKeyDown={
+                c.trade_count > 0
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setOpenDay(c.day);
+                      }
+                    }
+                  : undefined
+              }
               title={`${c.day} · ${formatMoney(c.net_pnl, currency)} · ${c.trade_count} trades`}
               className={`flex aspect-square flex-col justify-between rounded-lg border p-1.5 ${
                 c.trade_count > 0
-                  ? pnlBg(c.net_pnl)
+                  ? `${pnlBg(c.net_pnl)} cursor-pointer transition hover:ring-2 hover:ring-indigo-500/60 focus:outline-none focus:ring-2 focus:ring-indigo-500`
                   : 'border-slate-800/50 bg-slate-900/30'
               }`}
             >
@@ -106,6 +122,14 @@ export default function Calendar({
           {formatMoney(monthTotal, currency)}
         </span>
       </div>
+
+      {openDay && (
+        <DayTradesModal
+          day={openDay}
+          currency={currency}
+          onClose={() => setOpenDay(null)}
+        />
+      )}
     </div>
   );
 }
