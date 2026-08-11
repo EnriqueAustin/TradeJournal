@@ -1,5 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { SessionStat } from '../types';
+import { useFilters } from '../store/FilterContext';
+import TradesDrilldownModal from './TradesDrilldownModal';
 import { formatMoney, formatR, formatPct } from '../utils/format';
 
 const SESSION_ORDER = ['asia', 'london', 'overlap', 'ny', 'off'];
@@ -36,6 +38,11 @@ export default function SessionHeatmap({
   );
   const rows = sessions.length ? sessions : SESSION_ORDER;
 
+  const { filters } = useFilters();
+  const [open, setOpen] = useState<{ session: string; instrument: string } | null>(
+    null
+  );
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-separate border-spacing-1 text-sm">
@@ -62,10 +69,32 @@ export default function SessionHeatmap({
               </td>
               {instruments.map((inst) => {
                 const cell = grid.get(`${s}|${inst}`);
+                const clickable = !!cell && cell.trade_count > 0;
                 return (
                   <td key={inst} className="p-0">
                     <div
-                      className="rounded-lg border border-slate-800/60 px-2 py-2 text-center"
+                      onClick={
+                        clickable
+                          ? () => setOpen({ session: s, instrument: inst })
+                          : undefined
+                      }
+                      role={clickable ? 'button' : undefined}
+                      tabIndex={clickable ? 0 : undefined}
+                      onKeyDown={
+                        clickable
+                          ? (e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setOpen({ session: s, instrument: inst });
+                              }
+                            }
+                          : undefined
+                      }
+                      className={`rounded-lg border border-slate-800/60 px-2 py-2 text-center ${
+                        clickable
+                          ? 'cursor-pointer transition hover:ring-2 hover:ring-indigo-500/60 focus:outline-none focus:ring-2 focus:ring-indigo-500'
+                          : ''
+                      }`}
                       style={cellStyle(cell?.net_pnl ?? 0, max)}
                       title={
                         cell
@@ -99,6 +128,16 @@ export default function SessionHeatmap({
       </table>
       {instruments.length === 0 && (
         <p className="py-4 text-center text-sm text-slate-500">No session data.</p>
+      )}
+
+      {open && (
+        <TradesDrilldownModal
+          title={`${open.session} · ${open.instrument}`}
+          filters={{ ...filters, session: open.session, instrument: open.instrument }}
+          currency={currency}
+          timelineSession={open.session}
+          onClose={() => setOpen(null)}
+        />
       )}
     </div>
   );
