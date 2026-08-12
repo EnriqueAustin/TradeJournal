@@ -1,12 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { UTCTimestamp } from 'lightweight-charts';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
-import { DISPLAY_TZ } from '../utils/format';
+import {
+  DISPLAY_TZ,
+  formatMoney,
+  formatNumber,
+  formatPct,
+  formatR,
+  signClass,
+} from '../utils/format';
 import { ReplayEngine } from '../backtest/engine';
 import { useReplayCursor } from '../backtest/useReplay';
+import { useBroker } from '../backtest/useBroker';
+import type { ClosedTrade } from '../backtest/broker';
 import Transport from '../backtest/Transport';
+import OrderTicket from '../backtest/OrderTicket';
 import StudioChart from '../backtest/chart/StudioChart';
-import type { BtSession, BarSeriesInfo } from '../types';
+import type { PositionBox } from '../components/CandleChart';
+import type { BtSession, BarSeriesInfo, StatsSummary } from '../types';
+
+function toIso(sec: number): string {
+  return new Date(sec * 1000).toISOString();
+}
 
 // Format a cursor time (unix seconds) in the app's display timezone.
 function cursorLabel(sec: number): string {
@@ -21,7 +37,7 @@ function cursorLabel(sec: number): string {
 }
 
 export default function BacktestStudio() {
-  const { filters } = useFilters();
+  const { filters, accounts } = useFilters();
 
   const [sessions, setSessions] = useState<BtSession[]>([]);
   const [current, setCurrent] = useState<BtSession | null>(null);
@@ -35,9 +51,73 @@ export default function BacktestStudio() {
   const [baseTf, setBaseTf] = useState('M1');
   const [startAt, setStartAt] = useState('');
 
+  const [stats, setStats] = useState<StatsSummary | null>(null);
+  const [log, setLog] = useState<ClosedTrade[]>([]);
+
   const cursor = useReplayCursor(engine);
   const engineRef = useRef<ReplayEngine | null>(null);
   engineRef.current = engine;
+
+  const currentRef = useRef<BtSession | null>(current);
+  currentRef.current = current;
+
+  const account =
+    accounts.find((a) => a.id === current?.account_id) ??
+    accounts.find((a) => a.id === filters.account) ??
+    accounts[0];
+  const currency = account?.currency ?? 'USD';
+  const startingBalance = account?.starting_balance ?? 10000;
+
+  const refreshStats = useCallback((sessionId: number) => {
+    api.getBtSessionStats(sessionId).then(setStats).catch(() => setStats(null));
+  }, []);
+
+  // Persist each closed trade to the session, then refresh the session stats.
+  const handleClose = useCallback(
+    (trade: ClosedTrade) => {
+      setLog((prev) => [trade, ...prev]);
+      const session = currentRef.current;
+      if (!session) return;
+      api
+        .saveBacktestTrade({
+          instrument: session.instrument,
+          tf: session.base_tf,
+          direction: trade.side,
+          entry_time: toIso(trade.entryTime),
+          exit_time: toIso(trade.exitTime),
+          entry_price: trade.entryPrice,
+          exit_price: trade.exitPrice,
+          size: trade.size,
+          stop_price: trade.sl,
+          target_price: trade.tp,
+          account_id: session.account_id,
+          bt_session_id: session.id,
+        })
+        .then(() => refreshStats(session.id))
+        .catch(() => {});
+    },
+    [refreshStats]
+  );
+
+  const { broker, state: brokerState } = useBroker(engine, handleClose);
+
+  // Shade the open position on the chart (entry line + risk/reward zones),
+  // reusing CandleChart's PositionBox. The right edge tracks the replay cursor.
+  const positionBox: PositionBox | null = useMemo(() => {
+    const p = brokerState?.position;
+    if (!p || !cursor) return null;
+    return {
+      direction: p.side,
+      entryTime: p.entryTime as UTCTimestamp,
+      rightTime: Math.max(cursor.time, p.entryTime) as UTCTimestamp,
+      entryPrice: p.entryPrice,
+      stopPrice: p.sl,
+      targetPrice: p.tp,
+      targetIsTP: p.tp != null,
+    };
+  }, [brokerState?.position, cursor?.time]);
+
+  const balance = startingBalance + (brokerState?.realized ?? 0);
 
   // Load session list + available bar series once.
   useEffect(() => {
@@ -93,6 +173,8 @@ export default function BacktestStudio() {
       const eng = new ReplayEngine(bars, startSec);
       setEngine(eng);
       setCurrent(session);
+      setLog([]);
+      refreshStats(session.id);
       if (!bars.length)
         setError(`No ${session.base_tf} bars stored for ${session.instrument}. Import or fetch bars first.`);
     } catch (e: any) {
@@ -231,7 +313,7 @@ export default function BacktestStudio() {
       )}
 
       {/* Workspace grid: left tools · chart · right panel */}
-      <div className="grid flex-1 grid-cols-[44px_1fr_300px] gap-3 overflow-hidden">
+      <div className="grid flex-1 grid-cols-[44px_1fr_320px] gap-3 overflow-hidden">
         {/* Left rail — drawing tools (Phase 4) */}
         <div className="card flex flex-col items-center gap-2 py-3 text-slate-600">
           <span className="text-[10px] uppercase">Tools</span>
@@ -240,20 +322,67 @@ export default function BacktestStudio() {
 
         {/* Chart */}
         <div className="card overflow-hidden p-2">
-          <StudioChart engine={engine} height={0} windowSize={130} />
+          <StudioChart engine={engine} height={0} windowSize={130} positionBox={positionBox} />
         </div>
 
-        {/* Right rail — order ticket / stats / journal (Phase 2+) */}
-        <div className="card flex flex-col gap-2 p-3">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Session</div>
-          <dl className="flex flex-col gap-1 text-sm">
-            <Meta label="Instrument" value={current.instrument} />
-            <Meta label="Base TF" value={current.base_tf} />
-            <Meta label="Bars" value={String(cursor?.total ?? 0)} />
-            <Meta label="Cursor" value={cursor && cursor.total ? cursorLabel(cursor.time) : '—'} />
-          </dl>
-          <div className="mt-2 rounded-lg border border-dashed border-slate-700 p-3 text-center text-xs text-slate-500">
-            Order ticket, positions, stats & journal arrive in the next phases.
+        {/* Right rail — order ticket · stats · trade log */}
+        <div className="flex flex-col gap-3 overflow-hidden">
+          <div className="card p-3">
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+              Order ticket
+            </div>
+            {broker && brokerState ? (
+              <OrderTicket
+                broker={broker}
+                state={brokerState}
+                balance={balance}
+                currency={currency}
+                defaultRiskPct={current.risk_pct ?? 1}
+              />
+            ) : (
+              <div className="text-xs text-slate-500">Loading…</div>
+            )}
+          </div>
+
+          <div className="card p-3">
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+              Session stats
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              <Meta label="Net P&L" value={formatMoney(stats?.net_pnl, currency)} cls={signClass(stats?.net_pnl)} />
+              <Meta label="Trades" value={String(stats?.trade_count ?? 0)} />
+              <Meta label="Win rate" value={formatPct(stats?.win_rate)} />
+              <Meta label="Profit factor" value={stats ? formatNumber(stats.profit_factor, 2) : '—'} />
+              <Meta label="Expectancy" value={formatMoney(stats?.expectancy, currency)} cls={signClass(stats?.expectancy)} />
+              <Meta label="Avg R" value={formatR(stats?.avg_r)} />
+            </div>
+          </div>
+
+          <div className="card flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+              This session ({log.length})
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {log.length === 0 ? (
+                <div className="py-4 text-center text-xs text-slate-500">
+                  No trades yet — place one from the ticket.
+                </div>
+              ) : (
+                <ul className="flex flex-col gap-1 text-xs">
+                  {log.map((t, i) => (
+                    <li key={i} className="flex items-center justify-between rounded border border-slate-800 px-2 py-1">
+                      <span className={t.side === 'long' ? 'text-emerald-400' : 'text-red-400'}>
+                        {t.side} · {t.reason}
+                      </span>
+                      <span className={`num ${signClass(t.grossPnl)}`}>
+                        {formatMoney(t.grossPnl, currency)}
+                        {t.r != null ? ` · ${formatNumber(t.r, 2)}R` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -261,11 +390,11 @@ export default function BacktestStudio() {
   );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
+function Meta({ label, value, cls }: { label: string; value: string; cls?: string }) {
   return (
     <div className="flex items-center justify-between">
       <dt className="text-slate-500">{label}</dt>
-      <dd className="num text-slate-300">{value}</dd>
+      <dd className={`num ${cls || 'text-slate-300'}`}>{value}</dd>
     </div>
   );
 }

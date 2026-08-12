@@ -312,6 +312,10 @@ export const api = {
     request<BtSessionBars>(
       `/backtest/sessions/${id}/bars?tf=${tfs.join(',')}`
     ),
+  getBtSessionStats: (id: number) =>
+    request<StatsSummary>(`/backtest/sessions/${id}/stats`),
+  getBtSessionTrades: (id: number) =>
+    request<TradesResponse>(`/backtest/sessions/${id}/trades`),
 
   // Economic calendar / news
   getNews: (q: {

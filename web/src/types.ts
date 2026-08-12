@@ -436,6 +436,7 @@ export interface NewBacktestTrade {
   target_price?: number | null;
   setup_id?: number | null;
   account_id?: number | null;
+  bt_session_id?: number | null;
 }
 
 export interface AiReview {

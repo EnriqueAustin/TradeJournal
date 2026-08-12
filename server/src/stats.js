@@ -7,7 +7,12 @@ import { db } from './db.js';
 export function buildFilter(q, opts = {}) {
   const clauses = [];
   const params = {};
-  if (opts.backtest === true) {
+  // A bt_session filter scopes to one replay session's trades (all is_backtest=1),
+  // so it implies the "any" backtest set — never the default real-only clause.
+  if (opts.btSession != null) {
+    clauses.push('bt_session_id = @btSession');
+    params.btSession = Number(opts.btSession);
+  } else if (opts.backtest === true) {
     clauses.push('COALESCE(is_backtest, 0) = 1');
   } else if (opts.backtest !== 'any') {
     clauses.push('COALESCE(is_backtest, 0) = 0');

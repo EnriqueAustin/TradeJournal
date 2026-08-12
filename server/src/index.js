@@ -80,12 +80,12 @@ function insertTradeTx(t) {
       (account_id, instrument, direction, entry_time, exit_time, entry_price,
        exit_price, size, gross_pnl, commission, swap, net_pnl, r_multiple,
        stop_price, target_price, mae, mfe, hold_time_sec, session, source, ext_id,
-       setup_id, is_backtest)
+       setup_id, is_backtest, bt_session_id)
     VALUES
       (@account_id, @instrument, @direction, @entry_time, @exit_time, @entry_price,
        @exit_price, @size, @gross_pnl, @commission, @swap, @net_pnl, @r_multiple,
        @stop_price, @target_price, @mae, @mfe, @hold_time_sec, @session, @source, @ext_id,
-       @setup_id, @is_backtest)
+       @setup_id, @is_backtest, @bt_session_id)
   `);
   const info = stmt.run({
     account_id: t.account_id,
@@ -111,6 +111,7 @@ function insertTradeTx(t) {
     ext_id: t.ext_id ?? null,
     setup_id: t.setup_id ?? null,
     is_backtest: t.is_backtest ? 1 : 0,
+    bt_session_id: t.bt_session_id ?? null,
   });
   const tradeId = info.lastInsertRowid;
   if (t._executions && t._executions.length) {
@@ -1201,6 +1202,7 @@ app.post('/api/backtest/trades', (req, res) => {
     ext_id: null,
     setup_id: b.setup_id != null ? Number(b.setup_id) : null,
     is_backtest: 1,
+    bt_session_id: b.bt_session_id != null ? Number(b.bt_session_id) : null,
   };
   const id = insertTradeTx(trade);
   res.status(201).json(db.prepare('SELECT * FROM trades WHERE id = ?').get(id));
@@ -1346,6 +1348,26 @@ app.delete('/api/backtest/sessions/:id', (req, res) => {
   if (!sessionRow(id)) return res.status(404).json({ error: 'session not found' });
   db.prepare('DELETE FROM bt_sessions WHERE id = ?').run(id);
   res.status(204).end();
+});
+
+// GET /api/backtest/sessions/:id/stats → summary over this session's trades.
+app.get('/api/backtest/sessions/:id/stats', (req, res) => {
+  const id = Number(req.params.id);
+  if (!sessionRow(id)) return res.status(404).json({ error: 'session not found' });
+  res.json(summary({}, { btSession: id }));
+});
+
+// GET /api/backtest/sessions/:id/trades → this session's hypothetical trades.
+app.get('/api/backtest/sessions/:id/trades', (req, res) => {
+  const id = Number(req.params.id);
+  if (!sessionRow(id)) return res.status(404).json({ error: 'session not found' });
+  const rows = db
+    .prepare(
+      `SELECT * FROM trades WHERE bt_session_id = ?
+       ORDER BY COALESCE(exit_time, entry_time) DESC, id DESC`
+    )
+    .all(id);
+  res.json({ rows, total: rows.length });
 });
 
 // GET /api/backtest/sessions/:id/bars?tf=M1,M5 → per-TF frames of full ascending
