@@ -64,6 +64,7 @@ export default function CandleChart({
   windowSize,
   height = 380,
   onClickPrice,
+  onContextPrice,
 }: {
   bars: Bar[];
   /** number of leading bars to show (for progressive replay); default all */
@@ -83,6 +84,9 @@ export default function CandleChart({
   height?: number;
   /** clicking the chart yields the bar time (ISO) and the price at cursor y */
   onClickPrice?: (t: string, price: number) => void;
+  /** right-clicking yields the price at cursor y plus container-relative x/y
+   *  (for positioning a context menu) — used for right-click order execution */
+  onContextPrice?: (price: number, pos: { x: number; y: number }) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -90,6 +94,8 @@ export default function CandleChart({
   const linesRef = useRef<IPriceLine[]>([]);
   const clickRef = useRef(onClickPrice);
   clickRef.current = onClickPrice;
+  const ctxRef = useRef(onContextPrice);
+  ctxRef.current = onContextPrice;
   const boxRef = useRef<PositionBox | null | undefined>(positionBox);
   boxRef.current = positionBox;
   const boxPrimRef = useRef<PositionBoxPrimitive | null>(null);
@@ -189,7 +195,21 @@ export default function CandleChart({
     };
     chart.subscribeClick(handler);
 
+    // Right-click → price under the cursor (for right-click order execution).
+    const ctxHandler = (ev: MouseEvent) => {
+      const cb = ctxRef.current;
+      const box = el.getBoundingClientRect();
+      if (!cb) return;
+      ev.preventDefault();
+      const y = ev.clientY - box.top;
+      const price = series.coordinateToPrice(y);
+      if (price == null) return;
+      cb(Number(price), { x: ev.clientX - box.left, y });
+    };
+    el.addEventListener('contextmenu', ctxHandler);
+
     return () => {
+      el.removeEventListener('contextmenu', ctxHandler);
       chart.unsubscribeClick(handler);
       chart.remove();
       chartRef.current = null;

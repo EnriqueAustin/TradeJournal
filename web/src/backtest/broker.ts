@@ -14,6 +14,7 @@ import { rMultiple } from './sizing';
 
 export type Side = 'long' | 'short';
 export type CloseReason = 'tp' | 'sl' | 'manual';
+export type OrderKind = 'market' | 'limit' | 'stop';
 
 export interface OpenPosition {
   side: Side;
@@ -22,6 +23,18 @@ export interface OpenPosition {
   entryTime: number; // unix seconds
   sl: number | null;
   tp: number | null;
+}
+
+// A resting limit/stop order waiting for price to reach its level.
+export interface WorkingOrder {
+  id: number;
+  side: Side;
+  kind: 'limit' | 'stop';
+  price: number; // trigger / limit price
+  size: number;
+  sl: number | null;
+  tp: number | null;
+  placedTime: number; // unix seconds
 }
 
 export interface ClosedTrade {
@@ -40,6 +53,7 @@ export interface ClosedTrade {
 
 export interface BrokerState {
   position: OpenPosition | null;
+  working: WorkingOrder[];
   currentPrice: number | null;
   unrealized: number | null;
   unrealizedR: number | null;
@@ -54,6 +68,15 @@ export interface MarketOrder {
   tp?: number | null;
 }
 
+export interface PendingOrder {
+  kind: 'limit' | 'stop';
+  side: Side;
+  size: number;
+  price: number;
+  sl?: number | null;
+  tp?: number | null;
+}
+
 type Listener = (state: BrokerState) => void;
 type CloseListener = (trade: ClosedTrade) => void;
 
@@ -63,6 +86,8 @@ export class SimBroker {
   private engine: ReplayEngine;
   private pointValue: number;
   private position: OpenPosition | null = null;
+  private working: WorkingOrder[] = [];
+  private orderSeq = 1;
   private closed: ClosedTrade[] = [];
   private realized = 0;
   private listeners = new Set<Listener>();
@@ -105,12 +130,74 @@ export class SimBroker {
     return this.position;
   }
 
+  /** Queue a resting limit/stop order; it fills when a bar reaches its price. */
+  placeOrder(order: PendingOrder): WorkingOrder | null {
+    if (order.size <= 0) return null;
+    const wo: WorkingOrder = {
+      id: this.orderSeq++,
+      side: order.side,
+      kind: order.kind,
+      price: order.price,
+      size: order.size,
+      sl: order.sl ?? null,
+      tp: order.tp ?? null,
+      placedTime: this.engine.currentBar()?.sec ?? 0,
+    };
+    this.working.push(wo);
+    this.emit();
+    return wo;
+  }
+
+  cancelOrder(id: number): void {
+    const n = this.working.length;
+    this.working = this.working.filter((o) => o.id !== id);
+    if (this.working.length !== n) this.emit();
+  }
+
   /** Move the stop / target of the open position (drag SL/TP). */
   setStops(sl: number | null | undefined, tp: number | null | undefined): void {
     if (!this.position) return;
     if (sl !== undefined) this.position.sl = sl;
     if (tp !== undefined) this.position.tp = tp;
     this.emit();
+  }
+
+  /** Move the stop to entry (lock in break-even). */
+  breakEven(): void {
+    if (!this.position) return;
+    this.position.sl = this.position.entryPrice;
+    this.emit();
+  }
+
+  /** Close part of the open position at market, realizing that portion's PnL as
+   *  its own trade row (shared entry). Full size closes the whole position. */
+  partialClose(size: number): void {
+    const bar = this.engine.currentBar();
+    const p = this.position;
+    if (!p || !bar || size <= 0) return;
+    if (size >= p.size) {
+      this.close(bar.close, bar.sec, 'manual');
+      return;
+    }
+    const grossPnl = this.gross(p.entryPrice, bar.close, size, p.side);
+    const trade: ClosedTrade = {
+      side: p.side,
+      size,
+      entryPrice: p.entryPrice,
+      exitPrice: bar.close,
+      entryTime: p.entryTime,
+      exitTime: bar.sec,
+      sl: p.sl,
+      tp: p.tp,
+      reason: 'manual',
+      grossPnl,
+      r: rMultiple(p.side, p.entryPrice, bar.close, p.sl),
+    };
+    p.size -= size;
+    this.closed.push(trade);
+    this.realized += grossPnl;
+    this.emit();
+    for (const fn of this.closeListeners) fn(trade);
   }
 
   /** Close the open position at market (current bar close). */
@@ -120,9 +207,43 @@ export class SimBroker {
     this.close(bar.close, bar.sec, 'manual');
   }
 
+  // Does a bar reach a resting order's price? Limits fill on a touch toward the
+  // level; stops fill on a breakout through it.
+  private static triggered(o: WorkingOrder, bar: EngineBar): boolean {
+    if (o.kind === 'limit') {
+      return o.side === 'long' ? bar.low <= o.price : bar.high >= o.price;
+    }
+    // stop
+    return o.side === 'long' ? bar.high >= o.price : bar.low <= o.price;
+  }
+
   private onBar(bar: EngineBar): void {
+    // 1) Fill a resting order if we're flat and price reached it. The order fills
+    //    at its own level (optimistic for limits, at the stop for stops). We only
+    //    take one per bar, then let subsequent bars manage the position.
+    if (!this.position && this.working.length) {
+      const idx = this.working.findIndex((o) => SimBroker.triggered(o, bar));
+      if (idx !== -1) {
+        const o = this.working[idx];
+        this.working.splice(idx, 1);
+        this.position = {
+          side: o.side,
+          size: o.size,
+          entryPrice: o.price,
+          entryTime: bar.sec,
+          sl: o.sl,
+          tp: o.tp,
+        };
+        this.emit();
+        return; // don't also SL/TP-check the fill bar
+      }
+    }
+
     const p = this.position;
-    if (!p) return;
+    if (!p) {
+      this.emit();
+      return;
+    }
     // Intrabar touch detection. If both stop and target are inside the same bar
     // we resolve conservatively (stop first) — we can't know the tick order.
     if (p.side === 'long') {
@@ -194,6 +315,7 @@ export class SimBroker {
     }
     return {
       position: this.position,
+      working: this.working,
       currentPrice: price,
       unrealized,
       unrealizedR,
@@ -213,5 +335,6 @@ export class SimBroker {
     this.listeners.clear();
     this.closeListeners.clear();
     this.position = null;
+    this.working = [];
   }
 }

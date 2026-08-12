@@ -119,6 +119,15 @@ export default function BacktestStudio() {
 
   const balance = startingBalance + (brokerState?.realized ?? 0);
 
+  // Right-click order execution: a small chart context menu at the clicked price.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; price: number } | null>(null);
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [ctxMenu]);
+
   // Load session list + available bar series once.
   useEffect(() => {
     api.listBtSessions(filters.account).then(setSessions).catch(() => setSessions([]));
@@ -321,8 +330,32 @@ export default function BacktestStudio() {
         </div>
 
         {/* Chart */}
-        <div className="card overflow-hidden p-2">
-          <StudioChart engine={engine} height={0} windowSize={130} positionBox={positionBox} />
+        <div className="relative card overflow-hidden p-2">
+          <StudioChart
+            engine={engine}
+            height={0}
+            windowSize={130}
+            positionBox={positionBox}
+            onContextPrice={(price, pos) => setCtxMenu({ x: pos.x, y: pos.y, price })}
+          />
+          {ctxMenu && broker && (
+            <ChartContextMenu
+              menu={ctxMenu}
+              hasPosition={!!brokerState?.position}
+              onPick={(action) => {
+                const p = ctxMenu.price;
+                const cur = brokerState?.currentPrice ?? p;
+                if (action === 'set-stop') broker.setStops(p, undefined);
+                else if (action === 'set-target') broker.setStops(undefined, p);
+                else if (action === 'buy') {
+                  broker.placeOrder({ kind: p <= cur ? 'limit' : 'stop', side: 'long', size: 1, price: p });
+                } else if (action === 'sell') {
+                  broker.placeOrder({ kind: p >= cur ? 'limit' : 'stop', side: 'short', size: 1, price: p });
+                }
+                setCtxMenu(null);
+              }}
+            />
+          )}
         </div>
 
         {/* Right rail — order ticket · stats · trade log */}
@@ -386,6 +419,48 @@ export default function BacktestStudio() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+type CtxAction = 'buy' | 'sell' | 'set-stop' | 'set-target';
+
+function ChartContextMenu({
+  menu,
+  hasPosition,
+  onPick,
+}: {
+  menu: { x: number; y: number; price: number };
+  hasPosition: boolean;
+  onPick: (action: CtxAction) => void;
+}) {
+  const items: Array<{ action: CtxAction; label: string; cls: string }> = hasPosition
+    ? [
+        { action: 'set-stop', label: 'Set stop here', cls: 'text-red-400' },
+        { action: 'set-target', label: 'Set target here', cls: 'text-emerald-400' },
+      ]
+    : [
+        { action: 'buy', label: 'Buy order here', cls: 'text-emerald-400' },
+        { action: 'sell', label: 'Sell order here', cls: 'text-red-400' },
+      ];
+  return (
+    <div
+      className="absolute z-30 min-w-[150px] overflow-hidden rounded-lg border border-slate-700 bg-slate-900 text-sm shadow-xl"
+      style={{ left: Math.min(menu.x, 520), top: menu.y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="num border-b border-slate-800 px-3 py-1.5 text-xs text-slate-400">
+        @ {formatNumber(menu.price, 2)}
+      </div>
+      {items.map((it) => (
+        <button
+          key={it.action}
+          className={`block w-full px-3 py-1.5 text-left hover:bg-slate-800 ${it.cls}`}
+          onClick={() => onPick(it.action)}
+        >
+          {it.label}
+        </button>
+      ))}
     </div>
   );
 }

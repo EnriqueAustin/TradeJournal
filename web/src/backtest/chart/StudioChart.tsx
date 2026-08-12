@@ -20,6 +20,7 @@ export default function StudioChart({
   priceLines,
   positionBox,
   onClickPrice,
+  onContextPrice,
 }: {
   engine: ReplayEngine;
   height?: number;
@@ -29,6 +30,7 @@ export default function StudioChart({
   priceLines?: PriceLineSpec[];
   positionBox?: PositionBox | null;
   onClickPrice?: (t: string, price: number) => void;
+  onContextPrice?: (price: number, pos: { x: number; y: number }) => void;
 }) {
   const [revealTime, setRevealTime] = useState<UTCTimestamp | undefined>(
     engine.cursorTime() != null ? (engine.cursorTime() as UTCTimestamp) : undefined
@@ -48,6 +50,7 @@ export default function StudioChart({
       priceLines={priceLines}
       positionBox={positionBox}
       onClickPrice={onClickPrice}
+      onContextPrice={onContextPrice}
     />
   );
 }

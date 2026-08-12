@@ -108,3 +108,62 @@ describe('SimBroker market orders', () => {
     expect(second).toBeNull();
   });
 });
+
+describe('SimBroker working orders', () => {
+  it('fills a buy-limit when a bar dips to its price, at the limit', () => {
+    const { engine, broker } = setup([
+      ohlc(0, 100, 100, 100, 100),
+      ohlc(1, 100, 101, 97, 99), // low 97 ≤ limit 98 → fill at 98
+    ]);
+    broker.placeOrder({ kind: 'limit', side: 'long', size: 1, price: 98, sl: 95, tp: 110 });
+    expect(broker.snapshot().working).toHaveLength(1);
+    engine.seekIndex(1);
+    const s = broker.snapshot();
+    expect(s.working).toHaveLength(0);
+    expect(s.position?.entryPrice).toBe(98);
+  });
+
+  it('fills a buy-stop only on a breakout above its trigger', () => {
+    const { engine, broker } = setup([
+      ohlc(0, 100, 100, 100, 100),
+      ohlc(1, 100, 101, 99, 100), // high 101 < trigger 105 → no fill
+      ohlc(2, 101, 106, 100, 105), // high 106 ≥ 105 → fill at 105
+    ]);
+    broker.placeOrder({ kind: 'stop', side: 'long', size: 1, price: 105, sl: 100, tp: 120 });
+    engine.seekIndex(1);
+    expect(broker.snapshot().position).toBeNull();
+    engine.seekIndex(2);
+    expect(broker.snapshot().position?.entryPrice).toBe(105);
+  });
+
+  it('cancels a resting order', () => {
+    const { broker } = setup([ohlc(0, 100, 100, 100, 100)]);
+    const o = broker.placeOrder({ kind: 'limit', side: 'long', size: 1, price: 90 });
+    broker.cancelOrder(o!.id);
+    expect(broker.snapshot().working).toHaveLength(0);
+  });
+});
+
+describe('SimBroker partial close & break-even', () => {
+  it('partial close realizes part of the size and keeps the rest', () => {
+    const { engine, broker, closes } = setup([
+      ohlc(0, 100, 100, 100, 100),
+      ohlc(1, 110, 110, 110, 110),
+    ]);
+    broker.placeMarket({ side: 'long', size: 4, sl: 90, tp: 200 });
+    engine.step(1); // price 110
+    broker.partialClose(1);
+    expect(closes).toHaveLength(1);
+    expect(closes[0].size).toBe(1);
+    expect(closes[0].grossPnl).toBe(10); // (110-100)*1
+    expect(broker.snapshot().position?.size).toBe(3);
+    expect(broker.snapshot().realized).toBe(10);
+  });
+
+  it('break-even moves the stop to entry', () => {
+    const { broker } = setup([ohlc(0, 100, 100, 100, 100)]);
+    broker.placeMarket({ side: 'long', size: 1, sl: 90, tp: 120 });
+    broker.breakEven();
+    expect(broker.snapshot().position?.sl).toBe(100);
+  });
+});
