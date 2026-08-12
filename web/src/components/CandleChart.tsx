@@ -13,6 +13,12 @@ import {
 import type { Bar } from '../types';
 import { DISPLAY_TZ } from '../utils/format';
 import { PositionBoxPrimitive } from './positionBoxPrimitive';
+import {
+  DrawingsPrimitive,
+  makeCoords,
+  hitTest,
+  type Drawing,
+} from '../backtest/chart/drawings';
 
 // Format a lightweight-charts UTC timestamp (seconds) in the display timezone.
 function tzTime(t: number, withDate: boolean): string {
@@ -63,6 +69,9 @@ export default function CandleChart({
   lockRange = false,
   windowSize,
   height = 380,
+  drawings,
+  selectedDrawingId,
+  onDrawingSelect,
   onClickPrice,
   onContextPrice,
 }: {
@@ -82,6 +91,12 @@ export default function CandleChart({
    *  edge with a small forward margin (fixed zoom that scrolls as it plays) */
   windowSize?: number;
   height?: number;
+  /** persisted chart drawings to render (trendlines, fib, rectangles, …) */
+  drawings?: Drawing[];
+  /** id of the currently-selected drawing (highlighted) */
+  selectedDrawingId?: string | null;
+  /** a click that lands on a drawing reports its id (null = empty space) */
+  onDrawingSelect?: (id: string | null) => void;
   /** clicking the chart yields the bar time (ISO) and the price at cursor y */
   onClickPrice?: (t: string, price: number) => void;
   /** right-clicking yields the price at cursor y plus container-relative x/y
@@ -96,6 +111,11 @@ export default function CandleChart({
   clickRef.current = onClickPrice;
   const ctxRef = useRef(onContextPrice);
   ctxRef.current = onContextPrice;
+  const drawPrimRef = useRef<DrawingsPrimitive | null>(null);
+  const drawingsRef = useRef<Drawing[] | undefined>(drawings);
+  drawingsRef.current = drawings;
+  const drawSelectRef = useRef(onDrawingSelect);
+  drawSelectRef.current = onDrawingSelect;
   const boxRef = useRef<PositionBox | null | undefined>(positionBox);
   boxRef.current = positionBox;
   const boxPrimRef = useRef<PositionBoxPrimitive | null>(null);
@@ -159,7 +179,26 @@ export default function CandleChart({
     boxPrim.setBox(boxRef.current ?? null);
     boxPrimRef.current = boxPrim;
 
+    // Drawings layer (trendlines / fib / rectangles …).
+    const drawPrim = new DrawingsPrimitive();
+    series.attachPrimitive(drawPrim);
+    drawPrim.set(drawingsRef.current ?? [], null);
+    drawPrimRef.current = drawPrim;
+
     const handler = (param: MouseEventParams) => {
+      // Selecting a drawing: hit-test the click against every drawing.
+      const onSel = drawSelectRef.current;
+      if (onSel && param.point && chartRef.current && seriesRef.current) {
+        const elc = containerRef.current;
+        const W = elc?.clientWidth ?? 0;
+        const H = elc?.clientHeight ?? 0;
+        const c = makeCoords(chartRef.current, seriesRef.current, W, H);
+        let hitId: string | null = null;
+        for (const d of drawingsRef.current ?? []) {
+          if (hitTest(d, param.point.x, param.point.y, c)) hitId = d.id;
+        }
+        onSel(hitId);
+      }
       // Toggle the box readout when the click lands inside the box; clicking
       // elsewhere dismisses it.
       const box = boxRef.current;
@@ -216,6 +255,7 @@ export default function CandleChart({
       seriesRef.current = null;
       linesRef.current = [];
       boxPrimRef.current = null;
+      drawPrimRef.current = null;
     };
     // height is intentionally fixed for the lifetime of the chart
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -316,6 +356,11 @@ export default function CandleChart({
     boxPrimRef.current?.setBox(positionBox ?? null);
     if (!positionBox) setBoxSelected(false);
   }, [positionBox]);
+
+  // Feed the drawings primitive.
+  useEffect(() => {
+    drawPrimRef.current?.set(drawings ?? [], selectedDrawingId ?? null);
+  }, [drawings, selectedDrawingId]);
 
   // A falsy height means "fill the parent" (workspace charts); autoSize then
   // tracks the container's measured size in both dimensions.

@@ -1370,6 +1370,44 @@ app.get('/api/backtest/sessions/:id/trades', (req, res) => {
   res.json({ rows, total: rows.length });
 });
 
+// GET /api/backtest/sessions/:id/drawings → the session's chart drawings.
+app.get('/api/backtest/sessions/:id/drawings', (req, res) => {
+  const id = Number(req.params.id);
+  if (!sessionRow(id)) return res.status(404).json({ error: 'session not found' });
+  const rows = db
+    .prepare('SELECT points_json FROM bt_drawings WHERE session_id = ? ORDER BY id ASC')
+    .all(id);
+  const drawings = [];
+  for (const r of rows) {
+    try {
+      drawings.push(JSON.parse(r.points_json));
+    } catch {
+      /* skip malformed */
+    }
+  }
+  res.json({ drawings });
+});
+
+// PUT /api/backtest/sessions/:id/drawings {drawings:[…]} → replace them all.
+app.put('/api/backtest/sessions/:id/drawings', (req, res) => {
+  const id = Number(req.params.id);
+  const s = sessionRow(id);
+  if (!s) return res.status(404).json({ error: 'session not found' });
+  const drawings = Array.isArray(req.body?.drawings) ? req.body.drawings : [];
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM bt_drawings WHERE session_id = ?').run(id);
+    const stmt = db.prepare(
+      `INSERT INTO bt_drawings (session_id, instrument, tf, type, points_json, style_json)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    );
+    for (const d of drawings) {
+      stmt.run(id, s.instrument, d?.tf ?? null, d?.type ?? null, JSON.stringify(d), null);
+    }
+  });
+  tx();
+  res.json({ drawings });
+});
+
 // GET /api/backtest/sessions/:id/bars?tf=M1,M5 → per-TF frames of full ascending
 // OHLC (stored or aggregated). The client drives the replay cursor over these.
 app.get('/api/backtest/sessions/:id/bars', (req, res) => {

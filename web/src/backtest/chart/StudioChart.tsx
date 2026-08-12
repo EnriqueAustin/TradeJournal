@@ -6,6 +6,7 @@ import CandleChart, {
   type PositionBox,
 } from '../../components/CandleChart';
 import type { ReplayEngine } from '../engine';
+import type { Drawing } from './drawings';
 
 // StudioChart binds a CandleChart to a ReplayEngine: it feeds the full bar set
 // but reveals only bars at/before the engine cursor, so the chart plays forward
@@ -19,6 +20,9 @@ export default function StudioChart({
   markers,
   priceLines,
   positionBox,
+  drawings,
+  selectedDrawingId,
+  onDrawingSelect,
   onClickPrice,
   onContextPrice,
 }: {
@@ -29,6 +33,9 @@ export default function StudioChart({
   markers?: ChartMarker[];
   priceLines?: PriceLineSpec[];
   positionBox?: PositionBox | null;
+  drawings?: Drawing[];
+  selectedDrawingId?: string | null;
+  onDrawingSelect?: (id: string | null) => void;
   onClickPrice?: (t: string, price: number) => void;
   onContextPrice?: (price: number, pos: { x: number; y: number }) => void;
 }) {
@@ -49,6 +56,9 @@ export default function StudioChart({
       markers={markers}
       priceLines={priceLines}
       positionBox={positionBox}
+      drawings={drawings}
+      selectedDrawingId={selectedDrawingId}
+      onDrawingSelect={onDrawingSelect}
       onClickPrice={onClickPrice}
       onContextPrice={onContextPrice}
     />

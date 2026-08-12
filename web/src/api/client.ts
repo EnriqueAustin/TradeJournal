@@ -316,6 +316,13 @@ export const api = {
     request<StatsSummary>(`/backtest/sessions/${id}/stats`),
   getBtSessionTrades: (id: number) =>
     request<TradesResponse>(`/backtest/sessions/${id}/trades`),
+  getBtDrawings: (id: number) =>
+    request<{ drawings: unknown[] }>(`/backtest/sessions/${id}/drawings`),
+  saveBtDrawings: (id: number, drawings: unknown[]) =>
+    request<{ drawings: unknown[] }>(`/backtest/sessions/${id}/drawings`, {
+      method: 'PUT',
+      body: JSON.stringify({ drawings }),
+    }),
 
   // Economic calendar / news
   getNews: (q: {

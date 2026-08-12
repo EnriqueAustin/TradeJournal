@@ -17,6 +17,12 @@ import type { ClosedTrade } from '../backtest/broker';
 import Transport from '../backtest/Transport';
 import OrderTicket from '../backtest/OrderTicket';
 import StudioChart from '../backtest/chart/StudioChart';
+import {
+  pointsNeeded,
+  type Drawing,
+  type DrawPoint,
+  type DrawTool,
+} from '../backtest/chart/drawings';
 import type { PositionBox } from '../components/CandleChart';
 import type { BtSession, BarSeriesInfo, StatsSummary } from '../types';
 
@@ -53,6 +59,12 @@ export default function BacktestStudio() {
 
   const [stats, setStats] = useState<StatsSummary | null>(null);
   const [log, setLog] = useState<ClosedTrade[]>([]);
+
+  // Drawings.
+  const [drawings, setDrawings] = useState<Drawing[]>([]);
+  const [activeTool, setActiveTool] = useState<DrawTool | null>(null);
+  const [pending, setPending] = useState<DrawPoint[]>([]);
+  const [selectedDrawing, setSelectedDrawing] = useState<string | null>(null);
 
   const cursor = useReplayCursor(engine);
   const engineRef = useRef<ReplayEngine | null>(null);
@@ -128,6 +140,65 @@ export default function BacktestStudio() {
     return () => window.removeEventListener('click', close);
   }, [ctxMenu]);
 
+  // Persist drawings for the current session (replace-all).
+  const persistDrawings = useCallback((list: Drawing[]) => {
+    const session = currentRef.current;
+    if (session) api.saveBtDrawings(session.id, list).catch(() => {});
+  }, []);
+
+  // A chart click while a tool is active accumulates points; once enough are
+  // collected the drawing is created, stored, and persisted.
+  const onChartClick = useCallback(
+    (t: string, price: number) => {
+      if (!activeTool) return;
+      const pt: DrawPoint = { time: Math.floor(new Date(t).getTime() / 1000), price };
+      setPending((prev) => {
+        const pts = [...prev, pt];
+        if (pts.length >= pointsNeeded(activeTool)) {
+          const d: Drawing = {
+            id: `d${Date.now()}${Math.floor(Math.random() * 1000)}`,
+            type: activeTool,
+            points: pts,
+          };
+          setDrawings((ds) => {
+            const next = [...ds, d];
+            persistDrawings(next);
+            return next;
+          });
+          return [];
+        }
+        return pts;
+      });
+    },
+    [activeTool, persistDrawings]
+  );
+
+  const deleteSelectedDrawing = useCallback(() => {
+    setSelectedDrawing((sel) => {
+      if (sel) {
+        setDrawings((ds) => {
+          const next = ds.filter((d) => d.id !== sel);
+          persistDrawings(next);
+          return next;
+        });
+      }
+      return null;
+    });
+  }, [persistDrawings]);
+
+  // Delete key removes the selected drawing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedDrawing) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        deleteSelectedDrawing();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedDrawing, deleteSelectedDrawing]);
+
   // Load session list + available bar series once.
   useEffect(() => {
     api.listBtSessions(filters.account).then(setSessions).catch(() => setSessions([]));
@@ -183,7 +254,14 @@ export default function BacktestStudio() {
       setEngine(eng);
       setCurrent(session);
       setLog([]);
+      setActiveTool(null);
+      setPending([]);
+      setSelectedDrawing(null);
       refreshStats(session.id);
+      api
+        .getBtDrawings(session.id)
+        .then((r) => setDrawings((r.drawings as Drawing[]) ?? []))
+        .catch(() => setDrawings([]));
       if (!bars.length)
         setError(`No ${session.base_tf} bars stored for ${session.instrument}. Import or fetch bars first.`);
     } catch (e: any) {
@@ -323,11 +401,17 @@ export default function BacktestStudio() {
 
       {/* Workspace grid: left tools · chart · right panel */}
       <div className="grid flex-1 grid-cols-[44px_1fr_320px] gap-3 overflow-hidden">
-        {/* Left rail — drawing tools (Phase 4) */}
-        <div className="card flex flex-col items-center gap-2 py-3 text-slate-600">
-          <span className="text-[10px] uppercase">Tools</span>
-          <span className="text-xs">soon</span>
-        </div>
+        {/* Left rail — drawing tools */}
+        <DrawToolbar
+          active={activeTool}
+          onPick={(t) => {
+            setActiveTool((cur) => (cur === t ? null : t));
+            setPending([]);
+            setSelectedDrawing(null);
+          }}
+          canDelete={!!selectedDrawing}
+          onDelete={deleteSelectedDrawing}
+        />
 
         {/* Chart */}
         <div className="relative card overflow-hidden p-2">
@@ -336,8 +420,20 @@ export default function BacktestStudio() {
             height={0}
             windowSize={130}
             positionBox={positionBox}
+            drawings={drawings}
+            selectedDrawingId={selectedDrawing}
+            onDrawingSelect={(id) => {
+              if (!activeTool) setSelectedDrawing(id);
+            }}
+            onClickPrice={onChartClick}
             onContextPrice={(price, pos) => setCtxMenu({ x: pos.x, y: pos.y, price })}
           />
+          {activeTool && (
+            <div className="pointer-events-none absolute left-3 top-3 rounded bg-slate-900/90 px-2 py-1 text-[11px] text-indigo-300">
+              {activeTool}: click {pointsNeeded(activeTool)} point{pointsNeeded(activeTool) > 1 ? 's' : ''}
+              {pending.length ? ` · ${pending.length}/${pointsNeeded(activeTool)}` : ''}
+            </div>
+          )}
           {ctxMenu && broker && (
             <ChartContextMenu
               menu={ctxMenu}
@@ -419,6 +515,55 @@ export default function BacktestStudio() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+const DRAW_TOOLS: Array<{ tool: DrawTool; icon: string; label: string }> = [
+  { tool: 'trendline', icon: '╱', label: 'Trendline' },
+  { tool: 'ray', icon: '→', label: 'Ray' },
+  { tool: 'hline', icon: '─', label: 'Horizontal line' },
+  { tool: 'vline', icon: '│', label: 'Vertical line' },
+  { tool: 'rect', icon: '▭', label: 'Rectangle' },
+  { tool: 'fib', icon: '≣', label: 'Fib retracement' },
+];
+
+function DrawToolbar({
+  active,
+  onPick,
+  canDelete,
+  onDelete,
+}: {
+  active: DrawTool | null;
+  onPick: (t: DrawTool) => void;
+  canDelete: boolean;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="card flex flex-col items-center gap-1.5 py-2">
+      {DRAW_TOOLS.map((t) => (
+        <button
+          key={t.tool}
+          title={t.label}
+          onClick={() => onPick(t.tool)}
+          className={`flex h-8 w-8 items-center justify-center rounded-lg border text-base leading-none transition ${
+            active === t.tool
+              ? 'border-indigo-500 bg-indigo-600/20 text-indigo-300'
+              : 'border-slate-700 text-slate-400 hover:bg-slate-800'
+          }`}
+        >
+          {t.icon}
+        </button>
+      ))}
+      <div className="my-0.5 h-px w-6 bg-slate-800" />
+      <button
+        title="Delete selected (Del)"
+        onClick={onDelete}
+        disabled={!canDelete}
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 text-base leading-none text-slate-400 transition hover:bg-slate-800 hover:text-red-400 disabled:opacity-30"
+      >
+        🗑
+      </button>
     </div>
   );
 }
