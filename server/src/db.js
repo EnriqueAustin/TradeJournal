@@ -160,6 +160,53 @@ export function migrate() {
       fetched_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_news_dt ON news_events(dt);
+
+    -- Backtest Studio: one FXReplay-style replay workspace.
+    CREATE TABLE IF NOT EXISTS bt_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+      name TEXT,
+      instrument TEXT NOT NULL,
+      base_tf TEXT NOT NULL DEFAULT 'M1',
+      start_time TEXT,          -- replay anchor (ISO): cursor starts here
+      cursor_time TEXT,         -- last cursor position (ISO), for resume
+      speed REAL DEFAULT 1,
+      risk_pct REAL,            -- default per-trade risk % of balance
+      layout_json TEXT,         -- chart count / TFs / symbols / indicator configs
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Working / filled / cancelled orders placed within a session.
+    CREATE TABLE IF NOT EXISTS bt_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL REFERENCES bt_sessions(id) ON DELETE CASCADE,
+      trade_id INTEGER REFERENCES trades(id) ON DELETE SET NULL,
+      kind TEXT CHECK(kind IN ('market','limit','stop')),
+      side TEXT CHECK(side IN ('long','short')),
+      size REAL,
+      limit_price REAL,
+      stop_trigger REAL,
+      sl_price REAL,
+      tp_price REAL,
+      status TEXT CHECK(status IN ('working','filled','cancelled')) DEFAULT 'working',
+      placed_time TEXT,
+      fill_time TEXT,
+      fill_price REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_bt_orders_session ON bt_orders(session_id);
+
+    -- Persisted chart drawings for a session (per instrument+tf).
+    CREATE TABLE IF NOT EXISTS bt_drawings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL REFERENCES bt_sessions(id) ON DELETE CASCADE,
+      instrument TEXT,
+      tf TEXT,
+      type TEXT,
+      points_json TEXT,
+      style_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_bt_drawings_session ON bt_drawings(session_id);
   `);
 
   // Per-event ForexFactory permalink (from the browser userscript scrape) so
@@ -186,6 +233,12 @@ export function migrate() {
   if (!tradeCols.some((c) => c.name === 'preferred_tf')) {
     db.exec('ALTER TABLE trades ADD COLUMN preferred_tf TEXT');
   }
+
+  // Backtest Studio: which replay session a hypothetical trade belongs to.
+  if (!tradeCols.some((c) => c.name === 'bt_session_id')) {
+    db.exec('ALTER TABLE trades ADD COLUMN bt_session_id INTEGER REFERENCES bt_sessions(id)');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_trades_bt_session ON trades(bt_session_id)');
 
   // Per-execution P&L — lets the journal show each partial close's own result
   // (MT5 deals carry a profit/commission/swap per fill). Nullable + guarded.

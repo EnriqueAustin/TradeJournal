@@ -1258,6 +1258,114 @@ app.get('/api/backtest/stats', (req, res) =>
   res.json(summary(req.query, { backtest: true }))
 );
 
+// ---------- Backtest Studio: replay sessions ----------
+function sessionRow(id) {
+  return db.prepare('SELECT * FROM bt_sessions WHERE id = ?').get(id);
+}
+
+// POST /api/backtest/sessions → create a replay workspace.
+app.post('/api/backtest/sessions', (req, res) => {
+  const b = req.body || {};
+  if (!b.instrument) return res.status(400).json({ error: 'instrument is required' });
+  const baseTf = b.base_tf && TF_MINUTES[b.base_tf] ? b.base_tf : 'M1';
+  let accountId = b.account_id
+    ? Number(b.account_id)
+    : db.prepare('SELECT id FROM accounts ORDER BY id LIMIT 1').get()?.id;
+  if (accountId != null && !accountExists(accountId)) accountId = null;
+  const info = db
+    .prepare(
+      `INSERT INTO bt_sessions
+         (account_id, name, instrument, base_tf, start_time, cursor_time, speed, risk_pct, layout_json)
+       VALUES (@account_id, @name, @instrument, @base_tf, @start_time, @cursor_time, @speed, @risk_pct, @layout_json)`
+    )
+    .run({
+      account_id: accountId ?? null,
+      name: b.name ?? null,
+      instrument: normalizeInstrument(b.instrument),
+      base_tf: baseTf,
+      start_time: b.start_time ?? null,
+      cursor_time: b.cursor_time ?? b.start_time ?? null,
+      speed: b.speed != null ? Number(b.speed) : 1,
+      risk_pct: b.risk_pct != null ? Number(b.risk_pct) : null,
+      layout_json: b.layout_json != null ? JSON.stringify(b.layout_json) : null,
+    });
+  res.status(201).json(sessionRow(info.lastInsertRowid));
+});
+
+// GET /api/backtest/sessions → list (newest first, optional account filter).
+app.get('/api/backtest/sessions', (req, res) => {
+  const clauses = [];
+  const params = {};
+  if (req.query.account) {
+    clauses.push('account_id = @account');
+    params.account = Number(req.query.account);
+  }
+  const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
+  res.json(
+    db
+      .prepare(`SELECT * FROM bt_sessions ${where} ORDER BY updated_at DESC, id DESC`)
+      .all(params)
+  );
+});
+
+// GET /api/backtest/sessions/:id → one session (+ parsed layout).
+app.get('/api/backtest/sessions/:id', (req, res) => {
+  const s = sessionRow(Number(req.params.id));
+  if (!s) return res.status(404).json({ error: 'session not found' });
+  res.json(s);
+});
+
+// PATCH /api/backtest/sessions/:id → update cursor/speed/name/layout/risk.
+app.patch('/api/backtest/sessions/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const s = sessionRow(id);
+  if (!s) return res.status(404).json({ error: 'session not found' });
+  const b = req.body || {};
+  const fields = [];
+  const params = { id };
+  const set = (col, val) => {
+    fields.push(`${col} = @${col}`);
+    params[col] = val;
+  };
+  if (b.name !== undefined) set('name', b.name);
+  if (b.cursor_time !== undefined) set('cursor_time', b.cursor_time);
+  if (b.start_time !== undefined) set('start_time', b.start_time);
+  if (b.speed !== undefined) set('speed', Number(b.speed));
+  if (b.risk_pct !== undefined) set('risk_pct', b.risk_pct == null ? null : Number(b.risk_pct));
+  if (b.base_tf !== undefined && TF_MINUTES[b.base_tf]) set('base_tf', b.base_tf);
+  if (b.layout_json !== undefined)
+    set('layout_json', b.layout_json == null ? null : JSON.stringify(b.layout_json));
+  fields.push("updated_at = datetime('now')");
+  db.prepare(`UPDATE bt_sessions SET ${fields.join(', ')} WHERE id = @id`).run(params);
+  res.json(sessionRow(id));
+});
+
+// DELETE /api/backtest/sessions/:id → drop session (orders + drawings cascade).
+app.delete('/api/backtest/sessions/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!sessionRow(id)) return res.status(404).json({ error: 'session not found' });
+  db.prepare('DELETE FROM bt_sessions WHERE id = ?').run(id);
+  res.status(204).end();
+});
+
+// GET /api/backtest/sessions/:id/bars?tf=M1,M5 → per-TF frames of full ascending
+// OHLC (stored or aggregated). The client drives the replay cursor over these.
+app.get('/api/backtest/sessions/:id/bars', (req, res) => {
+  const s = sessionRow(Number(req.params.id));
+  if (!s) return res.status(404).json({ error: 'session not found' });
+  const requested = String(req.query.tf || s.base_tf)
+    .split(',')
+    .map((x) => x.trim())
+    .filter((x) => x && TF_MINUTES[x]);
+  const tfs = requested.length ? [...new Set(requested)] : [s.base_tf];
+  tfs.sort((a, b) => TF_MINUTES[a] - TF_MINUTES[b]);
+  const frames = tfs.map((tf) => {
+    const { bars, source } = getBarsForTf(s.instrument, tf);
+    return { tf, source, bars };
+  });
+  res.json({ session_id: s.id, instrument: s.instrument, frames });
+});
+
 // ---------- AI auto-tag ----------
 // POST /api/ai/autotag  body: {trade_ids?: number[], account_id?, since?, all_untagged?}
 app.post('/api/ai/autotag', async (req, res) => {

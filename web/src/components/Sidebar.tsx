@@ -10,6 +10,7 @@ const links = [
   { to: '/portfolio', label: 'Portfolio', icon: '⌘' },
   { to: '/replay', label: 'Replay', icon: '▶' },
   { to: '/backtest', label: 'Backtest', icon: '⟲' },
+  { to: '/studio', label: 'Studio', icon: '◫' },
   { to: '/import', label: 'Import', icon: '⤓' },
   { to: '/accounts', label: 'Accounts', icon: '◈' },
 ];

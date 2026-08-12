@@ -10,6 +10,7 @@ import Analytics from './pages/Analytics';
 import Risk from './pages/Risk';
 import Replay from './pages/Replay';
 import Backtest from './pages/Backtest';
+import BacktestStudio from './pages/BacktestStudio';
 import Portfolio from './pages/Portfolio';
 import CalendarPage from './pages/Calendar';
 
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="portfolio" element={<Portfolio />} />
         <Route path="replay" element={<Replay />} />
         <Route path="backtest" element={<Backtest />} />
+        <Route path="studio" element={<BacktestStudio />} />
         <Route path="import" element={<Import />} />
         <Route path="accounts" element={<Accounts />} />
         <Route path="*" element={<Navigate to="/" replace />} />

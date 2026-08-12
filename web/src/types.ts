@@ -554,6 +554,40 @@ export interface LivePositionsResponse {
   last_update: string | null;
 }
 
+// ---------- Backtest Studio ----------
+export interface BtSession {
+  id: number;
+  account_id: number | null;
+  name: string | null;
+  instrument: string;
+  base_tf: string;
+  start_time: string | null;
+  cursor_time: string | null;
+  speed: number;
+  risk_pct: number | null;
+  layout_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewBtSession {
+  instrument: string;
+  base_tf?: string;
+  name?: string | null;
+  account_id?: number | null;
+  start_time?: string | null;
+  cursor_time?: string | null;
+  speed?: number;
+  risk_pct?: number | null;
+  layout_json?: unknown;
+}
+
+export interface BtSessionBars {
+  session_id: number;
+  instrument: string;
+  frames: ReplayFrame[];
+}
+
 export interface Filters {
   account: number | null;
   instrument: string; // 'All' | 'XAUUSD' | 'US100'

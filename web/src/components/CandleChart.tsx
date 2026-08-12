@@ -61,6 +61,7 @@ export default function CandleChart({
   priceLines,
   positionBox,
   lockRange = false,
+  windowSize,
   height = 380,
   onClickPrice,
 }: {
@@ -76,6 +77,9 @@ export default function CandleChart({
   positionBox?: PositionBox | null;
   /** keep the x-axis fixed to the full range (replay) instead of fitting */
   lockRange?: boolean;
+  /** rolling replay window: keep this many bars visible, newest near the right
+   *  edge with a small forward margin (fixed zoom that scrolls as it plays) */
+  windowSize?: number;
   height?: number;
   /** clicking the chart yields the bar time (ISO) and the price at cursor y */
   onClickPrice?: (t: string, price: number) => void;
@@ -235,12 +239,19 @@ export default function CandleChart({
     }
     series.setData(deduped.slice(0, count));
 
-    if (lockRange && deduped.length > 1) {
+    if (windowSize && windowSize > 0 && count > 0) {
+      // Rolling replay window: fixed zoom that scrolls so the newest revealed
+      // bar sits a few bars from the right edge (room to see price develop).
+      const margin = Math.max(2, Math.round(windowSize * 0.12));
+      const to = count - 1 + margin;
+      const from = to - windowSize - margin;
+      chart.timeScale().setVisibleLogicalRange({ from, to });
+    } else if (lockRange && deduped.length > 1) {
       chart.timeScale().setVisibleLogicalRange({ from: 0, to: deduped.length - 1 });
     } else if (!lockRange) {
       chart.timeScale().fitContent();
     }
-  }, [bars, reveal, revealTime, lockRange]);
+  }, [bars, reveal, revealTime, lockRange, windowSize]);
 
   // Markers (filtered to the revealed window).
   useEffect(() => {
@@ -286,9 +297,12 @@ export default function CandleChart({
     if (!positionBox) setBoxSelected(false);
   }, [positionBox]);
 
+  // A falsy height means "fill the parent" (workspace charts); autoSize then
+  // tracks the container's measured size in both dimensions.
+  const cssHeight = height ? `${height}px` : '100%';
   return (
-    <div className="relative w-full" style={{ height }}>
-      <div ref={containerRef} style={{ height }} className="w-full" />
+    <div className="relative w-full" style={{ height: cssHeight }}>
+      <div ref={containerRef} style={{ height: cssHeight }} className="w-full" />
       {positionBox && boxSelected && (
         <PositionBoxInfo box={positionBox} onClose={() => setBoxSelected(false)} />
       )}

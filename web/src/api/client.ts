@@ -35,6 +35,9 @@ import type {
   ReplayResponse,
   BacktestResponse,
   NewBacktestTrade,
+  BtSession,
+  NewBtSession,
+  BtSessionBars,
   AiReview,
   AiConfig,
   NewsEvent,
@@ -287,6 +290,29 @@ export const api = {
     const s = p.toString();
     return request<StatsSummary>(`/backtest/stats${s ? `?${s}` : ''}`);
   },
+  // Backtest Studio — replay sessions
+  listBtSessions: (account?: number | null) => {
+    const q = account != null ? `?account=${account}` : '';
+    return request<BtSession[]>(`/backtest/sessions${q}`);
+  },
+  getBtSession: (id: number) => request<BtSession>(`/backtest/sessions/${id}`),
+  createBtSession: (body: NewBtSession) =>
+    request<BtSession>('/backtest/sessions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateBtSession: (id: number, body: Partial<NewBtSession>) =>
+    request<BtSession>(`/backtest/sessions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteBtSession: (id: number) =>
+    request<void>(`/backtest/sessions/${id}`, { method: 'DELETE' }),
+  getBtSessionBars: (id: number, tfs: string[]) =>
+    request<BtSessionBars>(
+      `/backtest/sessions/${id}/bars?tf=${tfs.join(',')}`
+    ),
+
   // Economic calendar / news
   getNews: (q: {
     from?: string;

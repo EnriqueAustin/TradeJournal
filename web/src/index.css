@@ -51,6 +51,9 @@ body {
   .btn-primary {
     @apply border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-500;
   }
+  .btn-icon {
+    @apply h-8 w-8 px-0 text-base leading-none;
+  }
   .label {
     @apply mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400;
   }
