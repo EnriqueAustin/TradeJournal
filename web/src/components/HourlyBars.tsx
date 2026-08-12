@@ -59,6 +59,7 @@ function HourChart({ instrument, rows }: { instrument: string; rows: Row[] }) {
               borderRadius: 8,
               fontSize: 12,
             }}
+            itemStyle={{ color: '#e2e8f0' }}
             labelStyle={{ color: '#94a3b8' }}
             labelFormatter={(h) => `${String(h).padStart(2, '0')}:00 UTC`}
             formatter={(v: number, _n, p: any) => [
