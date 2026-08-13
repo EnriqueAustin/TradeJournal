@@ -9,6 +9,7 @@ import { ingestEarnings, getUpcomingEarnings } from './ingest/finnhub.js';
 import { getLatestVol, getVolHistory, ingestAllVol, seedVolSeries } from './ingest/cboe.js';
 import { ingestCftc, getCotHistory } from './ingest/cftc.js';
 import { ingestGldEtf, parseAndStoreGld, getEtfHistory } from './ingest/etf.js';
+import { ingestCalendar, ingestCalendarPayload, getCalendarEvents, getEventsForReaction } from './ingest/calendar.js';
 import { callLLM } from '../ai.js';
 import {
   FRED_API_KEY,
@@ -1152,6 +1153,304 @@ researchRouter.get('/ratio/gold-silver', (req, res) => {
       percentile1y: Math.round(percentile1y * 10) / 10,
       history: ratios,
       freshness: { source: 'oanda', last_ok: ratios[ratios.length - 1].ts, status: 'ok' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Epic 4 — Events & reaction studies ----------
+
+function toSession(tsMs) {
+  const h = new Date(tsMs).getUTCHours();
+  if (h >= 0 && h < 8) return 'asia';
+  if (h >= 8 && h < 13) return 'europe';
+  if (h >= 13 && h < 21) return 'us';
+  return 'off';
+}
+
+function formatCountdown(diffMs) {
+  if (diffMs <= 0) return null;
+  const totalMin = Math.floor(diffMs / 60000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    const rh = h % 24;
+    return rh > 0 ? `${d}d ${rh}h` : `${d}d`;
+  }
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+// POST /api/research/ingest/calendar — trigger ForexFactory calendar ingest
+researchRouter.post('/ingest/calendar', express.json(), async (req, res) => {
+  try {
+    if (req.body && (Array.isArray(req.body) || req.body.events || req.body.thisweek)) {
+      const result = ingestCalendarPayload(req.body);
+      return res.json(result);
+    }
+    const result = await ingestCalendar();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/calendar?impact=high&from=&to=&country=&limit=
+researchRouter.get('/calendar', (req, res) => {
+  try {
+    const now = Date.now();
+    const defaultFrom = now - 7 * 86400000;
+    const defaultTo = now + 14 * 86400000;
+
+    const events = getCalendarEvents({
+      impact: req.query.impact || null,
+      country: req.query.country || 'USD',
+      from: req.query.from || defaultFrom,
+      to: req.query.to || defaultTo,
+      limit: req.query.limit || 200,
+    });
+
+    const enriched = events.map((e) => ({
+      ...e,
+      countdown: formatCountdown(e.ts - now),
+      session: toSession(e.ts),
+      isPast: e.ts < now,
+    }));
+
+    const nextHigh = enriched.find((e) => !e.isPast && e.impact === 'high') || null;
+
+    const healthRow = marketDb
+      .prepare("SELECT last_ok, status FROM source_health WHERE source = 'calendar_ff'")
+      .get();
+
+    res.json({
+      events: enriched,
+      count: enriched.length,
+      nextHighImpact: nextHigh,
+      freshness: healthRow
+        ? { source: 'forexfactory', last_ok: healthRow.last_ok, status: healthRow.status }
+        : { source: 'forexfactory', last_ok: null, status: 'no_data' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/events/upcoming?hours=24
+researchRouter.get('/events/upcoming', (req, res) => {
+  try {
+    const now = Date.now();
+    const hoursAhead = Math.min(Number(req.query.hours) || 24, 168);
+    const cutoff = now + hoursAhead * 3600000;
+
+    const events = getCalendarEvents({
+      impact: 'high',
+      from: now,
+      to: cutoff,
+      limit: 20,
+    });
+
+    const upcoming = events.map((e) => ({
+      id: e.id,
+      ts: e.ts,
+      name: e.name,
+      impact: e.impact,
+      countdown: formatCountdown(e.ts - now),
+      hoursAway: Math.round(((e.ts - now) / 3600000) * 10) / 10,
+    }));
+
+    let riskLevel = 'clear';
+    if (upcoming.length > 0) {
+      const nearest = upcoming[0].hoursAway;
+      if (nearest < 1) riskLevel = 'imminent';
+      else if (nearest < 4) riskLevel = 'approaching';
+    }
+
+    res.json({ events: upcoming, riskLevel });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/events/markers/:instrument?tf=&from=&to=
+researchRouter.get('/events/markers/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+
+    const from = req.query.from ? Number(req.query.from) : Date.now() - 7 * 86400000;
+    const to = req.query.to ? Number(req.query.to) : Date.now();
+
+    const events = getCalendarEvents({
+      impact: 'high,medium',
+      country: 'USD',
+      from,
+      to,
+      limit: 100,
+    });
+
+    const INVERTED_EVENTS = ['unemployment', 'claims', 'jobless'];
+
+    const markers = events.map((e) => {
+      let surprise = null;
+      if (e.actual != null && e.consensus != null) {
+        const diff = e.actual - e.consensus;
+        const inverted = INVERTED_EVENTS.some((kw) => e.name.toLowerCase().includes(kw));
+        const effectiveDiff = inverted ? -diff : diff;
+        const threshold = Math.abs(e.consensus) * 0.02 || 0.1;
+        if (Math.abs(diff) < threshold) surprise = 'inline';
+        else surprise = effectiveDiff > 0 ? 'beat' : 'miss';
+      }
+      return {
+        ts: e.ts,
+        name: e.name,
+        impact: e.impact,
+        actual: e.actual,
+        surprise,
+      };
+    });
+
+    res.json({ instrument: symbol, markers });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/event-reaction/:instrument?event=&limit=
+researchRouter.get('/event-reaction/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+    const eventPattern = req.query.event;
+    if (!eventPattern) return res.status(400).json({ error: 'event query param required' });
+
+    const instId = instrumentId(symbol);
+    if (instId == null) return res.status(400).json({ error: 'Instrument not seeded' });
+
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const events = getEventsForReaction(eventPattern, { limit });
+
+    if (!events.length) {
+      return res.json({
+        instrument: symbol,
+        event: eventPattern,
+        stats: [],
+        byBeat: [],
+        byMiss: [],
+        history: [],
+        sampleSize: 0,
+        freshness: { source: 'calendar+prices', last_ok: null, status: 'no_data' },
+      });
+    }
+
+    const INVERTED_EVENTS = ['unemployment', 'claims', 'jobless'];
+    const inverted = INVERTED_EVENTS.some((kw) => eventPattern.toLowerCase().includes(kw));
+
+    const WINDOWS = [
+      { label: '5m', tf: 'M5', offsetMs: 5 * 60000 },
+      { label: '15m', tf: 'M15', offsetMs: 15 * 60000 },
+      { label: '30m', tf: 'M30', offsetMs: 30 * 60000 },
+      { label: '60m', tf: 'H1', offsetMs: 60 * 60000 },
+      { label: '1d', tf: 'D1', offsetMs: 24 * 3600000 },
+    ];
+
+    const history = [];
+
+    for (const ev of events) {
+      const preBar = marketDb.prepare(
+        `SELECT c FROM prices
+         WHERE instrument_id = ? AND timeframe = 'M5' AND ts <= ?
+         ORDER BY ts DESC LIMIT 1`
+      ).get(instId, ev.ts);
+
+      if (!preBar) continue;
+      const prePrice = preBar.c;
+
+      let surprise = null;
+      if (ev.actual != null && ev.consensus != null) {
+        const diff = ev.actual - ev.consensus;
+        const effectiveDiff = inverted ? -diff : diff;
+        const threshold = Math.abs(ev.consensus) * 0.02 || 0.1;
+        if (Math.abs(diff) < threshold) surprise = 'inline';
+        else surprise = effectiveDiff > 0 ? 'beat' : 'miss';
+      }
+
+      const moves = {};
+      const movesPct = {};
+
+      for (const w of WINDOWS) {
+        const targetTs = ev.ts + w.offsetMs;
+        const postBar = marketDb.prepare(
+          `SELECT c FROM prices
+           WHERE instrument_id = ? AND timeframe = ? AND ts >= ? AND ts <= ?
+           ORDER BY ts ASC LIMIT 1`
+        ).get(instId, w.tf, targetTs - w.offsetMs * 0.5, targetTs + w.offsetMs * 0.5);
+
+        if (postBar) {
+          moves[w.label] = Math.round((postBar.c - prePrice) * 100) / 100;
+          movesPct[w.label] = Math.round(((postBar.c - prePrice) / prePrice) * 10000) / 100;
+        }
+      }
+
+      if (Object.keys(moves).length > 0) {
+        history.push({
+          eventDate: ev.ts,
+          actual: ev.actual,
+          consensus: ev.consensus,
+          prior: ev.prior,
+          surprise,
+          prePrice,
+          moves,
+          movesPct,
+        });
+      }
+    }
+
+    function computeWindowStats(instances) {
+      const results = [];
+      for (const w of WINDOWS) {
+        const vals = instances
+          .map((h) => ({ abs: h.moves[w.label], pct: h.movesPct[w.label] }))
+          .filter((v) => v.abs != null);
+        if (!vals.length) {
+          results.push({ window: w.label, avgMove: 0, avgMovePct: 0, avgDirectionalMove: 0, upPct: 0, downPct: 0, maxUp: 0, maxDown: 0, sampleSize: 0 });
+          continue;
+        }
+        const absMoves = vals.map((v) => Math.abs(v.abs));
+        const signedMoves = vals.map((v) => v.abs);
+        const pctMoves = vals.map((v) => Math.abs(v.pct));
+        const ups = vals.filter((v) => v.abs > 0).length;
+        const downs = vals.filter((v) => v.abs < 0).length;
+        results.push({
+          window: w.label,
+          avgMove: Math.round((absMoves.reduce((a, b) => a + b, 0) / absMoves.length) * 100) / 100,
+          avgMovePct: Math.round((pctMoves.reduce((a, b) => a + b, 0) / pctMoves.length) * 100) / 100,
+          avgDirectionalMove: Math.round((signedMoves.reduce((a, b) => a + b, 0) / signedMoves.length) * 100) / 100,
+          upPct: Math.round((ups / vals.length) * 1000) / 10,
+          downPct: Math.round((downs / vals.length) * 1000) / 10,
+          maxUp: Math.max(...signedMoves, 0),
+          maxDown: Math.min(...signedMoves, 0),
+          sampleSize: vals.length,
+        });
+      }
+      return results;
+    }
+
+    const stats = computeWindowStats(history);
+    const byBeat = computeWindowStats(history.filter((h) => h.surprise === 'beat'));
+    const byMiss = computeWindowStats(history.filter((h) => h.surprise === 'miss'));
+
+    res.json({
+      instrument: symbol,
+      event: eventPattern,
+      stats,
+      byBeat,
+      byMiss,
+      history: history.reverse(),
+      sampleSize: history.length,
+      freshness: { source: 'calendar+prices', last_ok: Date.now(), status: history.length ? 'ok' : 'no_data' },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

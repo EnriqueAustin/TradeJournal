@@ -36,8 +36,11 @@ Two surfaces: **Node** (`/api/research/*`, client-facing, also serves cached Pyt
 | GET | `/api/research/seasonality/:instrument` | S3.5 | **built** — 12-month avg returns + win rate + sample size. |
 | GET | `/api/research/levels/:instrument` | S3.5 | **built** — Classic pivots (PP/R1-R3/S1-S3) + round numbers + prev day/week H/L. |
 | GET | `/api/research/curve/gold` | S3.6 | gap (free-data unavailable; deferred). |
-| GET | `/api/research/calendar?impact=high` | S4.1 | Forward calendar. |
-| GET | `/api/research/event-reaction/:event/:instrument` | S4.2 | Historical reaction stats. |
+| GET | `/api/research/calendar?impact=&country=&from=&to=&limit=` | S4.1 | **built** — Forward calendar (date-grouped, enriched with countdown/session/isPast). Returns `{events[], count, nextHighImpact, freshness}`. |
+| POST | `/api/research/ingest/calendar` | S4.1 | **built** — Trigger ForexFactory calendar ingest; also accepts `{events:[...]}` payload for manual push. |
+| GET | `/api/research/event-reaction/:instrument?event=&limit=` | S4.2 | **built** — Historical reaction stats across 5 windows (5m/15m/30m/60m/1d). Returns `{stats[], byBeat[], byMiss[], history[], sampleSize, freshness}`. |
+| GET | `/api/research/events/upcoming?hours=` | S4.3 | **built** — Upcoming high-impact events with risk level (clear/approaching/imminent). |
+| GET | `/api/research/events/markers/:instrument?from=&to=` | S4.3 | **built** — Event markers for chart overlay (high+medium impact USD events with surprise classification). |
 | GET | `/api/research/correlation?window=&assets=` | S5.1 | Rolling corr matrix + regression. |
 | GET | `/api/research/seasonality/:instrument` | S5.3 | Seasonality with sample size. |
 | GET | `/api/research/news/:instrument` | S6.1 | Tagged, sentiment-scored feed. |

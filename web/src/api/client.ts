@@ -424,6 +424,26 @@ export const api = {
     request<unknown>('/research/ingest/cftc', { method: 'POST', body: '{}' }),
   triggerEtfIngest: () =>
     request<unknown>('/research/ingest/etf', { method: 'POST', body: '{}' }),
+  getCalendar: (impact?: string, country?: string) => {
+    const p = new URLSearchParams();
+    if (impact) p.set('impact', impact);
+    if (country) p.set('country', country);
+    const q = p.toString();
+    return request<import('../types').CalendarResponse>(`/research/calendar${q ? `?${q}` : ''}`);
+  },
+  getEventReaction: (instrument: string, event: string) =>
+    request<import('../types').EventReactionResponse>(`/research/event-reaction/${instrument}?event=${encodeURIComponent(event)}`),
+  getUpcomingEvents: (hours?: number) =>
+    request<import('../types').UpcomingResponse>(`/research/events/upcoming${hours ? `?hours=${hours}` : ''}`),
+  getEventMarkers: (instrument: string, from?: number, to?: number) => {
+    const p = new URLSearchParams();
+    if (from) p.set('from', String(from));
+    if (to) p.set('to', String(to));
+    const q = p.toString();
+    return request<{ instrument: string; markers: import('../types').EventMarker[] }>(`/research/events/markers/${instrument}${q ? `?${q}` : ''}`);
+  },
+  triggerCalendarIngest: () =>
+    request<unknown>('/research/ingest/calendar', { method: 'POST', body: '{}' }),
   getPlan: (account: number | null, day: string) => {
     const p = new URLSearchParams({ day });
     if (account != null) p.set('account', String(account));

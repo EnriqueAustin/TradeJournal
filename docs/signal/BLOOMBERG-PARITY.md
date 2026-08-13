@@ -47,7 +47,7 @@ Every Bloomberg Terminal capability a gold desk or a Nasdaq desk uses for **XAUU
 | BBG fn | Feature | Session | Status |
 |---|---|---|---|
 | WIRP | Fed rate-probability tracker | S2.2 | planned (Python compute deferred) |
-| ECO | Forward economic calendar | S4.1 | planned |
+| ECO | Forward economic calendar | S4.1 | **built** (CalendarPanel; date-grouped, impact filter, countdowns, risk badge) |
 | ECST | Econ series board | S2.3 | **built** (CPI/PCE/PAYEMS/UNRATE + MoM/YoY + sparklines) |
 | ECFC | Consensus vs prior | S2.3 | planned (surprise z-scores need Python) |
 | ECSU | Surprise index | S2.3 | planned (Python compute deferred) |
@@ -93,7 +93,7 @@ Every Bloomberg Terminal capability a gold desk or a Nasdaq desk uses for **XAUU
 |---|---|---|
 | Trade-journal fusion (context snapshot per trade) | S7.1 | planned |
 | Edge analytics (P&L × driver states) | S7.3 | planned |
-| Instrument-specific event-reaction studies | S4.2 | planned |
+| Instrument-specific event-reaction studies | S4.2 | **built** (EventReactionPanel; 5-window stats + beat/miss segmentation) |
 | AI debrief coach on captured trade context | S7.3 | planned |
 
 ## Known free-data gaps (record, don't drop)

@@ -1,9 +1,10 @@
 import { useState, useMemo, useCallback } from 'react';
 import { api } from '../../../api/client';
 import { useApi, filterKey } from '../../../hooks/useApi';
-import type { ResearchPriceResponse } from '../../../types';
+import type { ResearchPriceResponse, EventMarker } from '../../../types';
 import type { Bar } from '../../../types';
-import CandleChart from '../../../components/CandleChart';
+import CandleChart, { type ChartMarker } from '../../../components/CandleChart';
+import type { UTCTimestamp } from 'lightweight-charts';
 import { Panel, StatusBadge, TickerCell } from '../terminal';
 
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const;
@@ -34,6 +35,26 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
     () => api.getResearchPrice(instrument, tf),
     [filterKey(instrument, tf)]
   );
+
+  const { data: markersData } = useApi<{ instrument: string; markers: EventMarker[] }>(
+    () => {
+      const from = data?.bars?.[0]?.ts;
+      const to = data?.bars?.[data.bars.length - 1]?.ts;
+      return api.getEventMarkers(instrument, from, to);
+    },
+    [filterKey(instrument, data?.bars?.[0]?.ts, data?.bars?.[data?.bars?.length - 1]?.ts)]
+  );
+
+  const chartMarkers: ChartMarker[] = useMemo(() => {
+    if (!markersData?.markers?.length) return [];
+    return markersData.markers.map((m) => ({
+      time: Math.floor(m.ts / 1000) as UTCTimestamp,
+      position: 'belowBar' as const,
+      color: m.impact === 'high' ? '#ef4444' : '#f59e0b',
+      shape: 'arrowUp' as const,
+      text: m.name.length > 20 ? m.name.slice(0, 18) + '…' : m.name,
+    }));
+  }, [markersData]);
 
   const bars: Bar[] = useMemo(() => {
     if (!data?.bars?.length) return [];
@@ -123,7 +144,7 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
       )}
       {bars.length > 0 && (
         <div className="sig-chart-wrap">
-          <CandleChart bars={bars} height={340} />
+          <CandleChart bars={bars} height={340} markers={chartMarkers} />
         </div>
       )}
       {!loading && !error && bars.length === 0 && (

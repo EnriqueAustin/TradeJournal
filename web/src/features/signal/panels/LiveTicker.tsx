@@ -14,7 +14,10 @@ interface TickState {
   ticks: number;
 }
 
-const WS_URL = `ws://${window.location.hostname}:4000/ws/research`;
+const WS_URL =
+  import.meta.env.DEV
+    ? `ws://${window.location.hostname}:4000/ws/research`
+    : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/research`;
 const RECONNECT_MS = 3000;
 
 interface LiveTickerProps {

@@ -24,6 +24,8 @@ import SeasonalityPanel from '../panels/SeasonalityPanel';
 import CotPanel from '../panels/CotPanel';
 import EtfFlowPanel from '../panels/EtfFlowPanel';
 import GoldSilverPanel from '../panels/GoldSilverPanel';
+import CalendarPanel from '../panels/CalendarPanel';
+import EventReactionPanel from '../panels/EventReactionPanel';
 import '../terminal/terminal.css';
 
 const INSTRUMENTS = ['XAUUSD', 'US100'] as const;
@@ -158,6 +160,9 @@ export default function Signal() {
         <PricePanel instrument={instrument} livePrice={livePrice[instrument]} />
         {/* Live ticker — S0.5 */}
         <LiveTicker instrument={instrument} onTick={handleTick} />
+        {/* Epic 4 — Events & reaction studies (cross-instrument) */}
+        <CalendarPanel />
+        <EventReactionPanel instrument={instrument} />
         {/* Macro panels — Epic 2 (cross-instrument) */}
         <RatesBoard />
         <EconTracker />

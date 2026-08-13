@@ -1034,3 +1034,82 @@ export interface BriefResponse {
   cached?: boolean;
   error?: string;
 }
+
+// --- Epic 4: Events & reaction studies ---
+
+export interface CalendarEvent {
+  id: string;
+  ts: number;
+  country: string;
+  name: string;
+  impact: 'high' | 'medium' | 'low' | 'holiday';
+  consensus: number | null;
+  prior: number | null;
+  actual: number | null;
+  countdown: string | null;
+  session: 'asia' | 'europe' | 'us' | 'off';
+  isPast: boolean;
+}
+
+export interface CalendarResponse {
+  events: CalendarEvent[];
+  count: number;
+  nextHighImpact: CalendarEvent | null;
+  freshness: { source: string; last_ok: number | null; status: string };
+}
+
+export interface WindowStats {
+  window: string;
+  avgMove: number;
+  avgMovePct: number;
+  avgDirectionalMove: number;
+  upPct: number;
+  downPct: number;
+  maxUp: number;
+  maxDown: number;
+  sampleSize: number;
+}
+
+export interface ReactionInstance {
+  eventDate: number;
+  actual: number | null;
+  consensus: number | null;
+  prior: number | null;
+  surprise: 'beat' | 'miss' | 'inline' | null;
+  prePrice: number;
+  moves: Record<string, number>;
+  movesPct: Record<string, number>;
+}
+
+export interface EventReactionResponse {
+  instrument: string;
+  event: string;
+  stats: WindowStats[];
+  byBeat: WindowStats[];
+  byMiss: WindowStats[];
+  history: ReactionInstance[];
+  sampleSize: number;
+  freshness: { source: string; last_ok: number | null; status: string };
+}
+
+export interface UpcomingEvent {
+  id: string;
+  ts: number;
+  name: string;
+  impact: string;
+  countdown: string;
+  hoursAway: number;
+}
+
+export interface UpcomingResponse {
+  events: UpcomingEvent[];
+  riskLevel: 'clear' | 'approaching' | 'imminent';
+}
+
+export interface EventMarker {
+  ts: number;
+  name: string;
+  impact: string;
+  actual: number | null;
+  surprise: 'beat' | 'miss' | 'inline' | null;
+}

@@ -35,9 +35,9 @@ Each session = one ~5-hour Opus session, a vertical slice that ends green. Tick 
 - [ ] **S3.6 Futures forward curve** — **gap** (free CME term-structure data unavailable). Deferred; spec recorded in FEATURE-SPEC-epic3-gold.md.
 
 ## Epic 4 — Events & reaction studies
-- [ ] **S4.1 Research calendar** — forward calendar (reuse `calendar.js`) + consensus/prior + countdowns + session-aware + high-impact filter. **Accept:** calendar panel.
-- [ ] **S4.2 Event-reaction engine** — Python `/compute/event-reaction` (join events↔prices; 5/15/30/60m+1d; avg move, hit-rate, vol expansion; beat/miss segmented). **Accept:** per-event/instrument reaction stats. *(may split)*
-- [ ] **S4.3 Event intelligence** — pre-event risk-flag alerts + post-event chart auto-annotation. **Accept:** flags fire + markers plotted.
+- [x] **S4.1 Research calendar** — forward calendar (reuse `calendar.js`) + consensus/prior + countdowns + session-aware + high-impact filter. **Accept:** calendar panel ✓ (browser-verified 2026-08-13).
+- [x] **S4.2 Event-reaction engine** — Node stub `/event-reaction/:instrument` (join events↔prices; 5/15/30/60m+1d; avg move, hit-rate, bias; beat/miss segmented). **Accept:** per-event/instrument reaction stats ✓ (browser-verified 2026-08-13). Python compute deferred.
+- [x] **S4.3 Event intelligence** — pre-event risk-flag alerts (`/events/upcoming`) + post-event chart markers (`/events/markers/:instrument`) on PricePanel. **Accept:** risk badge + markers plotted ✓ (browser-verified 2026-08-13).
 
 ## Epic 5 — Positioning, correlation, seasonality
 - [ ] **S5.1 Correlation matrix + regression** — Python `/compute/correlation` (configurable window) + ratio charts + lead/lag; HRA regression + beta; COMP compare; CIX custom-spread builder. **Accept:** interactive matrix. *(may split)*

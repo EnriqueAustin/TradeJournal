@@ -4,6 +4,48 @@ Newest entries at the top. One block per session: what shipped, decisions, gotch
 
 ---
 
+## 2026-08-13 — Epic 4: Events & reaction studies (S4.1–S4.3) ✓
+**By:** Claude. **Status:** tsc clean. Docker WS fix included.
+
+**Pre-build fix — Docker WebSocket connectivity:**
+- `web/nginx.conf`: added `/ws/` location block with WebSocket upgrade headers (`Upgrade`, `Connection: "upgrade"`, 86400s read timeout) proxying to `server:4000`.
+- `web/src/features/signal/panels/LiveTicker.tsx`: WS URL now uses same-origin in production (`ws://${location.host}/ws/research`) instead of hardcoded `:4000`; dev mode still connects directly to `:4000`.
+
+**Spec first:** Wrote `FEATURE-SPEC-epic4-events.md` — defines all routes, types, data sources, event-instrument relevance, UI layout, acceptance criteria.
+
+**S4.1 — Research calendar panel:**
+- Ingestor: `server/src/research/ingest/calendar.js` — ForexFactory feed fetcher (mirrors `calendar.js` logic), writes to market.db `calendar_events` table. Supports direct fetch + manual payload push (`POST /ingest/calendar` with body). `parseNumeric()` for consensus/prior/actual.
+- Routes: `GET /api/research/calendar?impact=&country=&from=&to=&limit=` — returns enriched events (countdown, session tag, isPast flag). `POST /api/research/ingest/calendar`.
+- Panel: `CalendarPanel.tsx` — date-grouped event list, impact dot (red/amber/green), countdown timers, consensus/prior/actual columns, surprise coloring (beat=green, miss=red), impact filter (ALL/H+M/HIGH), risk badge from upcoming events.
+
+**S4.2 — Event-reaction engine:**
+- Route: `GET /api/research/event-reaction/:instrument?event=&limit=` — joins historical calendar events (where actual IS NOT NULL) with price bars at 5 windows (5m/15m/30m/60m/1d). Computes avg move, avg %, directional bias, up%, sample size. Segments by beat/miss.
+- Handles inverted events (unemployment, claims, jobless) — surprise direction flipped.
+- Panel: `EventReactionPanel.tsx` — event selector (12 preset events + custom search), segment tabs (ALL/BEAT/MISS), summary stats table, scrollable history table with per-window move coloring.
+
+**S4.3 — Event intelligence:**
+- Route: `GET /api/research/events/upcoming?hours=24` — upcoming high-impact events with risk level (clear/approaching/imminent).
+- Route: `GET /api/research/events/markers/:instrument?from=&to=` — event markers for chart overlay (high+medium impact USD events).
+- CalendarPanel integration: risk badge in header (CLEAR/EVENT APPROACHING/IMMINENT).
+- PricePanel integration: event markers rendered as `arrowUp` markers below candles on the chart (red=high impact, amber=medium), with event name labels.
+
+**Shared changes:**
+- `web/src/types.ts`: added CalendarEvent, CalendarResponse, WindowStats, ReactionInstance, EventReactionResponse, UpcomingEvent, UpcomingResponse, EventMarker (8 new interfaces).
+- `web/src/api/client.ts`: added getCalendar, getEventReaction, getUpcomingEvents, getEventMarkers, triggerCalendarIngest (5 new methods).
+- `web/src/features/signal/pages/Signal.tsx`: wired CalendarPanel + EventReactionPanel as cross-instrument panels (shown on both tabs, after LiveTicker, before macro panels).
+- `server/src/research/routes.js`: added calendar import + 5 new routes + helper functions (toSession, formatCountdown).
+
+**Files created:** `CalendarPanel.tsx`, `EventReactionPanel.tsx`, `ingest/calendar.js`, `FEATURE-SPEC-epic4-events.md`
+
+**Decisions/gotchas:**
+- Calendar data requires manual ingest (same Cloudflare CDN block as journal calendar); `POST /ingest/calendar` with empty body tries direct fetch, with JSON body accepts pushed data.
+- Event-reaction engine is Node-only (Python deferred per architecture rule — stub pattern consistent with drivers/regime/surprise).
+- Event markers on chart use lightweight-charts `SeriesMarker` API — already supported by CandleChart.
+- CalendarPanel + EventReactionPanel are cross-instrument (USD events affect both XAUUSD and US100).
+- Inverted event surprise logic (unemployment/claims): lower actual = beat (economy stronger than expected).
+
+---
+
 ## 2026-08-13 — QA pass: Epic 2–3 ✓
 **By:** Claude. **Status:** verified — `tsc --noEmit` clean, `node --check` clean on all server modules.
 

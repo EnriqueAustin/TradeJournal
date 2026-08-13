@@ -3,9 +3,9 @@
 > Read this first every session. Update it last.
 
 ## Status
-- **Last completed:** **Epic 3 — Gold cockpit (S3.1–S3.5)** ✓ (2026-08-13)
-- **Next session:** **Epic 4 — Events & reaction studies** (run deep-research pass first → write `FEATURE-SPEC-epic4-events.md`)
-- **Current epic:** Epic 3 — Gold cockpit ✅ COMPLETE (S3.6 deferred — free-data gap)
+- **Last completed:** **Epic 4 — Events & reaction studies (S4.1–S4.3)** ✓ (2026-08-13)
+- **Next session:** **Epic 5 — Positioning, correlation, seasonality** (run deep-research pass first → write `FEATURE-SPEC-epic5-corr.md`)
+- **Current epic:** Epic 4 — Events ✅ COMPLETE
 - **Branch:** `bloomberg-terminal`
 
 ## In-progress notes
@@ -20,9 +20,14 @@
   - **S3.4:** EtfFlowPanel — GLD CSV ingestor (etf.js), tonnes + daily/weekly Δ, trend badge (inflow/flat/outflow), 90-day area chart. IAU deferred.
   - **S3.5:** GoldSilverPanel (XAGUSD added to OANDA + schema), SeasonalityPanel (12-month bar chart + win rates), KeyLevelsPanel (pivots/rounds/structure with distances)
   - **S3.6:** Deferred — free CME gold futures term-structure data unavailable (gap documented in FEATURE-SPEC-epic3-gold.md)
-- Data ingestors need manual trigger: `POST /ingest/fred`, `/ingest/cboe`, `/ingest/cftc`, `/ingest/etf`. Scheduled refresh deferred.
-- Python compute deferred for: Fed rate probability (S2.2), surprise z-scores (S2.3), regime composite (S2.4), driver z-scores (S3.1). Node stubs serve same API shape.
-- Before Epic 4 (Events): run deep-research pass → write `FEATURE-SPEC-epic4-events.md`, update BLOOMBERG-PARITY.md.
+- **Epic 4 complete** (S4.1–S4.3). Events & reaction studies:
+  - **S4.1:** CalendarPanel — ForexFactory ingestor into market.db, date-grouped event list, impact filters, countdown timers, session tagging, risk badge
+  - **S4.2:** EventReactionPanel — historical reaction stats (5m/15m/30m/60m/1d windows), avg move/bias/up%, beat/miss segmentation, 12 preset events + custom search
+  - **S4.3:** Event intelligence — upcoming events risk level (clear/approaching/imminent), chart event markers on PricePanel (arrowUp markers below candles)
+- **Docker WS fix** (pre-Epic 4): nginx.conf `/ws/` proxy + LiveTicker same-origin WS URL in production
+- Data ingestors need manual trigger: `POST /ingest/fred`, `/ingest/cboe`, `/ingest/cftc`, `/ingest/etf`, `/ingest/calendar`. Scheduled refresh deferred.
+- Python compute deferred for: Fed rate probability (S2.2), surprise z-scores (S2.3), regime composite (S2.4), driver z-scores (S3.1), event-reaction (S4.2). Node stubs serve same API shape.
+- Before Epic 5 (Correlation): run deep-research pass → write `FEATURE-SPEC-epic5-corr.md`, update BLOOMBERG-PARITY.md.
 
 ## Dev preview
 - `.claude/launch.json` defines the `web` config (Vite :5173) + `server` (:4000) for the preview tools, both with `autoPort: true`. Backend (:4000) + analytics (:8001) run separately. Open `http://localhost:5173/research`.
