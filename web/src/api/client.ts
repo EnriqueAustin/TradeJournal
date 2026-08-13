@@ -42,6 +42,8 @@ import type {
   AiConfig,
   NewsEvent,
   NewsStatus,
+  ResearchHealth,
+  ResearchPriceResponse,
 } from '../types';
 
 const BASE = '/api';
@@ -355,6 +357,47 @@ export const api = {
     const q = account != null ? `?account=${account}` : '';
     return request<LivePositionsResponse>(`/live/positions${q}`);
   },
+
+  // Signal research module (docs/signal/)
+  getResearchHealth: () => request<ResearchHealth>('/research/health'),
+  getResearchPrice: (instrument: string, tf: string, from?: number, to?: number) => {
+    const p = new URLSearchParams({ tf });
+    if (from) p.set('from', String(from));
+    if (to) p.set('to', String(to));
+    return request<ResearchPriceResponse>(`/research/price/${instrument}?${p.toString()}`);
+  },
+  triggerIngest: (days?: number) =>
+    request<unknown>('/research/ingest', {
+      method: 'POST',
+      body: JSON.stringify(days ? { days } : {}),
+    }),
+  getConstituents: () =>
+    request<import('../types').ConstituentResponse>('/research/constituents/us100'),
+  getContribution: () =>
+    request<import('../types').ContributionResponse>('/research/contribution/us100'),
+  getBreadth: () =>
+    request<import('../types').BreadthResponse>('/research/breadth/us100'),
+  getSeriesData: (id: string, from?: number, to?: number) => {
+    const p = new URLSearchParams();
+    if (from) p.set('from', String(from));
+    if (to) p.set('to', String(to));
+    const q = p.toString();
+    return request<import('../types').SeriesDataResponse>(`/research/series/${id}${q ? `?${q}` : ''}`);
+  },
+  getSeriesList: () =>
+    request<import('../types').SeriesMeta[]>('/research/series'),
+  getRateOverlay: () =>
+    request<import('../types').RateOverlayResponse>('/research/overlay/us100/rates'),
+  getEarnings: () =>
+    request<import('../types').EarningsResponse>('/research/earnings/us100'),
+  triggerFredIngest: () =>
+    request<unknown>('/research/ingest/fred', { method: 'POST', body: '{}' }),
+  getVol: (instrument: string) =>
+    request<import('../types').VolResponse>(`/research/vol/${instrument}`),
+  triggerCboeIngest: () =>
+    request<unknown>('/research/ingest/cboe', { method: 'POST', body: '{}' }),
+  getBrief: (instrument: string) =>
+    request<import('../types').BriefResponse>(`/research/brief/${instrument}`),
   getPlan: (account: number | null, day: string) => {
     const p = new URLSearchParams({ day });
     if (account != null) p.set('account', String(account));

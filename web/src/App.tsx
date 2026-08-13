@@ -13,6 +13,7 @@ import Backtest from './pages/Backtest';
 import BacktestStudio from './pages/BacktestStudio';
 import Portfolio from './pages/Portfolio';
 import CalendarPage from './pages/Calendar';
+import Signal from './features/signal/pages/Signal';
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="replay" element={<Replay />} />
         <Route path="backtest" element={<Backtest />} />
         <Route path="studio" element={<BacktestStudio />} />
+        <Route path="research" element={<Signal />} />
         <Route path="import" element={<Import />} />
         <Route path="accounts" element={<Accounts />} />
         <Route path="*" element={<Navigate to="/" replace />} />

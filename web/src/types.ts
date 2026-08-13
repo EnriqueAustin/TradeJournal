@@ -597,3 +597,298 @@ export interface Filters {
   from: string; // YYYY-MM-DD or ''
   to: string;
 }
+
+// ============================================================================
+// Signal research module — contract mirror of server/src/research + market.db.
+// All `ts`/`date`/`report_date` fields are epoch MILLISECONDS (UTC). See
+// docs/signal/SCHEMA.md and API-CONTRACT.md.
+// ============================================================================
+
+export type ResearchProvider = 'oanda' | 'fred' | 'finnhub' | 'alpaca';
+
+export interface ResearchHealth {
+  server: 'ok';
+  marketDb: 'ok' | 'error';
+  schema_version: string | null;
+  market_db_path: string;
+  analytics: 'ok' | 'unreachable' | 'error';
+  analytics_detail: unknown;
+  providers: Record<ResearchProvider, boolean>;
+}
+
+export interface ResearchInstrument {
+  id: number;
+  symbol: string; // 'XAUUSD' | 'US100'
+  name: string;
+  type: string; // 'commodity' | 'index'
+}
+
+export interface ResearchPriceBar {
+  ts: number;
+  o: number | null;
+  h: number | null;
+  l: number | null;
+  c: number | null;
+  v: number | null;
+}
+
+export interface ResearchPriceResponse {
+  instrument: string;
+  timeframe: string;
+  count: number;
+  bars: ResearchPriceBar[];
+  freshness: { source: string; last_ok: number | null; status: string };
+}
+
+export interface SeriesMeta {
+  series_id: string; // 'DFII10' | 'DXY' | 'VIX' | ...
+  source: string;
+  name: string;
+  unit: string;
+}
+
+export interface SeriesPoint {
+  series_id: string;
+  ts: number;
+  value: number | null;
+}
+
+export interface CotRow {
+  report_date: number;
+  market: string;
+  mm_long: number | null;
+  mm_short: number | null;
+  comm_long: number | null;
+  comm_short: number | null;
+  oi: number | null;
+}
+
+export interface EtfHolding {
+  etf: string; // 'GLD' | 'IAU'
+  date: number;
+  tonnes: number | null;
+  shares: number | null;
+  aum: number | null;
+}
+
+export interface Constituent {
+  index_id: string; // 'QQQ' | 'NDX'
+  symbol: string;
+  weight: number | null;
+  sector: string | null;
+  asof: number;
+}
+
+export interface EarningsRow {
+  symbol: string;
+  report_date: number;
+  time: string | null; // 'bmo' | 'amc' | 'dmt'
+  eps_est: number | null;
+  eps_act: number | null;
+  rev_est: number | null;
+  rev_act: number | null;
+}
+
+export interface ResearchCalendarEvent {
+  id: string;
+  ts: number;
+  country: string | null;
+  name: string | null;
+  impact: 'high' | 'medium' | 'low' | 'holiday' | null;
+  consensus: number | null;
+  prior: number | null;
+  actual: number | null;
+}
+
+export interface NewsItem {
+  id: string;
+  ts: number;
+  source: string | null;
+  headline: string | null;
+  url: string | null;
+  instruments: string | null; // CSV of symbols
+  sentiment: number | null;
+}
+
+export type AlertType =
+  | 'price' | 'indicator' | 'driver' | 'event' | 'positioning' | 'vol' | 'correlation';
+
+export interface ResearchAlert {
+  id: number;
+  user: string;
+  type: AlertType;
+  config_json: unknown;
+  active: number; // 0 | 1
+  last_fired: number | null;
+  created_at: number;
+}
+
+export interface Brief {
+  id: number;
+  instrument: string;
+  date: number;
+  content: string | null;
+  model: string | null;
+}
+
+export interface ContextSnapshot {
+  trade_id: number;
+  ts: number;
+  payload_json: unknown;
+}
+
+// S0.5 — real-time WebSocket tick
+export interface PriceTick {
+  type: 'price';
+  instrument: string;
+  ts: number;
+  bid: number;
+  ask: number;
+  mid: number;
+}
+
+// S1.1 — Alpaca snapshot quote
+export interface AlpacaQuote {
+  price: number | null;
+  bid: number | null;
+  ask: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  volume: number | null;
+  prevClose: number | null;
+  change: number | null;
+  changePct: number | null;
+  ts: number | null;
+}
+
+export interface ConstituentMember {
+  symbol: string;
+  weight: number | null;
+  sector: string | null;
+  mag7: boolean;
+  quote: AlpacaQuote | null;
+}
+
+export interface ConstituentResponse {
+  index: string;
+  count: number;
+  members: ConstituentMember[];
+  freshness: { source: string; last_ok: number | null; status: string };
+}
+
+// S1.2 — Contribution grid
+export interface ContributionMember {
+  symbol: string;
+  weight: number;
+  sector: string | null;
+  mag7: boolean;
+  price: number | null;
+  change: number | null;
+  changePct: number | null;
+  contribution: number;
+}
+
+export interface ContributionResponse {
+  members: ContributionMember[];
+  summary: {
+    totalContrib: number;
+    mag7Contrib: number;
+    mag7Weight: number;
+    broadContrib: number;
+    broadVsNarrow: number | null;
+  };
+  sectors: Record<string, { weight: number; contribution: number; count: number }>;
+}
+
+// S1.3 — Breadth + treemap
+export interface BreadthItem {
+  symbol: string;
+  weight: number;
+  sector: string | null;
+  changePct: number | null;
+  price: number | null;
+  mag7: boolean;
+}
+
+export interface BreadthResponse {
+  breadth: {
+    advancers: number;
+    decliners: number;
+    unchanged: number;
+    total: number;
+    advPct: number;
+    decPct: number;
+    adRatio: number;
+  };
+  treemap: BreadthItem[];
+}
+
+// S1.4 — Rate overlay
+export interface OverlayPoint {
+  ts: number;
+  c: number | null;
+}
+
+export interface RateOverlayResponse {
+  us100: OverlayPoint[];
+  dgs10: SeriesPoint[];
+  dfii10: SeriesPoint[];
+}
+
+// S1.6 — Earnings
+export interface EnrichedEarning {
+  symbol: string;
+  report_date: number;
+  time: string | null;
+  eps_est: number | null;
+  eps_act: number | null;
+  rev_est: number | null;
+  rev_act: number | null;
+  weight: number;
+  importance: number;
+  mag7: boolean;
+}
+
+export interface EarningsResponse {
+  count: number;
+  earnings: EnrichedEarning[];
+  freshness: { source: string; last_ok: number | null; status: string };
+}
+
+// S1.4 — Series list
+export interface SeriesListResponse extends Array<SeriesMeta> {}
+
+export interface SeriesDataResponse {
+  meta: SeriesMeta;
+  count: number;
+  data: SeriesPoint[];
+  freshness: { source: string; last_ok: number | null; status: string };
+}
+
+// S1.5 — Vol & expected move
+export interface VolResponse {
+  instrument: string;
+  volIndex: string;
+  current: number | null;
+  pctRank: number | null;
+  avg60d: number | null;
+  high60d: number | null;
+  low60d: number | null;
+  expectedMove: {
+    daily: number | null;
+    weekly: number | null;
+  };
+  history: SeriesPoint[];
+}
+
+// S1.7 — AI brief
+export interface BriefResponse {
+  instrument: string;
+  date: number;
+  content: string | null;
+  model: string | null;
+  cached?: boolean;
+  error?: string;
+}

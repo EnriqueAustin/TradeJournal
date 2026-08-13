@@ -17,6 +17,7 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "multer": "^2.2.0",
-    "node-html-parser": "^9.0.0"
+    "node-html-parser": "^9.0.0",
+    "ws": "^8.21.3"
   }
 }

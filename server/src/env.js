@@ -28,8 +28,8 @@ try {
   // no .env file — rely on real process.env / defaults
 }
 
-// .env PORT takes priority over inherited env (e.g. preview tools inject PORT)
-export const PORT = Number(fileVars.PORT || process.env.PORT || 4000);
+// Inherited PORT (from preview tools / autoPort) takes priority over .env PORT
+export const PORT = Number(process.env.PORT || fileVars.PORT || 4000);
 export const EA_TOKEN = process.env.EA_TOKEN || 'changeme';
 
 // OANDA market-data (free practice API). Token from server/.env.
@@ -48,3 +48,14 @@ export const AI_MODEL_FALLBACK =
 export const AI_REQUEST_TIMEOUT_MS = Number(
   process.env.AI_REQUEST_TIMEOUT_MS || 120000
 );
+
+// --- Signal research module ---
+// Free data-provider keys (see docs/signal/DATA-SOURCES.md).
+export const FRED_API_KEY = process.env.FRED_API_KEY || '';
+export const FINNHUB_KEY = process.env.FINNHUB_KEY || '';
+export const FINNHUB_WEBHOOK_SECRET = process.env.FINNHUB_WEBHOOK_SECRET || '';
+export const ALPACA_KEY = process.env.ALPACA_KEY || '';
+export const ALPACA_SECRET = process.env.ALPACA_SECRET || '';
+// Python analytics microservice base URL. Docker: http://analytics:8001.
+export const ANALYTICS_URL = process.env.ANALYTICS_URL || 'http://localhost:8001';
+export const ANALYTICS_TIMEOUT_MS = Number(process.env.ANALYTICS_TIMEOUT_MS || 8000);

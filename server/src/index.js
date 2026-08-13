@@ -5,9 +5,14 @@ import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { PORT, EA_TOKEN } from './env.js';
 import { db, migrate } from './db.js';
+import { migrateResearch } from './research/schema.js';
+import { researchRouter } from './research/routes.js';
+import { initResearchWs } from './research/ws.js';
+import { safeIngestOanda } from './research/ingest/oanda.js';
 import { parseImport } from './import.js';
 import { parseBarsCsv, getBarsForTf, upsertBars, TF_MINUTES } from './bars.js';
 import { fetchOandaM1, oandaConfigured, oandaSymbol } from './marketdata.js';
@@ -44,10 +49,14 @@ import {
 } from './stats.js';
 
 migrate();
+migrateResearch();
 
 const app = express();
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
+
+// Signal research module (docs/signal/) — mounted under /api/research.
+app.use('/api/research', researchRouter);
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -1662,14 +1671,27 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: String(err.message || err) });
 });
 
-app.listen(PORT, () => {
+const server = http.createServer(app);
+initResearchWs(server);
+
+server.listen(PORT, () => {
   console.log(`Trade Journal API listening on http://localhost:${PORT}`);
-  // Poll ForexFactory in the background so cached actuals stay fresh even when
-  // no client is open. Interval configurable via NEWS_REFRESH_SEC (min 60s).
-  // Set NEWS_REFRESH_SEC=0 to disable server-side polling entirely — use this
-  // when data is supplied via /api/news/ingest from a residential IP instead,
-  // so the server never hits (and logs 429s from) the Cloudflare-blocked feed.
   const newsSec = Number(process.env.NEWS_REFRESH_SEC ?? 300);
   if (newsSec > 0) startNewsScheduler(newsSec);
   else console.log('[news] server-side polling disabled (NEWS_REFRESH_SEC=0)');
+
+  const priceSec = Number(process.env.PRICE_REFRESH_SEC ?? 300);
+  if (priceSec > 0) {
+    safeIngestOanda({ days: 3 }).then(
+      (r) => console.log('[signal] initial price ingest:', JSON.stringify(r)),
+      (e) => console.error('[signal] initial price ingest error:', e.message)
+    );
+    const tid = setInterval(() => {
+      safeIngestOanda({ days: 1 }).then(
+        (r) => console.log('[signal] price refresh:', JSON.stringify(r)),
+        (e) => console.error('[signal] price refresh error:', e.message)
+      );
+    }, priceSec * 1000);
+    tid.unref();
+  }
 });

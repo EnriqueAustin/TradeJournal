@@ -5,7 +5,10 @@
   "description": "Local trade journal for XAUUSD + US100 scalping",
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"npm --prefix server run dev\" \"npm --prefix web run dev\"",
+    "dev:all": "concurrently -n server,web,analytics -c blue,green,magenta \"npm --prefix server run dev\" \"npm --prefix web run dev\" \"npm run dev:analytics\"",
+    "dev:analytics": "cd analytics && python -m uvicorn app.main:app --reload --port 8001",
     "install:all": "npm --prefix server install && npm --prefix web install",
+    "install:analytics": "cd analytics && python -m pip install -r requirements.txt",
     "build": "npm --prefix web run build"
   },
   "devDependencies": {

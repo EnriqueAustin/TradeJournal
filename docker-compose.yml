@@ -19,10 +19,30 @@ services:
       AI_MODEL_FALLBACK: "${AI_MODEL_FALLBACK:-qwen3.5:9b}"
       OANDA_API_TOKEN: "${OANDA_API_TOKEN:-}"
       OANDA_ENV: "${OANDA_ENV:-practice}"
+      # Signal research module
+      ANALYTICS_URL: "http://analytics:8001"
+      FRED_API_KEY: "${FRED_API_KEY:-}"
+      FINNHUB_KEY: "${FINNHUB_KEY:-}"
+      FINNHUB_WEBHOOK_SECRET: "${FINNHUB_WEBHOOK_SECRET:-}"
+      ALPACA_KEY: "${ALPACA_KEY:-}"
+      ALPACA_SECRET: "${ALPACA_SECRET:-}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - journal-data:/app/data
+    depends_on:
+      - analytics
+    restart: unless-stopped
+
+  # Signal research module — Python FastAPI quant service (docs/signal/).
+  analytics:
+    build: ./analytics
+    environment:
+      MARKET_DB_PATH: "/data/market.db"
+    ports:
+      - "8001:8001"   # exposed for local debugging; server calls it via http://analytics:8001
+    volumes:
+      - journal-data:/data:ro   # reads market.db written by server (read-only)
     restart: unless-stopped
 
   web:

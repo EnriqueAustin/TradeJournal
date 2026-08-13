@@ -1,0 +1,403 @@
+/* Signal — Bloomberg-style terminal theme. ALL selectors are scoped under
+ * `.sig` so this never leaks into the app's slate+indigo theme. Dense, mono,
+ * black with green/amber/cyan accents. See docs/signal/CONVENTIONS.md. */
+
+.sig {
+  /* palette */
+  --sig-bg: #05080a;
+  --sig-bg-2: #0a0f12;
+  --sig-panel: #0b1114;
+  --sig-panel-hd: #0e161a;
+  --sig-border: #17242a;
+  --sig-border-2: #23343b;
+  --sig-text: #c6d3cc;
+  --sig-text-dim: #7d8f88;
+  --sig-muted: #526059;
+  --sig-green: #2ee56b;
+  --sig-red: #ff5a5a;
+  --sig-amber: #f5a623;
+  --sig-cyan: #35c7e0;
+  --sig-blue: #4f9dff;
+  --sig-mag: #c07bff;
+
+  background: var(--sig-bg);
+  color: var(--sig-text);
+  font-family: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  min-height: calc(100vh - 3.5rem);
+  padding: 8px;
+  letter-spacing: 0.02em;
+}
+
+.sig *,
+.sig *::before,
+.sig *::after { box-sizing: border-box; }
+
+/* --- top header bar --- */
+.sig-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 10px;
+  background: linear-gradient(180deg, var(--sig-panel-hd), var(--sig-bg-2));
+  border: 1px solid var(--sig-border-2);
+  border-radius: 3px;
+}
+.sig-brand {
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--sig-amber);
+}
+.sig-brand b { color: var(--sig-green); }
+.sig-tabs { display: flex; gap: 4px; }
+.sig-tab {
+  padding: 3px 12px;
+  border: 1px solid var(--sig-border-2);
+  border-radius: 2px;
+  color: var(--sig-text-dim);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.sig-tab:hover { color: var(--sig-text); border-color: var(--sig-cyan); }
+.sig-tab.is-active {
+  color: var(--sig-bg);
+  background: var(--sig-amber);
+  border-color: var(--sig-amber);
+  font-weight: 700;
+}
+.sig-spacer { flex: 1; }
+.sig-clock { color: var(--sig-cyan); font-variant-numeric: tabular-nums; }
+
+/* --- panel grid --- */
+.sig-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+.sig-col-4 { grid-column: span 4; }
+.sig-col-6 { grid-column: span 6; }
+.sig-col-8 { grid-column: span 8; }
+.sig-col-12 { grid-column: span 12; }
+@media (max-width: 900px) {
+  .sig-col-4, .sig-col-6, .sig-col-8 { grid-column: span 12; }
+}
+
+/* --- panel --- */
+.sig-panel {
+  background: var(--sig-panel);
+  border: 1px solid var(--sig-border);
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sig-panel-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--sig-panel-hd);
+  border-bottom: 1px solid var(--sig-border);
+  color: var(--sig-amber);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+  font-weight: 700;
+}
+.sig-panel-hd .sig-spacer { flex: 1; }
+.sig-panel-bd { padding: 6px 8px; }
+.sig-panel-tag { color: var(--sig-muted); font-weight: 400; letter-spacing: 0.04em; }
+
+/* --- dense rows --- */
+.sig-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+  border-bottom: 1px dotted var(--sig-border);
+}
+.sig-row:last-child { border-bottom: 0; }
+.sig-row-label { color: var(--sig-text-dim); text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; }
+.sig-row-val { color: var(--sig-text); font-variant-numeric: tabular-nums; }
+
+/* --- numeric --- */
+.sig-num { font-variant-numeric: tabular-nums; }
+.sig-up { color: var(--sig-green); }
+.sig-down { color: var(--sig-red); }
+.sig-flat { color: var(--sig-text-dim); }
+
+/* --- status badge --- */
+.sig-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.sig-badge::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.sig-badge--ok { color: var(--sig-green); }
+.sig-badge--warn { color: var(--sig-amber); }
+.sig-badge--err { color: var(--sig-red); }
+.sig-badge--muted { color: var(--sig-muted); }
+
+/* --- timeframe switcher bar --- */
+.sig-tf-bar {
+  display: flex;
+  gap: 3px;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--sig-border);
+  margin-bottom: 4px;
+}
+.sig-tf-btn {
+  padding: 2px 8px;
+  border: 1px solid var(--sig-border-2);
+  border-radius: 2px;
+  color: var(--sig-text-dim);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.sig-tf-btn:hover { color: var(--sig-text); border-color: var(--sig-cyan); }
+.sig-tf-btn.is-active {
+  color: var(--sig-bg);
+  background: var(--sig-cyan);
+  border-color: var(--sig-cyan);
+  font-weight: 700;
+}
+
+/* --- chart wrapper (override lightweight-charts background) --- */
+.sig-chart-wrap {
+  margin: 0 -8px -6px;
+  border-top: 1px solid var(--sig-border);
+}
+.sig-chart-wrap canvas { border-radius: 0 0 2px 2px; }
+
+/* --- placeholder (empty future panels) --- */
+.sig-ph {
+  color: var(--sig-muted);
+  padding: 14px 8px;
+  text-align: center;
+  border: 1px dashed var(--sig-border-2);
+  border-radius: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+}
+
+/* --- live ticker --- */
+.sig-ticker-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sig-ticker-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dotted var(--sig-border);
+}
+.sig-ticker-row:last-child { border-bottom: 0; }
+.sig-ticker-row.is-primary {
+  padding: 6px 0;
+  font-size: 14px;
+}
+.sig-ticker-sym {
+  color: var(--sig-amber);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  min-width: 52px;
+}
+.sig-ticker-price {
+  font-weight: 700;
+  min-width: 80px;
+  transition: color 150ms;
+}
+.sig-ticker-hl {
+  display: flex;
+  gap: 3px;
+  align-items: baseline;
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--sig-text-dim);
+}
+.sig-ticker-hl-label {
+  color: var(--sig-muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+/* --- footer / compliance --- */
+.sig-footer {
+  margin-top: 8px;
+  padding: 5px 10px;
+  color: var(--sig-muted);
+  border-top: 1px solid var(--sig-border);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sig-footer .sig-spacer { flex: 1; }
+
+/* --- data table (S1.1) --- */
+.sig-scroll { overflow-x: auto; max-height: 420px; overflow-y: auto; }
+.sig-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.sig-table th {
+  position: sticky;
+  top: 0;
+  background: var(--sig-panel-hd);
+  color: var(--sig-amber);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--sig-border-2);
+  text-align: left;
+  white-space: nowrap;
+}
+.sig-table td {
+  padding: 2px 6px;
+  border-bottom: 1px dotted var(--sig-border);
+  white-space: nowrap;
+}
+.sig-table tr:hover td { background: var(--sig-bg-2); }
+.sig-right { text-align: right; }
+.sig-muted { color: var(--sig-muted); }
+.sig-symbol { color: var(--sig-text); font-weight: 600; }
+.sig-tag-mag7 {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 3px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--sig-mag);
+  color: var(--sig-mag);
+  border-radius: 2px;
+  vertical-align: middle;
+}
+tr.sig-mag7 td { background: rgba(192, 123, 255, 0.04); }
+
+/* --- contribution summary cells (S1.2) --- */
+.sig-contrib-summary {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--sig-border);
+  margin-bottom: 4px;
+}
+.sig-contrib-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+.sig-contrib-cell .sig-muted { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* --- sort bar --- */
+.sig-sort-bar {
+  display: flex;
+  gap: 3px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--sig-border);
+  margin-bottom: 4px;
+}
+
+/* --- contrib bar sparkline --- */
+.sig-bar-track {
+  height: 8px;
+  background: var(--sig-bg-2);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.sig-bar-fill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 200ms;
+}
+
+/* --- A/D bar (S1.3) --- */
+.sig-ad-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.sig-ad-up { background: var(--sig-green); transition: width 200ms; }
+.sig-ad-down { background: var(--sig-red); transition: width 200ms; }
+
+/* --- treemap grid (S1.3) --- */
+.sig-treemap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.sig-treemap-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 32px;
+  padding: 2px 3px;
+  border-radius: 2px;
+  flex-grow: 1;
+  cursor: default;
+}
+.sig-treemap-sym {
+  font-size: 8px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+.sig-treemap-chg {
+  font-size: 7px;
+  color: rgba(255,255,255,0.8);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+
+/* --- AI brief (S1.7) --- */
+.sig-brief-content {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--sig-text);
+}
+.sig-brief-content p {
+  margin: 3px 0;
+}
+.sig-brief-bullet {
+  padding-left: 12px;
+  text-indent: -8px;
+}
+.sig-brief-bullet::before {
+  content: "▸ ";
+  color: var(--sig-cyan);
+}

@@ -11,6 +11,7 @@ const links = [
   { to: '/replay', label: 'Replay', icon: '▶' },
   { to: '/backtest', label: 'Backtest', icon: '⟲' },
   { to: '/studio', label: 'Studio', icon: '◫' },
+  { to: '/research', label: 'Signal', icon: '◉' },
   { to: '/import', label: 'Import', icon: '⤓' },
   { to: '/accounts', label: 'Accounts', icon: '◈' },
 ];
