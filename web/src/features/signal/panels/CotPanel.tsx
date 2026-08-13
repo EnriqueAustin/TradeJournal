@@ -29,7 +29,7 @@ function NetChart({ history }: { history: CotResponse['history'] }) {
   const W = 280, H = 50;
   if (history.length < 3) return null;
 
-  const nets = history.map(r => r.mm_long - r.mm_short);
+  const nets = history.map(r => (r.mm_long ?? 0) - (r.mm_short ?? 0));
   const max = Math.max(...nets.map(Math.abs), 1);
 
   const midY = H / 2;

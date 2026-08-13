@@ -632,12 +632,18 @@ export interface ResearchPriceBar {
   v: number | null;
 }
 
+export interface Freshness {
+  source: string;
+  last_ok: number | null;
+  status: string;
+}
+
 export interface ResearchPriceResponse {
   instrument: string;
   timeframe: string;
   count: number;
   bars: ResearchPriceBar[];
-  freshness: { source: string; last_ok: number | null; status: string };
+  freshness: Freshness;
 }
 
 export interface SeriesMeta {
@@ -867,7 +873,7 @@ export interface ConstituentResponse {
   index: string;
   count: number;
   members: ConstituentMember[];
-  freshness: { source: string; last_ok: number | null; status: string };
+  freshness: Freshness;
 }
 
 // S1.2 — Contribution grid
@@ -946,7 +952,7 @@ export interface EnrichedEarning {
 export interface EarningsResponse {
   count: number;
   earnings: EnrichedEarning[];
-  freshness: { source: string; last_ok: number | null; status: string };
+  freshness: Freshness;
 }
 
 // S1.4 — Series list
@@ -956,7 +962,7 @@ export interface SeriesDataResponse {
   meta: SeriesMeta;
   count: number;
   data: SeriesPoint[];
-  freshness: { source: string; last_ok: number | null; status: string };
+  freshness: Freshness;
 }
 
 // S1.5 — Vol & expected move
@@ -1055,7 +1061,7 @@ export interface CalendarResponse {
   events: CalendarEvent[];
   count: number;
   nextHighImpact: CalendarEvent | null;
-  freshness: { source: string; last_ok: number | null; status: string };
+  freshness: Freshness;
 }
 
 export interface WindowStats {
@@ -1089,7 +1095,7 @@ export interface EventReactionResponse {
   byMiss: WindowStats[];
   history: ReactionInstance[];
   sampleSize: number;
-  freshness: { source: string; last_ok: number | null; status: string };
+  freshness: Freshness;
 }
 
 export interface UpcomingEvent {

@@ -424,7 +424,7 @@ export const api = {
     request<unknown>('/research/ingest/cftc', { method: 'POST', body: '{}' }),
   triggerEtfIngest: () =>
     request<unknown>('/research/ingest/etf', { method: 'POST', body: '{}' }),
-  getCalendar: (impact?: string, country?: string) => {
+  getResearchCalendar: (impact?: string, country?: string) => {
     const p = new URLSearchParams();
     if (impact) p.set('impact', impact);
     if (country) p.set('country', country);

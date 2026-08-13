@@ -54,7 +54,7 @@ export default function CalendarPanel() {
   const [, setTick] = useState(0);
 
   const { data, loading, error, reload } = useApi<CalendarResponse>(
-    () => api.getCalendar(impact === 'all' ? undefined : impact),
+    () => api.getResearchCalendar(impact === 'all' ? undefined : impact),
     [filterKey(impact)]
   );
 
