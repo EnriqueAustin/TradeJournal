@@ -4,6 +4,61 @@ Newest entries at the top. One block per session: what shipped, decisions, gotch
 
 ---
 
+## 2026-08-13 — QA pass: Epic 0–2 ✓
+**By:** Claude. **Status:** bugs fixed + runtime-verified against live data.
+
+**Scope:** Full audit of Phase 0–2 shipped work (docs vs code vs contract). `tsc --noEmit` + `node --check` clean before and after. 4 bugs fixed:
+
+1. **Regime factor colors dead (High)** — `/regime` emitted factor `signal` values (`risk-on/caution/risk-off/info`) that never matched `RegimePanel`'s `SIGNAL_COLOR` map (`bullish/neutral/bearish`); every non-neutral factor rendered muted. Backend now emits `bullish/neutral/bearish`.
+2. **Regime label mismatch (High)** — `/regime` emitted `constructive` (unmapped→muted) and never `crisis` (mapped but unreachable). Rescored to the API-CONTRACT vocabulary `risk-on/neutral/risk-off/crisis`; `crisis` now reachable (score < -2).
+3. **Econ "YoY" was a 5-month change (Med)** — `/econ` fetched only `LIMIT 6` monthly points, computing YoY from 6 months back. Now fetches 13 points → true 12-month YoY; sparkline is a proper 12 points (matching the BUILD-LOG claim).
+4. **GVZ ingest returned 0 rows (Med)** — `cboe.js` hard-coded `cols[4]` + required ≥5 columns, but GVZ's CSV is 2-column (`DATE,GVZ`) vs VIX/VXN 5-column (`DATE,OPEN,HIGH,LOW,CLOSE`). Every GVZ row was skipped, starving the XAUUSD Vol panel + gold brief. Now reads the last column and requires only ≥2 — GVZ ingests 250 rows.
+
+**Polish:** `RatesBoard` + `EconTracker` value columns were sign-colorized (every positive yield/index showed green); set `colorize={false}` so only change/MoM/YoY columns color.
+
+**Verified (2026-08-13, live data):** Ingested all 18 FRED series (~498 pts each) + CBOE (VIX 257, VXN 250, GVZ 250). `/regime` → `risk-on` score 3, factors VIX 14.55 bullish / HY 2.71 bullish / DXY neutral / VXN neutral. `/econ` → CPI YoY 3.54% + PCE YoY 3.67% (correct 12-mo) with 12-pt sparklines. `/vol/XAUUSD` → GVZ 25.58, pctRank 50, expected move ±70.6/day. `/rates` board fully populated.
+
+**Files:** `server/src/research/routes.js` (regime + econ), `server/src/research/ingest/cboe.js`, `web/src/features/signal/panels/RatesBoard.tsx`, `EconTracker.tsx`.
+
+**Note:** ingest remains manual-trigger (`POST /ingest/fred`, `/ingest/cboe`) — scheduled refresh still deferred (Epic 8). GVZ/VIX/VXN/all-FRED now confirmed populating market.db.
+
+---
+
+## 2026-08-13 — Epic 2: Macro Core (S2.1–S2.4) ✓
+**By:** Claude. **Status:** shipped + tsc-verified.
+
+**Shipped (S2.1 — FRED ingest engine):**
+- `server/src/research/ingest/fred.js`: expanded `SERIES_REGISTRY` from 8 to 18 series — added DGS5/DGS1/DGS3MO (short-end rates), DFII5 (5Y TIPS), T5YIE (5Y breakeven), T10Y2Y (2s10s spread), CPIAUCSL/PCEPI (inflation), PAYEMS/UNRATE (labor), FEDFUNDS, BAMLH0A0HYM2 (HY OAS credit spread).
+
+**Shipped (S2.2 — Rates board + yield curve):**
+- Route: `GET /api/research/rates` — rates board with 18 FRED series organized by category + yield curve points (3M→30Y).
+- `web/src/features/signal/panels/RatesBoard.tsx`: sectioned display (Nominal Yields, Real Yields, Breakevens, Spreads, Policy/FX) with value + change coloring. SVG yield curve chart with amber polyline + tenor labels.
+
+**Shipped (S2.3 — Econ tracker):**
+- Route: `GET /api/research/econ` — CPI/PCE/PAYEMS/UNRATE with latest value, MoM/YoY change, 12-point sparkline history.
+- `web/src/features/signal/panels/EconTracker.tsx`: table with unit-aware formatting (percent/index/thousands), MoM/YoY with signed colorized values, SVG sparkline per indicator (green=trending up, red=trending down).
+
+**Shipped (S2.4 — Risk regime classifier):**
+- Route: `GET /api/research/regime` — composite risk regime (risk-on/neutral/risk-off/crisis) from VIX + HY spread + breadth + DXY signals.
+- `web/src/features/signal/panels/RegimePanel.tsx`: regime badge (color-coded: ok/muted/warn/err), composite score, factor breakdown with signal coloring (bullish/neutral/bearish).
+
+**Shared changes:**
+- `web/src/types.ts`: added RateBoardEntry, YieldCurvePoint, RatesResponse, EconIndicator, EconResponse, RegimeFactor, RegimeResponse.
+- `web/src/api/client.ts`: added getRates, getEcon, getRegime.
+- `web/src/features/signal/pages/Signal.tsx`: wired RatesBoard + EconTracker + RegimePanel as cross-instrument panels (shown on both US100 and XAUUSD tabs).
+- `web/src/features/signal/terminal/terminal.css`: added `.sig-section-label` style.
+
+**Verified (2026-08-13):** `tsc --noEmit` clean (zero errors). All three panels render in both instrument tabs.
+
+**Decisions/gotchas:**
+- Macro panels placed outside instrument-conditional blocks — they're cross-instrument context, relevant to both US100 and XAUUSD.
+- Python compute deferred for Fed probability (WIRP-style), surprise z-scores (ECSU), and regime composite. Node implementations serve as functional stubs with the same API shape.
+- Yield curve uses inline SVG (no charting library) — lightweight, terminal-aesthetic consistent.
+
+**Next:** Epic 3 — Gold cockpit (driver scorecard, real-yield overlay, COT, ETF flows).
+
+---
+
 ## 2026-08-13 — Epic 1: US100 Cockpit (S1.1–S1.7) ✓
 **By:** Claude. **Status:** shipped + browser-verified.
 

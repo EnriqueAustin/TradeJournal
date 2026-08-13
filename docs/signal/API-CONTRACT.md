@@ -22,9 +22,9 @@ Two surfaces: **Node** (`/api/research/*`, client-facing, also serves cached Pyt
 | GET | `/api/research/series` | S1.4 | **built** — list all known series. |
 | POST | `/api/research/ingest/fred` | S1.4 | **built** — trigger FRED ingest (all 8 registered series). |
 | POST | `/api/research/ingest/cboe` | S1.5 | **built** — trigger CBOE vol ingest (VIX/VXN/GVZ). |
-| GET | `/api/research/rates` | S2.2 | Rates board + Fed odds + curve. |
-| GET | `/api/research/econ` | S2.3 | Econ tracker + surprise index. |
-| GET | `/api/research/regime` | S2.4 | Risk regime label + per-instrument behavior. |
+| GET | `/api/research/rates` | S2.2 | **built** — Rates board (18 series sectioned: nominal/real/breakevens/spreads/policy) + yield curve points. |
+| GET | `/api/research/econ` | S2.3 | **built** — Econ tracker: CPI/PCE/PAYEMS/UNRATE with value/MoM/YoY + 12-point sparkline. |
+| GET | `/api/research/regime` | S2.4 | **built** — Risk regime label (risk-on/neutral/risk-off/crisis) + composite score + factor breakdown. |
 | GET | `/api/research/drivers/:instrument` | S3.1 | Driver scorecard (z-scores, corr, gauge). |
 | GET | `/api/research/cot/gold` | S3.3 | COT gauge + percentiles. |
 | GET | `/api/research/etf-flows/gold` | S3.4 | GLD/IAU flows + trend. |

@@ -534,3 +534,149 @@ researchRouter.get('/brief/:instrument', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// GET /api/research/rates — rates board (nominal/real/spreads/breakevens/fed/DXY)
+researchRouter.get('/rates', (_req, res) => {
+  try {
+    seedSeriesRegistry();
+    const ids = [
+      'DGS3MO', 'DGS1', 'DGS2', 'DGS5', 'DGS10', 'DGS30',
+      'DFII5', 'DFII10', 'T5YIE', 'T10YIE', 'T10Y2Y',
+      'DTWEXBGS', 'FEDFUNDS', 'BAMLH0A0HYM2',
+    ];
+    const board = {};
+    for (const id of ids) {
+      const latest = marketDb.prepare(
+        'SELECT ts, value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT 1'
+      ).get(id);
+      const prev = marketDb.prepare(
+        'SELECT ts, value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT 1 OFFSET 1'
+      ).get(id);
+      const meta = getSeriesMeta(id);
+      board[id] = {
+        name: meta?.name ?? id,
+        unit: meta?.unit ?? '',
+        value: latest?.value ?? null,
+        ts: latest?.ts ?? null,
+        prev: prev?.value ?? null,
+        change: latest?.value != null && prev?.value != null
+          ? latest.value - prev.value : null,
+      };
+    }
+
+    // Yield curve points for chart
+    const curveIds = ['DGS3MO', 'DGS1', 'DGS2', 'DGS5', 'DGS10', 'DGS30'];
+    const curveLabels = ['3M', '1Y', '2Y', '5Y', '10Y', '30Y'];
+    const yieldCurve = curveIds.map((id, i) => ({
+      tenor: curveLabels[i],
+      yield: board[id]?.value ?? null,
+    }));
+
+    res.json({ board, yieldCurve });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/econ — economic data tracker + surprise
+researchRouter.get('/econ', (_req, res) => {
+  try {
+    seedSeriesRegistry();
+    const econIds = ['CPIAUCSL', 'PCEPI', 'PAYEMS', 'UNRATE', 'FEDFUNDS'];
+    const indicators = [];
+
+    for (const id of econIds) {
+      const meta = getSeriesMeta(id);
+      // Pull 13 monthly points so YoY spans a true 12 months (latest vs 12 back).
+      const recent = marketDb.prepare(
+        'SELECT ts, value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT 13'
+      ).all(id).reverse();
+      const latest = recent.length ? recent[recent.length - 1] : null;
+      const prev = recent.length > 1 ? recent[recent.length - 2] : null;
+      const yearAgo = recent.length >= 13 ? recent[recent.length - 13] : null;
+
+      let mom = null;
+      let yoy = null;
+      if (latest && prev && prev.value) {
+        mom = ((latest.value - prev.value) / prev.value) * 100;
+      }
+      if (latest && yearAgo && yearAgo.value) {
+        yoy = ((latest.value - yearAgo.value) / yearAgo.value) * 100;
+      }
+
+      indicators.push({
+        id,
+        name: meta?.name ?? id,
+        unit: meta?.unit ?? '',
+        value: latest?.value ?? null,
+        ts: latest?.ts ?? null,
+        prev: prev?.value ?? null,
+        mom,
+        yoy,
+        sparkline: recent.slice(-12).map((r) => r.value),
+      });
+    }
+
+    res.json({ indicators });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/regime — risk regime label
+researchRouter.get('/regime', (_req, res) => {
+  try {
+    seedVolSeries();
+    const vix = getLatestVol('VIX');
+    const vxn = getLatestVol('VXN');
+
+    const dxy = marketDb.prepare(
+      'SELECT value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT 1'
+    ).get('DTWEXBGS');
+
+    const hySpread = marketDb.prepare(
+      'SELECT value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT 1'
+    ).get('BAMLH0A0HYM2');
+
+    const vixVal = vix?.value ?? null;
+    const hyVal = hySpread?.value ?? null;
+
+    let score = 0;
+    let factors = [];
+
+    // Factor signals are constrained to bullish/neutral/bearish so the panel's
+    // SIGNAL_COLOR map (green/muted/red) resolves every row.
+    if (vixVal != null) {
+      if (vixVal < 15) { score += 2; factors.push({ name: 'VIX', value: vixVal, signal: 'bullish' }); }
+      else if (vixVal < 20) { score += 1; factors.push({ name: 'VIX', value: vixVal, signal: 'neutral' }); }
+      else if (vixVal < 30) { score -= 1; factors.push({ name: 'VIX', value: vixVal, signal: 'bearish' }); }
+      else { score -= 2; factors.push({ name: 'VIX', value: vixVal, signal: 'bearish' }); }
+    }
+
+    if (hyVal != null) {
+      if (hyVal < 3) { score += 1; factors.push({ name: 'HY Spread', value: hyVal, signal: 'bullish' }); }
+      else if (hyVal < 5) { factors.push({ name: 'HY Spread', value: hyVal, signal: 'neutral' }); }
+      else { score -= 1; factors.push({ name: 'HY Spread', value: hyVal, signal: 'bearish' }); }
+    }
+
+    if (dxy?.value != null) {
+      factors.push({ name: 'DXY', value: dxy.value, signal: 'neutral' });
+    }
+
+    if (vxn?.value != null) {
+      factors.push({ name: 'VXN', value: vxn.value, signal: 'neutral' });
+    }
+
+    // Regime vocabulary matches the API contract + RegimePanel badge map:
+    // risk-on / neutral / risk-off / crisis.
+    let regime;
+    if (score >= 2) regime = 'risk-on';
+    else if (score >= 0) regime = 'neutral';
+    else if (score >= -2) regime = 'risk-off';
+    else regime = 'crisis';
+
+    res.json({ regime, score, factors });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});

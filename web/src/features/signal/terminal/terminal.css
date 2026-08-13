@@ -401,3 +401,14 @@ tr.sig-mag7 td { background: rgba(192, 123, 255, 0.04); }
   content: "▸ ";
   color: var(--sig-cyan);
 }
+
+/* section labels for grouped panels (rates, econ) */
+.sig-section-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sig-muted);
+  padding: 6px 0 2px;
+  border-bottom: 1px solid var(--sig-border);
+  margin-bottom: 2px;
+}

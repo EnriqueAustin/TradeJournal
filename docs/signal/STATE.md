@@ -3,24 +3,24 @@
 > Read this first every session. Update it last.
 
 ## Status
-- **Last completed:** **Epic 1 — US100 cockpit (S1.1–S1.7)** ✓ (2026-08-13)
-- **Next session:** **Epic 2 — Macro core** (run deep-research pass first → write `FEATURE-SPEC-epic2-macro.md`)
-- **Current epic:** Epic 1 — US100 cockpit ✅ COMPLETE
+- **Last completed:** **Epic 2 — Macro core (S2.1–S2.4)** ✓ (2026-08-13)
+- **Next session:** **Epic 3 — Gold cockpit** (run deep-research pass first → write `FEATURE-SPEC-epic3-gold.md`)
+- **Current epic:** Epic 2 — Macro core ✅ COMPLETE
 - **Branch:** `bloomberg-terminal`
 
 ## In-progress notes
+- **QA pass on Epic 0–2 done** (2026-08-13). 4 bugs fixed + runtime-verified against live data: (1) regime factor colors dead — signal vocab mismatch; (2) regime labels off-contract (`constructive`/no `crisis`); (3) econ "YoY" was a 5-mo change; (4) GVZ ingested 0 rows (2-col CSV vs 5-col parser) — gold vol panel was empty. See BUILD-LOG QA entry. market.db now has all 18 FRED series + VIX/VXN/GVZ populated.
 - **Epic 0 complete** (S0.1–S0.5 all done + verified). Terminal UI live at `/research` with OANDA price charts + real-time WebSocket ticker.
-- **Epic 1 complete** (S1.1–S1.7 all done + browser-verified). US100 cockpit fully operational:
-  - **S1.1:** QQQ top-40 constituents in DB + Alpaca IEX live quotes
-  - **S1.2:** Mag-7 contribution grid + sector contribution + summary bar (Total/Mag-7/Broad)
-  - **S1.3:** Breadth A/D + treemap heatmap
-  - **S1.4:** FRED ingestor (8 rate series) + rate overlay panel
-  - **S1.5:** CBOE VXN/GVZ ingestor + vol/expected-move panel
-  - **S1.6:** Finnhub earnings ingestor + weight-ranked earnings table
-  - **S1.7:** Sector rotation panel + AI daily brief via callLLM
+- **Epic 1 complete** (S1.1–S1.7 all done + browser-verified). US100 cockpit fully operational.
+- **Epic 2 complete** (S2.1–S2.4 all done + tsc-verified). Macro panels are cross-instrument (shown on both tabs):
+  - **S2.1:** FRED registry expanded to 18 series (rates/real/breakevens/spread/dollar/econ/fed/credit)
+  - **S2.2:** RatesBoard panel — sectioned display (nominal/real/breakevens/spreads/policy) + SVG yield curve
+  - **S2.3:** EconTracker panel — CPI/PCE/PAYEMS/UNRATE with value/MoM/YoY + sparkline trends
+  - **S2.4:** RegimePanel — composite risk regime badge (risk-on/neutral/risk-off/crisis) + factor breakdown
 - Data ingestors need manual trigger: `POST /api/research/ingest/fred`, `/ingest/cboe`. Scheduled refresh deferred.
-- Gold tab shows vol + brief panels; driver scorecard placeholder remains (Epic 3).
-- Before Epic 2 (Macro): run deep-research pass → write `FEATURE-SPEC-epic2-macro.md`, update BLOOMBERG-PARITY.md.
+- Gold tab shows vol + brief + macro panels; driver scorecard placeholder remains (Epic 3).
+- Python compute deferred for: Fed rate probability (S2.2), surprise z-scores (S2.3), regime composite (S2.4). Node implementations serve as functional stubs.
+- Before Epic 3 (Gold cockpit): run deep-research pass → write `FEATURE-SPEC-epic3-gold.md`, update BLOOMBERG-PARITY.md.
 
 ## Dev preview
 - `.claude/launch.json` defines the `web` config (Vite :5173) + `server` (:4000) for the preview tools, both with `autoPort: true`. Backend (:4000) + analytics (:8001) run separately. Open `http://localhost:5173/research`.

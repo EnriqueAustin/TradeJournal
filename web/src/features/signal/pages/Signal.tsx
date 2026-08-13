@@ -14,6 +14,9 @@ import EarningsPanel from '../panels/EarningsPanel';
 import SectorPanel from '../panels/SectorPanel';
 import VolPanel from '../panels/VolPanel';
 import BriefPanel from '../panels/BriefPanel';
+import RatesBoard from '../panels/RatesBoard';
+import EconTracker from '../panels/EconTracker';
+import RegimePanel from '../panels/RegimePanel';
 import '../terminal/terminal.css';
 
 const INSTRUMENTS = ['XAUUSD', 'US100'] as const;
@@ -148,6 +151,10 @@ export default function Signal() {
         <PricePanel instrument={instrument} livePrice={livePrice[instrument]} />
         {/* Live ticker — S0.5 */}
         <LiveTicker instrument={instrument} onTick={handleTick} />
+        {/* Macro panels — Epic 2 (cross-instrument) */}
+        <RatesBoard />
+        <EconTracker />
+        <RegimePanel />
         {/* US100 cockpit panels — Epic 1 */}
         {instrument === 'US100' && (
           <>

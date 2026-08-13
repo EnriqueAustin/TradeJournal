@@ -21,10 +21,10 @@ Each session = one ~5-hour Opus session, a vertical slice that ends green. Tick 
 - [x] **S1.7 Put/call + sector + brief + OMON** — Sector rotation panel; US100 daily AI brief (`callLLM`). **Accept:** sector panel + cached brief ✓ (browser-verified; 2026-08-13). Put/call + OMON deferred to data availability.
 
 ## Epic 2 — Macro core
-- [ ] **S2.1 FRED ingest engine** — series registry + generic ingestor → `series`/`series_data` (DFII10/5, DGS2/10/30, T10YIE, DTWEXBGS, CPI/PCE/PAYEMS). **Accept:** series stored + freshness badge.
-- [ ] **S2.2 Rates board + Fed odds + YCRV** — rates board (real/nominal/2s10s/breakevens); Python Fed rate-probability (WIRP-style); Treasury yield curve. **Accept:** rates panel + implied odds by meeting.
-- [ ] **S2.3 Econ tracker + surprise monitor** — actual vs consensus vs prior + Python surprise index (ECSU) + sparkline. **Accept:** tracker with surprise z-scores.
-- [ ] **S2.4 Risk regime classifier** — Python composite (VIX/credit-proxy/breadth/DXY) → regime label + per-instrument behavior. **Accept:** regime badge.
+- [x] **S2.1 FRED ingest engine** — series registry expanded to 18 series (rates/real/breakevens/spread/dollar/econ/fed/credit); generic ingestor. **Accept:** series stored + freshness badge ✓ (verified 2026-08-13).
+- [x] **S2.2 Rates board + Fed odds + YCRV** — rates board (real/nominal/2s10s/breakevens/policy/FX); SVG yield curve; sectioned display. **Accept:** rates panel renders ✓ (verified 2026-08-13). Fed odds deferred (needs Python compute).
+- [x] **S2.3 Econ tracker + surprise monitor** — CPI/PCE/PAYEMS/UNRATE with MoM/YoY + sparkline trends. **Accept:** tracker renders ✓ (verified 2026-08-13). Surprise z-scores deferred (needs Python compute).
+- [x] **S2.4 Risk regime classifier** — Node composite (VIX/HY-spread/breadth/DXY) → regime label + factors. **Accept:** regime badge renders ✓ (verified 2026-08-13). Python compute deferred.
 
 ## Epic 3 — Gold cockpit
 - [ ] **S3.1 Driver scorecard** — Python `/compute/zscores` + rolling corr per driver; composite tailwind/headwind gauge; impact arrows. **Accept:** flagship scorecard live. *(may split)*

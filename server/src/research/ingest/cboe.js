@@ -47,9 +47,11 @@ export async function ingestVolIndex(seriesId, { days = 365 } = {}) {
     let n = 0;
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',').map((s) => s.trim());
-      if (cols.length < 5) continue;
+      // VIX/VXN are DATE,OPEN,HIGH,LOW,CLOSE (5 col); GVZ is DATE,GVZ (2 col).
+      // The close/level is always the last column.
+      if (cols.length < 2) continue;
       const dateStr = cols[0];
-      const close = parseFloat(cols[4]);
+      const close = parseFloat(cols[cols.length - 1]);
       if (isNaN(close)) continue;
 
       let ts;

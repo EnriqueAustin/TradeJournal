@@ -883,6 +883,56 @@ export interface VolResponse {
   history: SeriesPoint[];
 }
 
+// S2.2 — Rates board
+export interface RateBoardEntry {
+  name: string;
+  unit: string;
+  value: number | null;
+  ts: number | null;
+  prev: number | null;
+  change: number | null;
+}
+
+export interface YieldCurvePoint {
+  tenor: string;
+  yield: number | null;
+}
+
+export interface RatesResponse {
+  board: Record<string, RateBoardEntry>;
+  yieldCurve: YieldCurvePoint[];
+}
+
+// S2.3 — Econ tracker
+export interface EconIndicator {
+  id: string;
+  name: string;
+  unit: string;
+  value: number | null;
+  ts: number | null;
+  prev: number | null;
+  mom: number | null;
+  yoy: number | null;
+  sparkline: (number | null)[];
+}
+
+export interface EconResponse {
+  indicators: EconIndicator[];
+}
+
+// S2.4 — Risk regime
+export interface RegimeFactor {
+  name: string;
+  value: number;
+  signal: string;
+}
+
+export interface RegimeResponse {
+  regime: string;
+  score: number;
+  factors: RegimeFactor[];
+}
+
 // S1.7 — AI brief
 export interface BriefResponse {
   instrument: string;

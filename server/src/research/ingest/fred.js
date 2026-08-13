@@ -8,14 +8,31 @@ export function fredConfigured() {
 }
 
 const SERIES_REGISTRY = [
+  // Rates
   { id: 'DGS10', name: '10-Year Treasury Yield', unit: 'percent', source: 'fred' },
   { id: 'DGS2', name: '2-Year Treasury Yield', unit: 'percent', source: 'fred' },
   { id: 'DGS30', name: '30-Year Treasury Yield', unit: 'percent', source: 'fred' },
+  { id: 'DGS5', name: '5-Year Treasury Yield', unit: 'percent', source: 'fred' },
+  { id: 'DGS1', name: '1-Year Treasury Yield', unit: 'percent', source: 'fred' },
+  { id: 'DGS3MO', name: '3-Month Treasury Yield', unit: 'percent', source: 'fred' },
+  // Real yields + breakevens
   { id: 'DFII10', name: '10-Year TIPS (Real Yield)', unit: 'percent', source: 'fred' },
   { id: 'DFII5', name: '5-Year TIPS (Real Yield)', unit: 'percent', source: 'fred' },
   { id: 'T10YIE', name: '10-Year Breakeven Inflation', unit: 'percent', source: 'fred' },
   { id: 'T5YIE', name: '5-Year Breakeven Inflation', unit: 'percent', source: 'fred' },
+  // Spread
+  { id: 'T10Y2Y', name: '10Y-2Y Treasury Spread', unit: 'percent', source: 'fred' },
+  // Dollar
   { id: 'DTWEXBGS', name: 'Trade-Weighted USD (Broad)', unit: 'index', source: 'fred' },
+  // Econ
+  { id: 'CPIAUCSL', name: 'CPI All Urban (SA)', unit: 'index', source: 'fred' },
+  { id: 'PCEPI', name: 'PCE Price Index', unit: 'index', source: 'fred' },
+  { id: 'PAYEMS', name: 'Nonfarm Payrolls', unit: 'thousands', source: 'fred' },
+  { id: 'UNRATE', name: 'Unemployment Rate', unit: 'percent', source: 'fred' },
+  // Fed funds
+  { id: 'FEDFUNDS', name: 'Effective Federal Funds Rate', unit: 'percent', source: 'fred' },
+  // Credit
+  { id: 'BAMLH0A0HYM2', name: 'ICE BofA US High Yield Spread', unit: 'percent', source: 'fred' },
 ];
 
 const upsertSeries = marketDb.prepare(

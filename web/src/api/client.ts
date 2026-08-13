@@ -398,6 +398,12 @@ export const api = {
     request<unknown>('/research/ingest/cboe', { method: 'POST', body: '{}' }),
   getBrief: (instrument: string) =>
     request<import('../types').BriefResponse>(`/research/brief/${instrument}`),
+  getRates: () =>
+    request<import('../types').RatesResponse>('/research/rates'),
+  getEcon: () =>
+    request<import('../types').EconResponse>('/research/econ'),
+  getRegime: () =>
+    request<import('../types').RegimeResponse>('/research/regime'),
   getPlan: (account: number | null, day: string) => {
     const p = new URLSearchParams({ day });
     if (account != null) p.set('account', String(account));
