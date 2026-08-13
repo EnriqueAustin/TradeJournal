@@ -404,6 +404,26 @@ export const api = {
     request<import('../types').EconResponse>('/research/econ'),
   getRegime: () =>
     request<import('../types').RegimeResponse>('/research/regime'),
+  getDrivers: (instrument: string) =>
+    request<import('../types').DriversResponse>(`/research/drivers/${instrument}`),
+  getRealYieldOverlay: (limit?: number) => {
+    const q = limit ? `?limit=${limit}` : '';
+    return request<import('../types').RealYieldOverlayResponse>(`/research/overlay/xauusd/realyield${q}`);
+  },
+  getLevels: (instrument: string) =>
+    request<import('../types').LevelsResponse>(`/research/levels/${instrument}`),
+  getSeasonality: (instrument: string) =>
+    request<import('../types').SeasonalityResponse>(`/research/seasonality/${instrument}`),
+  getCot: () =>
+    request<import('../types').CotResponse>('/research/cot/gold'),
+  getEtfFlows: () =>
+    request<import('../types').EtfFlowResponse>('/research/etf-flows/gold'),
+  getGoldSilverRatio: () =>
+    request<import('../types').GoldSilverResponse>('/research/ratio/gold-silver'),
+  triggerCftcIngest: () =>
+    request<unknown>('/research/ingest/cftc', { method: 'POST', body: '{}' }),
+  triggerEtfIngest: () =>
+    request<unknown>('/research/ingest/etf', { method: 'POST', body: '{}' }),
   getPlan: (account: number | null, day: string) => {
     const p = new URLSearchParams({ day });
     if (account != null) p.set('account', String(account));

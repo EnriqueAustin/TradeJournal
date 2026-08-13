@@ -25,10 +25,17 @@ Two surfaces: **Node** (`/api/research/*`, client-facing, also serves cached Pyt
 | GET | `/api/research/rates` | S2.2 | **built** — Rates board (18 series sectioned: nominal/real/breakevens/spreads/policy) + yield curve points. |
 | GET | `/api/research/econ` | S2.3 | **built** — Econ tracker: CPI/PCE/PAYEMS/UNRATE with value/MoM/YoY + 12-point sparkline. |
 | GET | `/api/research/regime` | S2.4 | **built** — Risk regime label (risk-on/neutral/risk-off/crisis) + composite score + factor breakdown. |
-| GET | `/api/research/drivers/:instrument` | S3.1 | Driver scorecard (z-scores, corr, gauge). |
-| GET | `/api/research/cot/gold` | S3.3 | COT gauge + percentiles. |
-| GET | `/api/research/etf-flows/gold` | S3.4 | GLD/IAU flows + trend. |
-| GET | `/api/research/curve/gold` | S3.6 | Futures forward curve + roll. |
+| GET | `/api/research/drivers/:instrument` | S3.1 | **built** — 7 drivers with z-scores, rolling correlation, signal, composite tailwind/headwind. |
+| GET | `/api/research/overlay/xauusd/realyield?limit=` | S3.2 | **built** — Gold D1 close + DFII10 + 60d rolling correlation. |
+| GET | `/api/research/cot/gold` | S3.3 | **built** — COT net MM, %long, WoW Δ, 1Y/3Y percentile, extreme flag + 52-week history. |
+| POST | `/api/research/ingest/cftc` | S3.3 | **built** — Trigger CFTC disaggregated report ingest (gold rows). |
+| GET | `/api/research/etf-flows/gold` | S3.4 | **built** — GLD tonnes, daily/weekly Δ, trend (inflow/flat/outflow) + 90-day history. |
+| POST | `/api/research/ingest/etf` | S3.4 | **built** — Trigger GLD CSV ingest from SPDR. |
+| POST | `/api/research/ingest/etf/upload` | S3.4 | **built** — Manual GLD CSV import (raw text body); fallback when SPDR URL blocks. |
+| GET | `/api/research/ratio/gold-silver?limit=` | S3.5 | **built** — Gold/silver ratio, 1Y avg/high/low/percentile + history. |
+| GET | `/api/research/seasonality/:instrument` | S3.5 | **built** — 12-month avg returns + win rate + sample size. |
+| GET | `/api/research/levels/:instrument` | S3.5 | **built** — Classic pivots (PP/R1-R3/S1-S3) + round numbers + prev day/week H/L. |
+| GET | `/api/research/curve/gold` | S3.6 | gap (free-data unavailable; deferred). |
 | GET | `/api/research/calendar?impact=high` | S4.1 | Forward calendar. |
 | GET | `/api/research/event-reaction/:event/:instrument` | S4.2 | Historical reaction stats. |
 | GET | `/api/research/correlation?window=&assets=` | S5.1 | Rolling corr matrix + regression. |

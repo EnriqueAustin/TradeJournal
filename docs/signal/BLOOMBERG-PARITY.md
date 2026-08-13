@@ -33,28 +33,29 @@ Every Bloomberg Terminal capability a gold desk or a Nasdaq desk uses for **XAUU
 ## Gold — commodity desk
 | BBG fn | Feature | Session | Status |
 |---|---|---|---|
-| Forward curve | Term structure + contango/backwardation + roll | S3.6 | planned |
-| CFTC/COT | Positioning gauge + percentiles + extremes | S3.3 | planned |
-| SEAG | Seasonality + significance | S3.5/S5.3 | planned |
-| real-yield/DXY | Driver scorecard + composite gauge | S3.1 | planned |
-| ETF holdings | GLD/IAU flows + trend | S3.4 | planned |
-| CB demand | WGC structural demand | S3.4 | planned |
-| GVZ | Gold IV/RV + expected move | S3.5 | planned |
-| gold/silver | Ratio + percentile | S3.5 | planned |
+| Forward curve | Term structure + contango/backwardation + roll | S3.6 | gap (free-data; deferred — see FEATURE-SPEC) |
+| CFTC/COT | Positioning gauge + percentiles + extremes | S3.3 | **built** (CotPanel; net MM/%long/WoW/percentile/extreme) |
+| SEAG | Seasonality + significance | S3.5/S5.3 | **built** (monthly avg/win-rate; significance in S5.3) |
+| real-yield/DXY | Driver scorecard + composite gauge | S3.1 | **built** (7-driver z-score + composite gauge) |
+| ETF holdings | GLD/IAU flows + trend | S3.4 | **built** (GLD only; IAU deferred) |
+| CB demand | WGC structural demand | S3.4 | planned (manual/quarterly) |
+| GVZ | Gold IV/RV + expected move | S3.5 | **built** (S1.5) |
+| gold/silver | Ratio + percentile | S3.5 | **built** (GoldSilverPanel; ratio + 1Y percentile) |
+| key levels | Auto pivots/rounds/structure | S3.5 | **built** (KeyLevelsPanel) |
 
 ## Rates & macro (both)
 | BBG fn | Feature | Session | Status |
 |---|---|---|---|
-| WIRP | Fed rate-probability tracker | S2.2 | planned |
+| WIRP | Fed rate-probability tracker | S2.2 | planned (Python compute deferred) |
 | ECO | Forward economic calendar | S4.1 | planned |
-| ECST | Econ series board | S2.3 | planned |
-| ECFC | Consensus vs prior | S2.3 | planned |
-| ECSU | Surprise index | S2.3 | planned |
-| FOMC/FED | Fed-path context | S2.2 | planned |
-| BTMM | Rates board | S2.2 | **built** (DGS10/DFII10 overlay panel; full board in S2.2) |
-| YCRV | Treasury yield curve | S2.2 | planned |
-| FXIP/DXY | Dollar panel | S2.1 | planned |
-| risk regime | Risk-on/off classifier | S2.4 | planned |
+| ECST | Econ series board | S2.3 | **built** (CPI/PCE/PAYEMS/UNRATE + MoM/YoY + sparklines) |
+| ECFC | Consensus vs prior | S2.3 | planned (surprise z-scores need Python) |
+| ECSU | Surprise index | S2.3 | planned (Python compute deferred) |
+| FOMC/FED | Fed-path context | S2.2 | planned (Python compute deferred) |
+| BTMM | Rates board | S2.2 | **built** (18 series sectioned: nominal/real/breakevens/spreads/policy + yield curve) |
+| YCRV | Treasury yield curve | S2.2 | **built** (SVG curve in RatesBoard) |
+| FXIP/DXY | Dollar panel | S2.1 | **built** (DTWEXBGS in rates board + regime panel) |
+| risk regime | Risk-on/off classifier | S2.4 | **built** (VIX/HY/breadth/DXY composite; Python compute deferred) |
 
 ## Options, vol & expected move (both)
 | BBG fn | Feature | Session | Status |

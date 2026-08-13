@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { marketDb, MARKET_DB_PATH, instrumentId } from './schema.js';
 import { analyticsHealth, compute } from './analyticsClient.js';
 import { safeIngestOanda } from './ingest/oanda.js';
@@ -7,6 +7,8 @@ import { alpacaConfigured, fetchSnapshots } from './ingest/alpaca.js';
 import { fredConfigured, ingestFredSeries, getSeriesData, getSeriesMeta, listSeries, seedSeriesRegistry, ingestAllFred } from './ingest/fred.js';
 import { ingestEarnings, getUpcomingEarnings } from './ingest/finnhub.js';
 import { getLatestVol, getVolHistory, ingestAllVol, seedVolSeries } from './ingest/cboe.js';
+import { ingestCftc, getCotHistory } from './ingest/cftc.js';
+import { ingestGldEtf, parseAndStoreGld, getEtfHistory } from './ingest/etf.js';
 import { callLLM } from '../ai.js';
 import {
   FRED_API_KEY,
@@ -18,7 +20,7 @@ import {
 export const researchRouter = Router();
 
 const VALID_TF = new Set(['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1']);
-const SYMBOL_MAP = { XAUUSD: 'XAUUSD', US100: 'US100', xauusd: 'XAUUSD', us100: 'US100' };
+const SYMBOL_MAP = { XAUUSD: 'XAUUSD', US100: 'US100', XAGUSD: 'XAGUSD', xauusd: 'XAUUSD', us100: 'US100', xagusd: 'XAGUSD' };
 
 function resolveInstrument(raw) {
   if (!raw) return null;
@@ -676,6 +678,481 @@ researchRouter.get('/regime', (_req, res) => {
     else regime = 'crisis';
 
     res.json({ regime, score, factors });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Epic 3 — Gold cockpit ----------
+
+const GOLD_DRIVERS = [
+  { id: 'DFII10', name: '10Y Real Yield', relationship: 'inverse', zThresh: 0.5 },
+  { id: 'DFII5',  name: '5Y Real Yield',  relationship: 'inverse', zThresh: 0.5 },
+  { id: 'DTWEXBGS', name: 'USD Index',    relationship: 'inverse', zThresh: 0.5 },
+  { id: 'T10YIE', name: '10Y Breakeven',  relationship: 'direct',  zThresh: 0.5 },
+  { id: 'GVZ',    name: 'Gold Vol (GVZ)', relationship: 'direct',  zThresh: 1.0 },
+  { id: 'BAMLH0A0HYM2', name: 'HY Spread', relationship: 'direct', zThresh: 0.5 },
+  { id: 'FEDFUNDS', name: 'Fed Funds',    relationship: 'inverse', zThresh: 0.5 },
+];
+
+function zScore(values) {
+  if (!values.length) return null;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((a, v) => a + (v - mean) ** 2, 0) / values.length;
+  const sd = Math.sqrt(variance);
+  if (sd === 0) return 0;
+  return (values[values.length - 1] - mean) / sd;
+}
+
+function rollingCorrelation(xs, ys) {
+  if (xs.length < 5 || ys.length < 5) return null;
+  const n = Math.min(xs.length, ys.length);
+  const x = xs.slice(-n), y = ys.slice(-n);
+  const mx = x.reduce((a, b) => a + b, 0) / n;
+  const my = y.reduce((a, b) => a + b, 0) / n;
+  let num = 0, dx = 0, dy = 0;
+  for (let i = 0; i < n; i++) {
+    const xi = x[i] - mx, yi = y[i] - my;
+    num += xi * yi;
+    dx += xi * xi;
+    dy += yi * yi;
+  }
+  const denom = Math.sqrt(dx * dy);
+  return denom === 0 ? 0 : num / denom;
+}
+
+// GET /api/research/drivers/:instrument — driver scorecard
+researchRouter.get('/drivers/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (symbol !== 'XAUUSD') return res.status(400).json({ error: 'Driver scorecard only available for XAUUSD' });
+
+    seedSeriesRegistry();
+    seedVolSeries();
+
+    const instId = instrumentId('XAUUSD');
+    const goldPrices = marketDb.prepare(
+      `SELECT ts, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1' ORDER BY ts DESC LIMIT 120`
+    ).all(instId).reverse().map(r => r.c);
+
+    const drivers = GOLD_DRIVERS.map(drv => {
+      let dataPoints;
+      if (drv.id === 'GVZ') {
+        dataPoints = getVolHistory('GVZ', { limit: 120 }).map(r => r.value).filter(v => v != null);
+      } else {
+        dataPoints = marketDb.prepare(
+          'SELECT value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT 120'
+        ).all(drv.id).reverse().map(r => r.value).filter(v => v != null);
+      }
+
+      const current = dataPoints.length ? dataPoints[dataPoints.length - 1] : null;
+      const window60 = dataPoints.slice(-60);
+      const z = zScore(window60);
+      const corr = rollingCorrelation(dataPoints.slice(-60), goldPrices.slice(-60));
+
+      let signal = 'neutral';
+      if (z != null) {
+        if (drv.relationship === 'inverse') {
+          if (z < -drv.zThresh) signal = 'bullish';
+          else if (z > drv.zThresh) signal = 'bearish';
+        } else {
+          if (z > drv.zThresh) signal = 'bullish';
+          else if (z < -drv.zThresh) signal = 'bearish';
+        }
+      }
+
+      return {
+        id: drv.id,
+        name: drv.name,
+        value: current,
+        zScore: z != null ? Math.round(z * 100) / 100 : null,
+        signal,
+        correlation: corr != null ? Math.round(corr * 100) / 100 : null,
+        relationship: drv.relationship,
+      };
+    });
+
+    const signalScores = { bullish: 1, neutral: 0, bearish: -1 };
+    const scored = drivers.filter(d => d.signal);
+    const compositeScore = scored.length
+      ? scored.reduce((s, d) => s + signalScores[d.signal], 0) / scored.length
+      : 0;
+    let compositeLabel = 'neutral';
+    if (compositeScore > 0.3) compositeLabel = 'tailwind';
+    else if (compositeScore < -0.3) compositeLabel = 'headwind';
+
+    const fredHealth = marketDb.prepare(
+      "SELECT last_ok, status FROM source_health WHERE source = 'fred_dfii10'"
+    ).get();
+
+    res.json({
+      instrument: 'XAUUSD',
+      drivers,
+      composite: { score: Math.round(compositeScore * 100) / 100, label: compositeLabel },
+      freshness: fredHealth
+        ? { source: 'fred+cboe', last_ok: fredHealth.last_ok, status: fredHealth.status }
+        : { source: 'fred+cboe', last_ok: null, status: 'no_data' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/overlay/xauusd/realyield — gold vs inverted DFII10
+researchRouter.get('/overlay/xauusd/realyield', (req, res) => {
+  try {
+    const instId = instrumentId('XAUUSD');
+    const limit = Math.min(Number(req.query.limit) || 250, 2000);
+
+    const gold = marketDb.prepare(
+      `SELECT ts, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1'
+       ORDER BY ts DESC LIMIT ?`
+    ).all(instId, limit).reverse();
+
+    const realYield = getSeriesData('DFII10', { limit });
+
+    // Compute 60-day rolling correlation
+    const goldMap = new Map(gold.map(g => [Math.floor(g.ts / 86400000), g.c]));
+    const paired = [];
+    for (const r of realYield) {
+      const dayKey = Math.floor(r.ts / 86400000);
+      if (goldMap.has(dayKey)) {
+        paired.push({ g: goldMap.get(dayKey), r: r.value });
+      }
+    }
+    const last60 = paired.slice(-60);
+    const corr60d = last60.length >= 10
+      ? rollingCorrelation(last60.map(p => p.g), last60.map(p => p.r))
+      : null;
+
+    res.json({
+      gold,
+      realYield,
+      correlation60d: corr60d != null ? Math.round(corr60d * 100) / 100 : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/levels/:instrument — auto key levels (pivots, rounds, structure)
+researchRouter.get('/levels/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+
+    const instId = instrumentId(symbol);
+    const bars = marketDb.prepare(
+      `SELECT ts, o, h, l, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1'
+       ORDER BY ts DESC LIMIT 10`
+    ).all(instId);
+
+    if (!bars.length) return res.json({ instrument: symbol, currentPrice: null, levels: [] });
+
+    const latest = bars[0];
+    const prev = bars[1] || latest;
+    const currentPrice = latest.c;
+
+    const levels = [];
+
+    // Classic pivot points from prior day
+    const pp = (prev.h + prev.l + prev.c) / 3;
+    levels.push({ label: 'PP', price: Math.round(pp * 100) / 100, type: 'pivot' });
+    levels.push({ label: 'R1', price: Math.round((2 * pp - prev.l) * 100) / 100, type: 'pivot' });
+    levels.push({ label: 'S1', price: Math.round((2 * pp - prev.h) * 100) / 100, type: 'pivot' });
+    levels.push({ label: 'R2', price: Math.round((pp + (prev.h - prev.l)) * 100) / 100, type: 'pivot' });
+    levels.push({ label: 'S2', price: Math.round((pp - (prev.h - prev.l)) * 100) / 100, type: 'pivot' });
+    levels.push({ label: 'R3', price: Math.round((prev.h + 2 * (pp - prev.l)) * 100) / 100, type: 'pivot' });
+    levels.push({ label: 'S3', price: Math.round((prev.l - 2 * (prev.h - pp)) * 100) / 100, type: 'pivot' });
+
+    // Round numbers (gold = $50 increments; US100 = 500-pt increments)
+    const step = symbol === 'XAUUSD' ? 50 : 500;
+    const base = Math.floor(currentPrice / step) * step;
+    for (let i = -2; i <= 3; i++) {
+      const p = base + i * step;
+      if (p > 0) levels.push({ label: `Round ${p}`, price: p, type: 'round' });
+    }
+
+    // Prior day H/L
+    levels.push({ label: 'Prev Day H', price: prev.h, type: 'structure' });
+    levels.push({ label: 'Prev Day L', price: prev.l, type: 'structure' });
+
+    // Prior week H/L (from last 5 bars)
+    const weekBars = bars.slice(0, 5);
+    if (weekBars.length >= 3) {
+      const weekH = Math.max(...weekBars.map(b => b.h));
+      const weekL = Math.min(...weekBars.map(b => b.l));
+      levels.push({ label: 'Prev Week H', price: weekH, type: 'structure' });
+      levels.push({ label: 'Prev Week L', price: weekL, type: 'structure' });
+    }
+
+    // Deduplicate by price (keep first occurrence) and sort
+    const seen = new Set();
+    const unique = levels.filter(l => {
+      const key = l.price.toFixed(2);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    unique.sort((a, b) => b.price - a.price);
+
+    res.json({
+      instrument: symbol,
+      currentPrice,
+      levels: unique,
+      freshness: { source: 'oanda', last_ok: latest.ts, status: 'ok' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/seasonality/:instrument — monthly avg returns
+researchRouter.get('/seasonality/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+
+    const instId = instrumentId(symbol);
+    const bars = marketDb.prepare(
+      `SELECT ts, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1' ORDER BY ts ASC`
+    ).all(instId);
+
+    // Group closes by month, compute monthly returns
+    const monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthReturns = Array.from({ length: 12 }, () => []);
+
+    // Get first/last close per calendar month
+    const monthlyCloses = new Map();
+    for (const bar of bars) {
+      const d = new Date(bar.ts);
+      const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+      if (!monthlyCloses.has(key)) monthlyCloses.set(key, { first: bar.c, last: bar.c, month: d.getUTCMonth() });
+      else monthlyCloses.get(key).last = bar.c;
+    }
+
+    const entries = [...monthlyCloses.entries()].sort();
+    for (let i = 1; i < entries.length; i++) {
+      const [, curr] = entries[i];
+      const [, prev] = entries[i - 1];
+      const ret = ((curr.last - prev.last) / prev.last) * 100;
+      monthReturns[curr.month].push(ret);
+    }
+
+    const months = monthReturns.map((returns, i) => {
+      const n = returns.length;
+      const avgReturn = n ? returns.reduce((a, b) => a + b, 0) / n : 0;
+      const winRate = n ? (returns.filter(r => r > 0).length / n) * 100 : 0;
+      return {
+        month: i + 1,
+        label: monthLabels[i],
+        avgReturn: Math.round(avgReturn * 100) / 100,
+        winRate: Math.round(winRate * 10) / 10,
+        sampleSize: n,
+      };
+    });
+
+    res.json({
+      instrument: symbol,
+      months,
+      currentMonth: new Date().getUTCMonth() + 1,
+      freshness: { source: 'oanda', last_ok: bars.length ? bars[bars.length - 1].ts : null, status: bars.length ? 'ok' : 'no_data' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/research/ingest/cftc — trigger CFTC COT ingest
+researchRouter.post('/ingest/cftc', async (_req, res) => {
+  try {
+    const result = await ingestCftc();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/cot/gold — COT positioning gauge
+researchRouter.get('/cot/gold', (_req, res) => {
+  try {
+    const history = getCotHistory('GOLD - COMMODITY EXCHANGE INC.', { limit: 156 });
+    if (!history.length) return res.status(404).json({ error: 'No COT data — run POST /ingest/cftc first' });
+
+    const current = history[history.length - 1];
+    const mmNet = current.mm_long - current.mm_short;
+    const pctLong = current.mm_long + current.mm_short > 0
+      ? (current.mm_long / (current.mm_long + current.mm_short)) * 100
+      : 50;
+
+    const prev = history.length >= 2 ? history[history.length - 2] : current;
+    const prevNet = prev.mm_long - prev.mm_short;
+    const wowChange = mmNet - prevNet;
+
+    const nets = history.map(r => r.mm_long - r.mm_short);
+    const sorted1y = [...nets.slice(-52)].sort((a, b) => a - b);
+    const sorted3y = [...nets].sort((a, b) => a - b);
+    const pctRank = (arr, val) => arr.length ? (arr.filter(v => v <= val).length / arr.length) * 100 : 50;
+
+    const percentile1y = Math.round(pctRank(sorted1y, mmNet) * 10) / 10;
+    const percentile3y = Math.round(pctRank(sorted3y, mmNet) * 10) / 10;
+    const extreme = percentile1y > 90 || percentile1y < 10;
+
+    const healthRow = marketDb.prepare(
+      "SELECT last_ok, status FROM source_health WHERE source = 'cftc_gold'"
+    ).get();
+
+    res.json({
+      current: {
+        reportDate: current.report_date,
+        mmLong: current.mm_long,
+        mmShort: current.mm_short,
+        mmNet,
+        pctLong: Math.round(pctLong * 10) / 10,
+        commLong: current.comm_long,
+        commShort: current.comm_short,
+        commNet: current.comm_long - current.comm_short,
+        oi: current.oi,
+        wowChange,
+        percentile1y,
+        percentile3y,
+        extreme,
+      },
+      history: history.map(r => ({
+        report_date: r.report_date,
+        market: r.market,
+        mm_long: r.mm_long,
+        mm_short: r.mm_short,
+        comm_long: r.comm_long,
+        comm_short: r.comm_short,
+        oi: r.oi,
+      })),
+      freshness: healthRow
+        ? { source: 'cftc', last_ok: healthRow.last_ok, status: healthRow.status }
+        : { source: 'cftc', last_ok: null, status: 'no_data' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/research/ingest/etf — trigger GLD ETF ingest
+researchRouter.post('/ingest/etf', async (_req, res) => {
+  try {
+    const result = await ingestGldEtf();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/research/ingest/etf/upload — manual GLD CSV import (fallback when SPDR URL blocks)
+researchRouter.post('/ingest/etf/upload', express.text({ type: '*/*', limit: '10mb' }), (req, res) => {
+  try {
+    const csv = typeof req.body === 'string' ? req.body : '';
+    if (!csv.trim()) return res.status(400).json({ error: 'Empty body — POST raw GLD CSV text' });
+    const result = parseAndStoreGld(csv);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/etf-flows/gold — GLD ETF flows + trend
+researchRouter.get('/etf-flows/gold', (_req, res) => {
+  try {
+    const history = getEtfHistory('GLD', { limit: 90 });
+    if (!history.length) return res.status(404).json({ error: 'No ETF data — run POST /ingest/etf first' });
+
+    const latest = history[history.length - 1];
+    const prev = history.length >= 2 ? history[history.length - 2] : latest;
+    const week5 = history.length >= 6 ? history[history.length - 6] : history[0];
+
+    const dailyChange = (latest.tonnes ?? 0) - (prev.tonnes ?? 0);
+    const weeklyChange = (latest.tonnes ?? 0) - (week5.tonnes ?? 0);
+
+    // Trend from 20-day SMA slope
+    const last20 = history.slice(-20).map(h => h.tonnes).filter(t => t != null);
+    let trend = 'flat';
+    if (last20.length >= 10) {
+      const first10Avg = last20.slice(0, Math.floor(last20.length / 2)).reduce((a, b) => a + b, 0) / Math.floor(last20.length / 2);
+      const last10Avg = last20.slice(Math.floor(last20.length / 2)).reduce((a, b) => a + b, 0) / (last20.length - Math.floor(last20.length / 2));
+      if (last10Avg > first10Avg + 0.5) trend = 'inflow';
+      else if (last10Avg < first10Avg - 0.5) trend = 'outflow';
+    }
+
+    const healthRow = marketDb.prepare(
+      "SELECT last_ok, status FROM source_health WHERE source = 'etf_gld'"
+    ).get();
+
+    res.json({
+      etf: 'GLD',
+      latestDate: latest.date,
+      tonnes: latest.tonnes,
+      dailyChangeTonnes: Math.round(dailyChange * 100) / 100,
+      weeklyChangeTonnes: Math.round(weeklyChange * 100) / 100,
+      trend,
+      history: history.map(h => ({ date: h.date, tonnes: h.tonnes })),
+      freshness: healthRow
+        ? { source: 'spdr', last_ok: healthRow.last_ok, status: healthRow.status }
+        : { source: 'spdr', last_ok: null, status: 'no_data' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/ratio/gold-silver — gold/silver ratio + percentile
+researchRouter.get('/ratio/gold-silver', (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 365, 2000);
+    const goldId = instrumentId('XAUUSD');
+    const silverId = instrumentId('XAGUSD');
+
+    const goldBars = marketDb.prepare(
+      `SELECT ts, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1' ORDER BY ts DESC LIMIT ?`
+    ).all(goldId, limit).reverse();
+
+    const silverBars = marketDb.prepare(
+      `SELECT ts, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1' ORDER BY ts DESC LIMIT ?`
+    ).all(silverId, limit).reverse();
+
+    if (!goldBars.length || !silverBars.length) {
+      return res.status(404).json({ error: 'No gold/silver price data — run OANDA ingest (includes XAG_USD)' });
+    }
+
+    // Align by day key
+    const silverMap = new Map(silverBars.map(b => [Math.floor(b.ts / 86400000), b.c]));
+    const ratios = [];
+    for (const g of goldBars) {
+      const dayKey = Math.floor(g.ts / 86400000);
+      const silverPrice = silverMap.get(dayKey);
+      if (silverPrice && silverPrice > 0) {
+        ratios.push({ ts: g.ts, ratio: Math.round((g.c / silverPrice) * 100) / 100 });
+      }
+    }
+
+    if (!ratios.length) {
+      return res.status(404).json({ error: 'No overlapping gold/silver data' });
+    }
+
+    const currentRatio = ratios[ratios.length - 1].ratio;
+    const vals = ratios.map(r => r.ratio);
+    const avg1y = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const high1y = Math.max(...vals);
+    const low1y = Math.min(...vals);
+    const sorted = [...vals].sort((a, b) => a - b);
+    const percentile1y = (sorted.filter(v => v <= currentRatio).length / sorted.length) * 100;
+
+    res.json({
+      ratio: currentRatio,
+      avg1y: Math.round(avg1y * 100) / 100,
+      high1y,
+      low1y,
+      percentile1y: Math.round(percentile1y * 10) / 10,
+      history: ratios,
+      freshness: { source: 'oanda', last_ok: ratios[ratios.length - 1].ts, status: 'ok' },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

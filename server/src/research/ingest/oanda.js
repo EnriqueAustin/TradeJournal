@@ -4,6 +4,7 @@ import { marketDb, instrumentId } from '../schema.js';
 const OANDA_INSTRUMENTS = [
   { symbol: 'XAUUSD', oanda: 'XAU_USD' },
   { symbol: 'US100', oanda: 'NAS100_USD' },
+  { symbol: 'XAGUSD', oanda: 'XAG_USD' },
 ];
 
 const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440 };

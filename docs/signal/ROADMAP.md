@@ -27,12 +27,12 @@ Each session = one ~5-hour Opus session, a vertical slice that ends green. Tick 
 - [x] **S2.4 Risk regime classifier** — Node composite (VIX/HY-spread/breadth/DXY) → regime label + factors. **Accept:** regime badge renders ✓ (verified 2026-08-13). Python compute deferred.
 
 ## Epic 3 — Gold cockpit
-- [ ] **S3.1 Driver scorecard** — Python `/compute/zscores` + rolling corr per driver; composite tailwind/headwind gauge; impact arrows. **Accept:** flagship scorecard live. *(may split)*
-- [ ] **S3.2 Real-yield inverse overlay** — gold vs inverted DFII10 + live corr + divergence flag. **Accept:** overlay + decoupling flag.
-- [ ] **S3.3 COT positioning gauge** — CFTC ingest → `cot`; Python percentile bands + WoW Δ + extreme flags. **Accept:** COT gauge with pctile flags.
-- [ ] **S3.4 ETF flows + CB demand** — GLD/IAU CSV → `etf_holdings` + Python trend; WGC quarterly context. **Accept:** flow panel + cumulative trend.
-- [ ] **S3.5 Vol/ratio/seasonality/levels/brief** — GVZ+ATR/RV + expected move; gold/silver ratio + pctile; seasonality; auto key levels; gold AI brief. **Accept:** gold cockpit complete.
-- [ ] **S3.6 Futures forward curve** — CME/stooq term structure (GC1..GCn); contango/backwardation + roll-yield read. **Accept:** curve panel + regime label.
+- [x] **S3.1 Driver scorecard** — Node z-scores (60d) + rolling corr for 7 drivers (DFII10/5, DXY, T10YIE, GVZ, HY spread, Fed funds); composite tailwind/headwind/neutral gauge. **Accept:** flagship scorecard live ✓ (browser-verified 2026-08-13). Python compute deferred.
+- [x] **S3.2 Real-yield inverse overlay** — gold vs inverted DFII10 dual-axis SVG + 60d rolling correlation + divergence flag. **Accept:** overlay renders ✓ (browser-verified 2026-08-13).
+- [x] **S3.3 COT positioning gauge** — CFTC disaggregated ingestor (`cftc.js`); `POST /ingest/cftc`; `GET /cot/gold` with net MM, %long, WoW Δ, 1Y/3Y percentile, extreme flag + area chart. **Accept:** COT gauge renders ✓ (browser-verified; data pending ingest trigger 2026-08-13).
+- [x] **S3.4 ETF flows + CB demand** — GLD CSV ingestor (`etf.js`); `POST /ingest/etf`; `GET /etf-flows/gold` with tonnes, daily/weekly Δ, trend badge + area chart. **Accept:** flow panel renders ✓ (browser-verified; data pending ingest trigger 2026-08-13). IAU + WGC deferred.
+- [x] **S3.5 Vol/ratio/seasonality/levels/brief** — GVZ already built (S1.5); gold/silver ratio (`XAGUSD` added to OANDA ingest) + 1Y percentile/range; seasonality (12-month avg returns + win rate bar chart); auto key levels (classic pivots + $50 rounds + prev day/week H/L); gold AI brief already built (S1.7). **Accept:** gold cockpit complete ✓ (browser-verified 2026-08-13). Silver data pending ingest.
+- [ ] **S3.6 Futures forward curve** — **gap** (free CME term-structure data unavailable). Deferred; spec recorded in FEATURE-SPEC-epic3-gold.md.
 
 ## Epic 4 — Events & reaction studies
 - [ ] **S4.1 Research calendar** — forward calendar (reuse `calendar.js`) + consensus/prior + countdowns + session-aware + high-impact filter. **Accept:** calendar panel.

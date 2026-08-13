@@ -4,6 +4,72 @@ Newest entries at the top. One block per session: what shipped, decisions, gotch
 
 ---
 
+## 2026-08-13 — QA pass: Epic 2–3 ✓
+**By:** Claude. **Status:** verified — `tsc --noEmit` clean, `node --check` clean on all server modules.
+
+**Scope:** Audit of Epic 2 (macro) + Epic 3 (gold cockpit) — docs vs code vs API-CONTRACT. Feature coverage confirmed: all 9 gold routes present and matching spec response shapes, all 9 gold panels wired into `Signal.tsx` (placeholder removed), types + client methods complete, ingestors align with schema PK conflict targets (`cot(report_date,market)`, `etf_holdings(etf,date)`), XAGUSD added to OANDA ingest + INSTRUMENTS seed. 2 gaps closed:
+
+1. **ETF manual-upload fallback missing (spec gap)** — FEATURE-SPEC S3.4 specifies `POST /ingest/etf/upload` as the fallback when the SPDR CSV URL blocks. `parseAndStoreGld()` was already written and imported into `routes.js` but never wired to a route (dead import). Added `POST /api/research/ingest/etf/upload` (route-level `express.text()`, raw CSV body). Also dropped two genuinely-unused imports (`getLatestCot`, `getLatestEtf`).
+2. **BLOOMBERG-PARITY.md stale (docs out of sync)** — gold-desk rows (COT/SEAG/driver/ETF/gold-silver) still read `spec` from the pre-build spec pass; STATE/BUILD-LOG/API-CONTRACT all had them `built`. Bumped to `built` with panel notes; added the key-levels row.
+
+**Files:** `server/src/research/routes.js`, `docs/signal/API-CONTRACT.md`, `docs/signal/BLOOMBERG-PARITY.md`.
+
+---
+
+## 2026-08-13 — Epic 3: Gold cockpit (S3.1–S3.5) ✓
+**By:** Claude. **Status:** browser-verified, tsc clean. S3.6 deferred (free-data gap).
+
+**Spec first:** Wrote `FEATURE-SPEC-epic3-gold.md` before building — defines all routes, types, data sources, UI layout, acceptance criteria. Updated `BLOOMBERG-PARITY.md` with `spec`/`built`/`gap` status.
+
+**S3.1 — Driver Scorecard:**
+- Route: `GET /drivers/XAUUSD` — 7 drivers (DFII10, DFII5, DTWEXBGS, T10YIE, GVZ, BAMLH0A0HYM2, FEDFUNDS)
+- Node compute: 60d z-score + 60d rolling Pearson correlation with gold D1 close
+- Signal logic: inverse drivers (real yields, DXY, fed funds) = z<−0.5 → bullish for gold; direct drivers (breakevens, GVZ, HY spread) = z>0.5 → bullish
+- Composite: weighted tally → tailwind/neutral/headwind
+- Panel: DriverScorecard.tsx — z-score bar visualization, signal coloring, composite badge
+
+**S3.2 — Real-Yield Inverse Overlay:**
+- Route: `GET /overlay/xauusd/realyield` — gold D1 + DFII10 + 60d correlation
+- Panel: RealYieldOverlay.tsx — dual-axis SVG (gold=amber, inverted DFII10=cyan dashed), correlation badge, divergence flag when |corr|<0.4
+
+**S3.3 — COT Positioning:**
+- Ingestor: `server/src/research/ingest/cftc.js` — parses CFTC disaggregated futures-only report (f_disagg.txt), filters gold rows (CFTC code 088691), upserts into `cot` table
+- Route: `GET /cot/gold` + `POST /ingest/cftc`
+- Compute: net MM, %long, WoW Δ, percentile rank (1Y/3Y), extreme flag (>90 or <10 pctile)
+- Panel: CotPanel.tsx — percentile bar with extreme markers, net MM area chart
+
+**S3.4 — ETF Flows:**
+- Ingestor: `server/src/research/ingest/etf.js` — fetches GLD CSV from SPDR, flexible column detection, multiple date format support
+- Route: `GET /etf-flows/gold` + `POST /ingest/etf`
+- Compute: daily/weekly Δ, trend from 20-day SMA slope (inflow/flat/outflow)
+- Panel: EtfFlowPanel.tsx — tonnes, Δ, trend badge, 90-day area chart
+
+**S3.5 — Completion panels:**
+- **Gold/Silver Ratio:** Added XAGUSD (XAG_USD) to OANDA ingest + schema seed. Route: `GET /ratio/gold-silver`. Panel: GoldSilverPanel.tsx — current ratio, 1Y percentile, range bar, line chart.
+- **Seasonality:** Route: `GET /seasonality/:instrument`. Computes monthly avg returns from D1 bars. Panel: SeasonalityPanel.tsx — 12-month bar chart (green/red), win rates, current month highlighted amber.
+- **Key Levels:** Route: `GET /levels/:instrument`. Classic pivots from prior D1, $50 round numbers (gold), prev day/week H/L. Panel: KeyLevelsPanel.tsx — sorted table with color-coded distances.
+
+**S3.6 — Deferred:** Forward curve requires paid CME data. Gap documented in FEATURE-SPEC and BLOOMBERG-PARITY.
+
+**Shared changes:**
+- `types.ts`: 10 new interfaces (DriverScore, DriversResponse, RealYieldOverlayResponse, CotSummary, CotResponse, EtfFlowResponse, GoldSilverResponse, SeasonalMonth, SeasonalityResponse, KeyLevel, LevelsResponse)
+- `client.ts`: 10 new api methods
+- `Signal.tsx`: replaced placeholder panel with 9 gold cockpit panels (DriverScorecard, RealYieldOverlay, VolPanel, CotPanel, EtfFlowPanel, GoldSilverPanel, SeasonalityPanel, KeyLevelsPanel, BriefPanel)
+- `schema.js`: XAGUSD added to INSTRUMENTS seed
+- `routes.js`: 9 new routes + helper functions (zScore, rollingCorrelation)
+- `SYMBOL_MAP` extended with XAGUSD
+
+**Files created:** `DriverScorecard.tsx`, `RealYieldOverlay.tsx`, `CotPanel.tsx`, `EtfFlowPanel.tsx`, `GoldSilverPanel.tsx`, `SeasonalityPanel.tsx`, `KeyLevelsPanel.tsx`, `cftc.js`, `etf.js`, `FEATURE-SPEC-epic3-gold.md`
+
+**Gotchas / decisions:**
+- COT/ETF/Gold-Silver panels return 404 gracefully when no data ingested — panels show helpful "run ingest" messages
+- Seasonality needs multi-year D1 data to be useful; shows "insufficient history" when sample size is 0
+- CFTC f_disagg.txt uses YYMMDD date format — parser handles both YY<50→20xx and YY≥50→19xx
+- GLD CSV parser handles variable header position (preamble rows) and multiple date formats
+- TickerCell prop is `dp` not `digits` — caught and fixed before tsc
+
+---
+
 ## 2026-08-13 — QA pass: Epic 0–2 ✓
 **By:** Claude. **Status:** bugs fixed + runtime-verified against live data.
 

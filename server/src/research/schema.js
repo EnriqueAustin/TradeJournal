@@ -26,6 +26,7 @@ export const SCHEMA_VERSION = '0.2.0';
 export const INSTRUMENTS = [
   { symbol: 'XAUUSD', name: 'Gold Spot / US Dollar', type: 'commodity' },
   { symbol: 'US100', name: 'Nasdaq 100', type: 'index' },
+  { symbol: 'XAGUSD', name: 'Silver Spot / US Dollar', type: 'commodity' },
 ];
 
 // Apply the full schema to a given DB handle. Pure (no module state) so tests

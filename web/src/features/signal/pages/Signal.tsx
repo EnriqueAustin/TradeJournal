@@ -17,6 +17,13 @@ import BriefPanel from '../panels/BriefPanel';
 import RatesBoard from '../panels/RatesBoard';
 import EconTracker from '../panels/EconTracker';
 import RegimePanel from '../panels/RegimePanel';
+import DriverScorecard from '../panels/DriverScorecard';
+import RealYieldOverlay from '../panels/RealYieldOverlay';
+import KeyLevelsPanel from '../panels/KeyLevelsPanel';
+import SeasonalityPanel from '../panels/SeasonalityPanel';
+import CotPanel from '../panels/CotPanel';
+import EtfFlowPanel from '../panels/EtfFlowPanel';
+import GoldSilverPanel from '../panels/GoldSilverPanel';
 import '../terminal/terminal.css';
 
 const INSTRUMENTS = ['XAUUSD', 'US100'] as const;
@@ -170,11 +177,16 @@ export default function Signal() {
         )}
         {instrument === 'XAUUSD' && (
           <>
+            {/* Epic 3 — Gold cockpit */}
+            <DriverScorecard />
+            <RealYieldOverlay />
             <VolPanel instrument="XAUUSD" />
+            <CotPanel />
+            <EtfFlowPanel />
+            <GoldSilverPanel />
+            <SeasonalityPanel instrument="XAUUSD" />
+            <KeyLevelsPanel instrument="XAUUSD" />
             <BriefPanel instrument="XAUUSD" />
-            <Panel title="Gold · Driver Scorecard" tag="Epic 3" span={6}>
-              <div className="sig-ph">Real-yield / DXY drivers — Epic 3</div>
-            </Panel>
           </>
         )}
       </div>

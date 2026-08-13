@@ -671,6 +671,98 @@ export interface EtfHolding {
   aum: number | null;
 }
 
+// --- Epic 3: Gold cockpit ---
+
+export interface DriverScore {
+  id: string;
+  name: string;
+  value: number | null;
+  zScore: number | null;
+  signal: 'bullish' | 'neutral' | 'bearish';
+  correlation: number | null;
+  relationship: 'direct' | 'inverse';
+}
+export interface DriversResponse {
+  instrument: string;
+  drivers: DriverScore[];
+  composite: { score: number; label: 'tailwind' | 'neutral' | 'headwind' };
+  freshness: Freshness;
+}
+
+export interface RealYieldOverlayResponse {
+  gold: { ts: number; c: number }[];
+  realYield: { ts: number; value: number }[];
+  correlation60d: number | null;
+}
+
+export interface CotSummary {
+  reportDate: number;
+  mmLong: number;
+  mmShort: number;
+  mmNet: number;
+  pctLong: number;
+  commLong: number;
+  commShort: number;
+  commNet: number;
+  oi: number;
+  wowChange: number;
+  percentile1y: number;
+  percentile3y: number;
+  extreme: boolean;
+}
+export interface CotResponse {
+  current: CotSummary;
+  history: CotRow[];
+  freshness: Freshness;
+}
+
+export interface EtfFlowResponse {
+  etf: string;
+  latestDate: number;
+  tonnes: number;
+  dailyChangeTonnes: number;
+  weeklyChangeTonnes: number;
+  trend: 'inflow' | 'flat' | 'outflow';
+  history: { date: number; tonnes: number }[];
+  freshness: Freshness;
+}
+
+export interface GoldSilverResponse {
+  ratio: number;
+  avg1y: number;
+  high1y: number;
+  low1y: number;
+  percentile1y: number;
+  history: { ts: number; ratio: number }[];
+  freshness: Freshness;
+}
+
+export interface SeasonalMonth {
+  month: number;
+  label: string;
+  avgReturn: number;
+  winRate: number;
+  sampleSize: number;
+}
+export interface SeasonalityResponse {
+  instrument: string;
+  months: SeasonalMonth[];
+  currentMonth: number;
+  freshness: Freshness;
+}
+
+export interface KeyLevel {
+  label: string;
+  price: number;
+  type: 'pivot' | 'round' | 'structure';
+}
+export interface LevelsResponse {
+  instrument: string;
+  currentPrice: number;
+  levels: KeyLevel[];
+  freshness: Freshness;
+}
+
 export interface Constituent {
   index_id: string; // 'QQQ' | 'NDX'
   symbol: string;

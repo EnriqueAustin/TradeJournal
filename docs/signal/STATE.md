@@ -3,24 +3,26 @@
 > Read this first every session. Update it last.
 
 ## Status
-- **Last completed:** **Epic 2 — Macro core (S2.1–S2.4)** ✓ (2026-08-13)
-- **Next session:** **Epic 3 — Gold cockpit** (run deep-research pass first → write `FEATURE-SPEC-epic3-gold.md`)
-- **Current epic:** Epic 2 — Macro core ✅ COMPLETE
+- **Last completed:** **Epic 3 — Gold cockpit (S3.1–S3.5)** ✓ (2026-08-13)
+- **Next session:** **Epic 4 — Events & reaction studies** (run deep-research pass first → write `FEATURE-SPEC-epic4-events.md`)
+- **Current epic:** Epic 3 — Gold cockpit ✅ COMPLETE (S3.6 deferred — free-data gap)
 - **Branch:** `bloomberg-terminal`
 
 ## In-progress notes
-- **QA pass on Epic 0–2 done** (2026-08-13). 4 bugs fixed + runtime-verified against live data: (1) regime factor colors dead — signal vocab mismatch; (2) regime labels off-contract (`constructive`/no `crisis`); (3) econ "YoY" was a 5-mo change; (4) GVZ ingested 0 rows (2-col CSV vs 5-col parser) — gold vol panel was empty. See BUILD-LOG QA entry. market.db now has all 18 FRED series + VIX/VXN/GVZ populated.
-- **Epic 0 complete** (S0.1–S0.5 all done + verified). Terminal UI live at `/research` with OANDA price charts + real-time WebSocket ticker.
-- **Epic 1 complete** (S1.1–S1.7 all done + browser-verified). US100 cockpit fully operational.
-- **Epic 2 complete** (S2.1–S2.4 all done + tsc-verified). Macro panels are cross-instrument (shown on both tabs):
-  - **S2.1:** FRED registry expanded to 18 series (rates/real/breakevens/spread/dollar/econ/fed/credit)
-  - **S2.2:** RatesBoard panel — sectioned display (nominal/real/breakevens/spreads/policy) + SVG yield curve
-  - **S2.3:** EconTracker panel — CPI/PCE/PAYEMS/UNRATE with value/MoM/YoY + sparkline trends
-  - **S2.4:** RegimePanel — composite risk regime badge (risk-on/neutral/risk-off/crisis) + factor breakdown
-- Data ingestors need manual trigger: `POST /api/research/ingest/fred`, `/ingest/cboe`. Scheduled refresh deferred.
-- Gold tab shows vol + brief + macro panels; driver scorecard placeholder remains (Epic 3).
-- Python compute deferred for: Fed rate probability (S2.2), surprise z-scores (S2.3), regime composite (S2.4). Node implementations serve as functional stubs.
-- Before Epic 3 (Gold cockpit): run deep-research pass → write `FEATURE-SPEC-epic3-gold.md`, update BLOOMBERG-PARITY.md.
+- **QA pass on Epic 0–2 done** (2026-08-13). 4 bugs fixed. See BUILD-LOG QA entry.
+- **Epic 0 complete** (S0.1–S0.5). Terminal UI + OANDA price + WebSocket ticker.
+- **Epic 1 complete** (S1.1–S1.7). US100 cockpit fully operational.
+- **Epic 2 complete** (S2.1–S2.4). Macro panels (rates/econ/regime) are cross-instrument.
+- **Epic 3 complete** (S3.1–S3.5, S3.6 deferred). Gold cockpit fully operational:
+  - **S3.1:** DriverScorecard — 7 drivers (real yields, DXY, breakevens, GVZ, HY spread, fed funds) with z-scores, rolling correlation, bullish/neutral/bearish signals, composite tailwind/headwind gauge
+  - **S3.2:** RealYieldOverlay — dual-axis SVG (gold amber vs inverted DFII10 cyan) + 60d correlation badge + divergence flag
+  - **S3.3:** CotPanel — CFTC disaggregated ingestor (cftc.js), net MM positioning, %long, WoW Δ, 1Y/3Y percentile bar, extreme flag, 52-week area chart
+  - **S3.4:** EtfFlowPanel — GLD CSV ingestor (etf.js), tonnes + daily/weekly Δ, trend badge (inflow/flat/outflow), 90-day area chart. IAU deferred.
+  - **S3.5:** GoldSilverPanel (XAGUSD added to OANDA + schema), SeasonalityPanel (12-month bar chart + win rates), KeyLevelsPanel (pivots/rounds/structure with distances)
+  - **S3.6:** Deferred — free CME gold futures term-structure data unavailable (gap documented in FEATURE-SPEC-epic3-gold.md)
+- Data ingestors need manual trigger: `POST /ingest/fred`, `/ingest/cboe`, `/ingest/cftc`, `/ingest/etf`. Scheduled refresh deferred.
+- Python compute deferred for: Fed rate probability (S2.2), surprise z-scores (S2.3), regime composite (S2.4), driver z-scores (S3.1). Node stubs serve same API shape.
+- Before Epic 4 (Events): run deep-research pass → write `FEATURE-SPEC-epic4-events.md`, update BLOOMBERG-PARITY.md.
 
 ## Dev preview
 - `.claude/launch.json` defines the `web` config (Vite :5173) + `server` (:4000) for the preview tools, both with `autoPort: true`. Backend (:4000) + analytics (:8001) run separately. Open `http://localhost:5173/research`.
