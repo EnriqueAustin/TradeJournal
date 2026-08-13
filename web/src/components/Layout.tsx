@@ -4,11 +4,14 @@ import FilterBar from './FilterBar';
 
 export default function Layout() {
   return (
-    <div className="flex h-full min-h-screen bg-slate-950">
+    <div
+      className="flex h-full min-h-screen"
+      style={{ background: 'var(--term-bg)' }}
+    >
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <FilterBar />
-        <main className="min-w-0 flex-1 overflow-y-auto px-6 py-6">
+        <main className="min-w-0 flex-1 overflow-y-auto px-4 py-4">
           <Outlet />
         </main>
       </div>

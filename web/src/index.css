@@ -2,8 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Global terminal theme — mirrors the Signal (Bloomberg-style) look so every
+ * page shares the same dense, monospace, black-with-amber aesthetic. Signal's
+ * own `.sig-*` scoped styles still take precedence inside that page. */
+
 :root {
   color-scheme: dark;
+  --term-bg: #05080a;
+  --term-bg-2: #0a0f12;
+  --term-panel: #0b1114;
+  --term-panel-hd: #0e161a;
+  --term-border: #17242a;
+  --term-border-2: #23343b;
+  --term-muted: #526059;
+  --term-text-dim: #7d8f88;
+  --term-text: #c6d3cc;
+  --term-text-hi: #e3ecda;
+  --term-green: #2ee56b;
+  --term-red: #ff5a5a;
+  --term-amber: #f5a623;
+  --term-cyan: #35c7e0;
+  --term-blue: #4f9dff;
+  --term-mag: #c07bff;
 }
 
 html,
@@ -13,48 +33,114 @@ body,
 }
 
 body {
-  @apply bg-slate-950 text-slate-200 antialiased;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
-    sans-serif;
+  background: var(--term-bg);
+  color: var(--term-text);
+  font-family: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Thin scrollbars for the dark theme */
+/* Thin scrollbars, terminal-tinted */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #334155 transparent;
+  scrollbar-color: var(--term-border-2) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 4px;
+  background: var(--term-border-2);
+  border-radius: 2px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--term-muted);
+}
+
+/* Focus rings default to cyan (terminal accent) instead of Tailwind indigo. */
+*:focus-visible {
+  outline: 1px solid var(--term-cyan);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: rgba(245, 166, 35, 0.3);
+  color: var(--term-text-hi);
 }
 
 @layer components {
+  /* Panels — flat, thin border, hairline radius, matches .sig-panel. */
   .card {
-    @apply rounded-xl border border-slate-800 bg-slate-900/60 shadow-sm;
+    @apply border border-slate-800 bg-slate-900;
+    background: var(--term-panel);
+    border-radius: 3px;
+    box-shadow: none;
   }
+
+  /* Numeric cells: tabular monospaced. */
   .num {
-    @apply font-mono tabular-nums;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
   }
+
+  /* Inputs — terminal-flat, cyan focus. */
   .input {
-    @apply rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm text-slate-100
-      outline-none transition focus:border-slate-500 focus:ring-1 focus:ring-slate-500;
+    @apply border px-2.5 py-1 text-xs text-slate-100 outline-none transition;
+    background: var(--term-bg-2);
+    border-color: var(--term-border-2);
+    border-radius: 2px;
+    font-family: inherit;
+    letter-spacing: 0.03em;
   }
+  .input:hover {
+    border-color: var(--term-muted);
+  }
+  .input:focus {
+    border-color: var(--term-cyan);
+    box-shadow: 0 0 0 1px var(--term-cyan);
+  }
+
+  /* Default button — flat outlined, cyan hover accent. */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700
-      bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 transition
-      hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 border px-3 py-1 text-xs font-semibold uppercase transition;
+    background: transparent;
+    color: var(--term-text-dim);
+    border-color: var(--term-border-2);
+    border-radius: 2px;
+    letter-spacing: 0.08em;
+    font-family: inherit;
   }
+  .btn:hover:not(:disabled) {
+    color: var(--term-text-hi);
+    border-color: var(--term-cyan);
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* Primary — amber "active tab" look, matches .sig-tab.is-active. */
   .btn-primary {
-    @apply border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-500;
+    background: var(--term-amber);
+    color: var(--term-bg);
+    border-color: var(--term-amber);
   }
+  .btn-primary:hover:not(:disabled) {
+    background: #ffbb44;
+    border-color: #ffbb44;
+    color: var(--term-bg);
+  }
+
   .btn-icon {
-    @apply h-8 w-8 px-0 text-base leading-none;
+    @apply h-7 w-7 px-0 text-sm leading-none;
   }
+
+  /* Section labels — small, uppercase, dim (amber for section headings elsewhere). */
   .label {
-    @apply mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400;
+    @apply mb-1 block text-[10px] font-bold uppercase;
+    color: var(--term-text-dim);
+    letter-spacing: 0.1em;
   }
 }

@@ -15,7 +15,13 @@ export default function FilterBar() {
   } = useFilters();
 
   return (
-    <div className="flex flex-wrap items-end gap-3 border-b border-slate-800 bg-slate-900/40 px-6 py-3">
+    <div
+      className="flex flex-wrap items-end gap-2 border-b px-4 py-2"
+      style={{
+        borderColor: 'var(--term-border-2)',
+        background: 'linear-gradient(180deg, var(--term-panel-hd), var(--term-bg-2))',
+      }}
+    >
       <div>
         <label className="label" htmlFor="f-account">
           Account
@@ -130,7 +136,12 @@ export default function FilterBar() {
       </button>
 
       {accountsError && (
-        <span className="w-full text-xs text-red-400">{accountsError}</span>
+        <span
+          className="w-full text-[10px] uppercase"
+          style={{ color: 'var(--term-red)', letterSpacing: '0.08em' }}
+        >
+          {accountsError}
+        </span>
       )}
     </div>
   );
