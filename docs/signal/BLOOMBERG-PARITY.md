@@ -91,10 +91,12 @@ Every Bloomberg Terminal capability a gold desk or a Nasdaq desk uses for **XAUU
 ## Signal-only (Bloomberg has NONE of these — the moat)
 | Feature | Session | Status |
 |---|---|---|
-| Trade-journal fusion (context snapshot per trade) | S7.1 | planned |
-| Edge analytics (P&L × driver states) | S7.3 | planned |
+| Trade-journal fusion (context snapshot per trade) | S7.1 | **built** (auto-capture on trade insert + manual/batch API) |
+| Context tab + frozen snapshot dashboard | S7.2 | **built** (ContextTab on TradeDetail; 11 market sections) |
+| Condition replay (frozen Signal panels from snapshot) | S7.2 | planned (deferred to Epic 8) |
+| Edge analytics (P&L × driver states) | S7.3 | **built** (EdgePanel; 6 dimensions, min-5 bucket, best-edge callout) |
 | Instrument-specific event-reaction studies | S4.2 | **built** (EventReactionPanel; 5-window stats + beat/miss segmentation) |
-| AI debrief coach on captured trade context | S7.3 | planned |
+| AI debrief coach on captured trade context | S7.3 | **built** (DebriefPanel; structured coaching + regenerate) |
 
 ## Known free-data gaps (record, don't drop)
 - **Options chains** (OMON/OVDV full depth) for gold — thin/absent free. Use VXN/GVZ/put-call proxies; paid feed = upgrade path.

@@ -900,6 +900,91 @@ export interface ContextSnapshot {
   payload_json: unknown;
 }
 
+export interface SnapshotPrice {
+  last: number; daily_open: number; daily_high: number;
+  daily_low: number; prev_close: number;
+}
+export interface SnapshotRegime {
+  label: string; score: number;
+  factors: Array<{ name: string; value: number; signal: string }>;
+}
+export interface SnapshotDriver {
+  id: string; name?: string; value: number | null; zScore: number | null;
+  signal: string; correlation: number | null;
+}
+export interface SnapshotDrivers {
+  composite: { score: number; label: string };
+  items: SnapshotDriver[];
+}
+export interface SnapshotVol {
+  vix: number | null; vxn: number | null; gvz: number | null;
+  instrument_iv: number | null; percentile_60d: number | null;
+  expected_move_1d: number | null;
+}
+export interface SnapshotPositioning {
+  cot_net_mm: number | null; cot_pct_long: number | null;
+  cot_wow_delta: number | null; cot_percentile_1y: number | null;
+  etf_tonnes: number | null; etf_daily_delta: number | null;
+  etf_trend: string | null;
+}
+export interface SnapshotEvent {
+  name: string; ts: number; impact: string;
+  consensus: number | null; prior: number | null;
+}
+export interface SnapshotNews {
+  headline: string; source: string; sentiment: number | null; ts: number;
+}
+export interface SnapshotLevel {
+  price: number; label: string;
+}
+export interface SnapshotSeasonality {
+  month: { name: string; avg_return: number; win_rate: number } | null;
+  dow: { name: string; avg_return: number; win_rate: number } | null;
+}
+export interface ContextSnapshotPayload {
+  version: number;
+  captured_at: number;
+  instrument: string;
+  price: SnapshotPrice | null;
+  regime: SnapshotRegime | null;
+  rates: Record<string, number> | null;
+  drivers: SnapshotDrivers | null;
+  vol: SnapshotVol | null;
+  positioning: SnapshotPositioning | null;
+  upcoming_events: SnapshotEvent[] | null;
+  recent_news: SnapshotNews[] | null;
+  correlations: { window: number; pairs: Record<string, number> } | null;
+  key_levels: { above: SnapshotLevel[]; below: SnapshotLevel[] } | null;
+  seasonality: SnapshotSeasonality | null;
+}
+export interface ContextSnapshotResponse {
+  trade_id: number;
+  ts: number;
+  payload: ContextSnapshotPayload;
+}
+
+export interface EdgeBucket {
+  category: string;
+  bucket: string;
+  trades_n: number;
+  win_rate: number;
+  avg_r: number | null;
+  expectancy: number | null;
+  avg_pnl: number;
+}
+export interface EdgeAnalytics {
+  instrument: string;
+  dimensions: Record<string, EdgeBucket[]>;
+  best_edge: { dimension: string; bucket: string; expectancy: number } | null;
+  total_trades: number;
+}
+export interface Debrief {
+  trade_id: number;
+  content: string;
+  model: string;
+  created_at: number;
+}
+
 // S0.5 — real-time WebSocket tick
 export interface PriceTick {
   type: 'price';

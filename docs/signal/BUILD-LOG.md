@@ -4,6 +4,76 @@ Newest entries at the top. One block per session: what shipped, decisions, gotch
 
 ---
 
+## 2026-08-17 — Epic 7: Journal Fusion (S7.1–S7.3) ✓
+**By:** Claude. **Status:** tsc clean, browser-verified (EdgePanel + ContextTab rendering, snapshot API 200s).
+
+**Spec first:** Wrote `FEATURE-SPEC-epic7-fusion.md` — defines context snapshots, replay, edge analytics, AI debrief.
+
+### S7.1 — Context snapshots
+**New files:**
+- `server/src/research/snapshot.js` — `captureSnapshot()` gathers 11 market dimensions (price, regime, rates, drivers, vol, positioning, events, news, correlations, levels, seasonality) into a JSON payload, upserts into `context_snapshots` table. `getSnapshot()` reads stored snapshots.
+
+**New routes:**
+- `POST /api/research/snapshot/:tradeId` — manually capture snapshot for a trade
+- `POST /api/research/snapshot/batch` — batch capture for multiple trades
+- `GET /api/research/snapshot/:tradeId` — read stored snapshot
+
+**Auto-capture hook:** `insertTradeTx()` in `index.js` now calls `captureSnapshot()` synchronously after trade insert (non-backtest trades only, wrapped in try/catch so it never blocks insertion).
+
+**Verification:** Manual capture returned full 11-section payload. Batch captured 2 trades. Read endpoint returns stored data.
+
+### S7.2 — Context tab on TradeDetail
+**New files:**
+- `web/src/features/signal/panels/ContextTab.tsx` — frozen market context dashboard using terminal theme (`.sig` tokens). Renders all 11 snapshot sections: Price, Regime (with badge), Rates, Drivers (z-scores + signals + correlations), Volatility, Positioning, Upcoming Events, Recent News, Key Levels (with ENTRY marker), Correlations, Seasonality. Empty state with "Capture Now" button.
+
+**Modified:**
+- `web/src/pages/TradeDetail.tsx` — added tab bar (Details | Market Context). Details tab shows existing content. Market Context tab renders ContextTab. Tabs switch via local state.
+
+**Verification:** Both tabs switch correctly. Market Context renders full snapshot with all sections. Zero console errors from new code.
+
+### S7.3 — Edge analytics + AI debrief
+**New files:**
+- `web/src/features/signal/panels/EdgePanel.tsx` — edge analytics table per dimension (regime, driver composite, vol regime, session, DOW, event proximity). Win rate bars color-coded (green >55%, amber 45-55%, red <45%). Best edge callout badge.
+- `web/src/features/signal/panels/DebriefPanel.tsx` — AI coaching debrief with "Get AI Debrief" button, markdown rendering, regenerate option.
+
+**New routes:**
+- `GET /api/research/edge/:instrument` — cross-DB join (journal.db trades × market.db snapshots), aggregates P&L by 6 dimensions with min 5 trades per bucket
+- `POST /api/research/debrief/:tradeId` — generates AI coaching note from trade details + snapshot context + edge stats, caches in `debriefs` table
+- `GET /api/research/debrief/:tradeId` — read cached debrief
+
+**Schema changes:**
+- `debriefs` table: new (trade_id PK, content, model, created_at)
+
+**Integration:**
+- EdgePanel added to Signal page (both instruments, between News and Correlation panels)
+- DebriefPanel added to bottom of ContextTab on TradeDetail
+
+**Verification:** Edge endpoint returned 8 trades bucketed by session (london: 5, 40% WR) and DOW (Wed: 5). EdgePanel renders on Signal page with data. Debrief button visible on ContextTab.
+
+### Files touched
+- `server/src/research/snapshot.js` (NEW)
+- `server/src/research/routes.js` (snapshot/edge/debrief routes + journalDb import)
+- `server/src/research/schema.js` (debriefs table)
+- `server/src/index.js` (captureSnapshot import + hook in insertTradeTx)
+- `web/src/features/signal/panels/ContextTab.tsx` (NEW)
+- `web/src/features/signal/panels/EdgePanel.tsx` (NEW)
+- `web/src/features/signal/panels/DebriefPanel.tsx` (NEW)
+- `web/src/features/signal/pages/Signal.tsx` (EdgePanel import + wire-up)
+- `web/src/pages/TradeDetail.tsx` (tab bar + ContextTab integration)
+- `web/src/api/client.ts` (snapshot/edge/debrief API methods)
+- `web/src/types.ts` (ContextSnapshotPayload + all sub-types, EdgeBucket, EdgeAnalytics, Debrief)
+- `docs/signal/FEATURE-SPEC-epic7-fusion.md` (NEW)
+- `docs/signal/BLOOMBERG-PARITY.md` (status updates)
+
+### Decisions
+- **Synchronous snapshot capture** — SQLite is fast enough for single-user; async would add complexity for no benefit
+- **Cross-DB edge analytics in JS** — read trade IDs from journal.db, snapshots from market.db, join in JS. SQLite ATTACH possible but adds coupling.
+- **Expectancy formula** — simplified: (WR × avg_R) - ((1-WR) × |avg_R|). Good enough for coaching signal.
+- **Replay mode deferred** — core value (ContextTab on TradeDetail) is delivered; replay overlay on Signal page deferred to S8 or follow-up.
+- **Min 5 trades per bucket** — prevents noisy edge stats from small samples
+
+---
+
 ## 2026-08-16 — Epic 6: News & AI (S6.1–S6.3) ✓
 **By:** Claude. **Status:** tsc clean, browser-verified (22 panels rendering).
 

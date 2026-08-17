@@ -3,9 +3,9 @@
 > Read this first every session. Update it last.
 
 ## Status
-- **Last completed:** **Epic 6 — News & AI (S6.1–S6.3)** ✓ (2026-08-16)
-- **Next session:** **Epic 7 — Journal Fusion** (context snapshots, replay, edge analytics)
-- **Current epic:** Epic 6 — News & AI ✅ COMPLETE
+- **Last completed:** **Epic 7 — Journal Fusion (S7.1–S7.3)** ✓ (2026-08-17)
+- **Next session:** **Epic 8 — Alerts, Backtesting, Launchpad, Polish**
+- **Current epic:** Epic 7 — Journal Fusion ✅ COMPLETE
 - **Branch:** `bloomberg-terminal`
 
 ## In-progress notes
@@ -36,7 +36,11 @@
   - **S6.2:** Enhanced BriefPanel — QUICK/FULL toggle, enhanced mode gathers news+events+regime context, structured BI-style sections
   - **S6.3:** Explain-this-move — WHY? button on PricePanel, gathers nearby news/events/regime/correlatedMoves, LLM explanation with evidence, cached in explanations table
   - **Bug fix:** callLLM return value mismatch in brief endpoint (was destructuring object, callLLM returns string)
-- Before Epic 7 (Journal Fusion): plan context snapshot schema and trade-detail integration.
+- **Epic 7 complete** (S7.1–S7.3). Journal Fusion:
+  - **S7.1:** Context snapshots — `captureSnapshot()` gathers 11 market dimensions, auto-fires on trade insert, manual/batch API endpoints
+  - **S7.2:** ContextTab on TradeDetail — tab bar (Details|Market Context), frozen snapshot dashboard with all Signal sections, "Capture Now" for trades without snapshots
+  - **S7.3:** EdgePanel on Signal page (P&L × regime/drivers/vol/session/DOW/events), AI debrief on ContextTab (structured coaching note with market context). Replay mode on Signal page deferred.
+- Before Epic 8 (Alerts/Backtest/Launchpad): plan alert engine, backtest schema, layout persistence.
 
 ## Dev preview
 - `.claude/launch.json` defines the `web` config (Vite :5173) + `server` (:4000) for the preview tools, both with `autoPort: true`. Backend (:4000) + analytics (:8001) run separately. Open `http://localhost:5173/research`.

@@ -9,6 +9,7 @@ import { buildMarkers, buildPriceLines, buildPositionBox } from '../utils/replay
 import { newsToMarkers, currenciesForInstrument } from '../utils/news';
 import NewsPanel from '../components/NewsPanel';
 import SocialShareModal from '../components/SocialShareModal';
+import ContextTab from '../features/signal/panels/ContextTab';
 import type {
   TradeDetail as TTradeDetail,
   TagCategory,
@@ -145,6 +146,7 @@ function TradeBody({
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [setupSaving, setSetupSaving] = useState(false);
   const setupName = setups.find((s) => s.id === trade.setup_id)?.name ?? null;
+  const [activeTab, setActiveTab] = useState<'details' | 'context'>('details');
 
   useEffect(() => {
     setStop(trade.stop_price?.toString() ?? '');
@@ -251,6 +253,26 @@ function TradeBody({
         </div>
       </div>
 
+      {/* Tab bar */}
+      <div className="flex gap-1 border-b border-slate-700">
+        <button
+          className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'details' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-slate-400 hover:text-slate-200'}`}
+          onClick={() => setActiveTab('details')}
+        >
+          Details
+        </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'context' ? 'text-amber-400 border-b-2 border-amber-400' : 'text-slate-400 hover:text-slate-200'}`}
+          onClick={() => setActiveTab('context')}
+        >
+          Market Context
+        </button>
+      </div>
+
+      {activeTab === 'context' ? (
+        <ContextTab tradeId={trade.id} instrument={trade.instrument} entryPrice={trade.entry_price} />
+      ) : (
+      <>
       {/* Chart with position indicator */}
       <TradeChartCard trade={trade} onChanged={onChanged} onOpenShare={onOpenShare} />
 
@@ -336,6 +358,8 @@ function TradeBody({
 
       {/* Screenshots */}
       <ScreenshotsPanel trade={trade} onChanged={onChanged} />
+      </>
+      )}
     </div>
   );
 }

@@ -194,6 +194,14 @@ export function applySchema(db) {
       ts INTEGER NOT NULL,
       payload_json TEXT
     );
+
+    -- AI coaching debriefs per trade
+    CREATE TABLE IF NOT EXISTS debriefs (
+      trade_id INTEGER PRIMARY KEY,
+      content TEXT,
+      model TEXT,
+      created_at INTEGER DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+    );
   `);
 
   seedInstruments(db);

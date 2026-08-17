@@ -13,6 +13,7 @@ import { migrateResearch } from './research/schema.js';
 import { researchRouter } from './research/routes.js';
 import { initResearchWs } from './research/ws.js';
 import { safeIngestOanda } from './research/ingest/oanda.js';
+import { captureSnapshot } from './research/snapshot.js';
 import { parseImport } from './import.js';
 import { parseBarsCsv, getBarsForTf, upsertBars, TF_MINUTES } from './bars.js';
 import { fetchOandaM1, oandaConfigured, oandaSymbol } from './marketdata.js';
@@ -141,6 +142,14 @@ function insertTradeTx(t) {
       );
     }
   }
+
+  if (!t.is_backtest && t.instrument) {
+    try {
+      const entryMs = t.entry_time ? new Date(t.entry_time).getTime() : Date.now();
+      captureSnapshot(tradeId, t.instrument, entryMs);
+    } catch (_) { /* never block trade insertion */ }
+  }
+
   return tradeId;
 }
 

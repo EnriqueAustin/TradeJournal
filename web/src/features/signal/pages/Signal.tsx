@@ -33,6 +33,7 @@ import ComparePanel from '../panels/ComparePanel';
 import SpreadPanel from '../panels/SpreadPanel';
 import PositioningPanel from '../panels/PositioningPanel';
 import NewsFeedPanel from '../panels/NewsFeedPanel';
+import EdgePanel from '../panels/EdgePanel';
 import '../terminal/terminal.css';
 
 const INSTRUMENTS = ['XAUUSD', 'US100'] as const;
@@ -185,6 +186,8 @@ export default function Signal() {
         <RegimePanel />
         {/* Epic 6 — News feed (cross-instrument) */}
         <NewsFeedPanel instrument={instrument} />
+        {/* Epic 7 — Journal Fusion edge analytics */}
+        <EdgePanel instrument={instrument} />
         {/* Epic 5 — Correlation & comparison (cross-instrument) */}
         <CorrelationPanel />
         <RegressionPanel />

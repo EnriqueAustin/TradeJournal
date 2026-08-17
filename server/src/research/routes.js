@@ -11,7 +11,9 @@ import { ingestCftc, getCotHistory } from './ingest/cftc.js';
 import { ingestGldEtf, parseAndStoreGld, getEtfHistory } from './ingest/etf.js';
 import { ingestCalendar, ingestCalendarPayload, getCalendarEvents, getEventsForReaction } from './ingest/calendar.js';
 import { ingestAllNews, getNewsFeed, getNewsSummary } from './ingest/news.js';
+import { captureSnapshot, getSnapshot } from './snapshot.js';
 import { callLLM } from '../ai.js';
+import { db as journalDb } from '../db.js';
 import {
   FRED_API_KEY,
   FINNHUB_KEY,
@@ -2236,6 +2238,277 @@ If the evidence doesn't clearly explain the move, say so — "this appears to be
     ).run(symbol, ts, tf, explanation, JSON.stringify(evidence), model);
 
     res.json({ instrument: symbol, timestamp: ts, explanation, evidence, model, cached: false });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Epic 7 — Journal Fusion ----------
+
+// POST /api/research/snapshot/batch — batch capture for multiple trades
+researchRouter.post('/snapshot/batch', express.json(), (req, res) => {
+  try {
+    const { trades } = req.body;
+    if (!Array.isArray(trades) || !trades.length) {
+      return res.status(400).json({ error: 'trades array required: [{ tradeId, instrument, entryTime }]' });
+    }
+    const results = trades.map(t => {
+      try {
+        const payload = captureSnapshot(t.tradeId, t.instrument, t.entryTime);
+        return { tradeId: t.tradeId, ok: true };
+      } catch (err) {
+        return { tradeId: t.tradeId, ok: false, error: err.message };
+      }
+    });
+    res.json({ captured: results.filter(r => r.ok).length, total: trades.length, results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/research/snapshot/:tradeId — manually capture snapshot for a trade
+researchRouter.post('/snapshot/:tradeId', express.json(), (req, res) => {
+  try {
+    const tradeId = Number(req.params.tradeId);
+    if (!tradeId || tradeId < 1) return res.status(400).json({ error: 'Invalid tradeId' });
+    const instrument = req.body?.instrument || null;
+    const entryTime = req.body?.entryTime || null;
+    const payload = captureSnapshot(tradeId, instrument, entryTime);
+    res.json({ trade_id: tradeId, ts: entryTime || Date.now(), payload, captured: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/snapshot/:tradeId — read stored snapshot
+researchRouter.get('/snapshot/:tradeId', (req, res) => {
+  try {
+    const tradeId = Number(req.params.tradeId);
+    if (!tradeId || tradeId < 1) return res.status(400).json({ error: 'Invalid tradeId' });
+    const snapshot = getSnapshot(tradeId);
+    if (!snapshot) return res.status(404).json({ error: 'No snapshot for this trade' });
+    res.json(snapshot);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/edge/:instrument — edge analytics (P&L × market conditions)
+researchRouter.get('/edge/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+
+    const snapshots = marketDb.prepare(
+      'SELECT trade_id, ts, payload_json FROM context_snapshots'
+    ).all();
+    if (!snapshots.length) {
+      return res.json({ instrument: symbol, dimensions: {}, best_edge: null, total_trades: 0 });
+    }
+
+    const snapshotMap = new Map();
+    for (const s of snapshots) {
+      try {
+        const payload = JSON.parse(s.payload_json);
+        if (payload.instrument === symbol) snapshotMap.set(s.trade_id, payload);
+      } catch { /* skip malformed */ }
+    }
+
+    const trades = journalDb.prepare(
+      `SELECT id, instrument, direction, net_pnl, r_multiple, session, entry_time
+       FROM trades WHERE instrument = ? AND is_backtest = 0 AND exit_time IS NOT NULL`
+    ).all(symbol);
+
+    const MIN_BUCKET = 5;
+    const dims = { regime: {}, driver_composite: {}, vol_regime: {}, session: {}, dow: {}, event_proximity: {} };
+
+    for (const t of trades) {
+      const snap = snapshotMap.get(t.id);
+      const win = (t.net_pnl ?? 0) > 0;
+      const r = t.r_multiple;
+      const pnl = t.net_pnl ?? 0;
+      const entry = { win, r, pnl };
+
+      // Session dimension (always available)
+      const sess = t.session || 'unknown';
+      (dims.session[sess] ??= []).push(entry);
+
+      // Day of week
+      if (t.entry_time) {
+        const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(t.entry_time).getUTCDay()];
+        (dims.dow[dow] ??= []).push(entry);
+      }
+
+      if (!snap) continue;
+
+      // Regime
+      if (snap.regime?.label) {
+        (dims.regime[snap.regime.label] ??= []).push(entry);
+      }
+
+      // Driver composite
+      if (snap.drivers?.composite?.label) {
+        (dims.driver_composite[snap.drivers.composite.label] ??= []).push(entry);
+      }
+
+      // Vol regime (quartiles)
+      if (snap.vol?.percentile_60d != null) {
+        const pctl = snap.vol.percentile_60d;
+        const bucket = pctl > 75 ? 'high_vol' : pctl < 25 ? 'low_vol' : 'normal_vol';
+        (dims.vol_regime[bucket] ??= []).push(entry);
+      }
+
+      // Event proximity
+      if (snap.upcoming_events) {
+        const entryMs = t.entry_time ? new Date(t.entry_time).getTime() : snap.captured_at;
+        const nearEvent = snap.upcoming_events.some(e => Math.abs(e.ts - entryMs) < 2 * 3600 * 1000);
+        const bucket = nearEvent ? 'near_event' : 'clean';
+        (dims.event_proximity[bucket] ??= []).push(entry);
+      }
+    }
+
+    const dimensions = {};
+    for (const [dimName, buckets] of Object.entries(dims)) {
+      const arr = [];
+      for (const [bucket, entries] of Object.entries(buckets)) {
+        const n = entries.length;
+        if (n < MIN_BUCKET) continue;
+        const wins = entries.filter(e => e.win).length;
+        const avgPnl = entries.reduce((s, e) => s + e.pnl, 0) / n;
+        const rVals = entries.filter(e => e.r != null).map(e => e.r);
+        const avgR = rVals.length ? rVals.reduce((s, v) => s + v, 0) / rVals.length : null;
+        const winRate = Math.round((wins / n) * 1000) / 10;
+        const expectancy = avgR != null ? Math.round(((winRate / 100) * avgR - ((100 - winRate) / 100) * Math.abs(avgR)) * 100) / 100 : null;
+        arr.push({
+          category: dimName,
+          bucket,
+          trades_n: n,
+          win_rate: winRate,
+          avg_r: avgR != null ? Math.round(avgR * 100) / 100 : null,
+          expectancy,
+          avg_pnl: Math.round(avgPnl * 100) / 100,
+        });
+      }
+      if (arr.length) dimensions[dimName] = arr;
+    }
+
+    let best_edge = null;
+    let bestExp = -Infinity;
+    for (const buckets of Object.values(dimensions)) {
+      for (const b of buckets) {
+        if (b.expectancy != null && b.expectancy > bestExp) {
+          bestExp = b.expectancy;
+          best_edge = { dimension: b.category, bucket: b.bucket, expectancy: b.expectancy };
+        }
+      }
+    }
+
+    res.json({ instrument: symbol, dimensions, best_edge, total_trades: trades.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/research/debrief/:tradeId — generate AI debrief for a trade
+researchRouter.post('/debrief/:tradeId', async (req, res) => {
+  try {
+    const tradeId = Number(req.params.tradeId);
+    if (!tradeId || tradeId < 1) return res.status(400).json({ error: 'Invalid tradeId' });
+
+    const trade = journalDb.prepare(
+      `SELECT t.*, s.name AS setup_name FROM trades t LEFT JOIN setups s ON t.setup_id = s.id WHERE t.id = ?`
+    ).get(tradeId);
+    if (!trade) return res.status(404).json({ error: 'Trade not found' });
+
+    const snapshot = getSnapshot(tradeId);
+    const tags = journalDb.prepare(
+      'SELECT tg.name, tg.category FROM trade_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE tt.trade_id = ?'
+    ).all(tradeId);
+    const notes = journalDb.prepare(
+      'SELECT body FROM notes WHERE trade_id = ? ORDER BY created_at DESC LIMIT 3'
+    ).all(tradeId);
+
+    let context = `## Trade Details
+- Instrument: ${trade.instrument}
+- Direction: ${trade.direction}
+- Entry: ${trade.entry_time} @ ${trade.entry_price}
+- Exit: ${trade.exit_time} @ ${trade.exit_price}
+- Net P&L: $${trade.net_pnl?.toFixed(2) ?? '?'}
+- R Multiple: ${trade.r_multiple?.toFixed(2) ?? 'N/A'}
+- Session: ${trade.session}
+- Setup: ${trade.setup_name ?? 'None'}
+- Hold time: ${trade.hold_time_sec ? Math.round(trade.hold_time_sec / 60) + ' minutes' : 'N/A'}
+- MAE: ${trade.mae ?? 'N/A'} | MFE: ${trade.mfe ?? 'N/A'}`;
+
+    if (tags.length) {
+      context += `\n- Tags: ${tags.map(t => `${t.category}:${t.name}`).join(', ')}`;
+    }
+    if (notes.length) {
+      context += `\n- Trader notes: ${notes.map(n => n.body).join(' | ')}`;
+    }
+
+    if (snapshot) {
+      const p = snapshot.payload;
+      context += '\n\n## Market Context at Entry';
+      if (p.regime) context += `\n- Regime: ${p.regime.label} (score ${p.regime.score})`;
+      if (p.drivers) context += `\n- Driver composite: ${p.drivers.composite.label} (${p.drivers.composite.score})`;
+      if (p.vol) {
+        context += `\n- Vol: IV=${p.vol.instrument_iv ?? '?'}, 60d pctl=${p.vol.percentile_60d ?? '?'}%, exp move=${p.vol.expected_move_1d ?? '?'}`;
+      }
+      if (p.positioning) {
+        context += `\n- COT: net ${p.positioning.cot_net_mm?.toLocaleString() ?? '?'}, ${p.positioning.cot_pct_long ?? '?'}% long, 1Y pctl ${p.positioning.cot_percentile_1y ?? '?'}%`;
+        context += `\n- ETF: ${p.positioning.etf_tonnes ?? '?'} tonnes, trend ${p.positioning.etf_trend ?? '?'}`;
+      }
+      if (p.upcoming_events?.length) {
+        context += `\n- Upcoming events: ${p.upcoming_events.map(e => `${e.name} (${e.impact})`).join(', ')}`;
+      }
+      if (p.recent_news?.length) {
+        context += `\n- Recent news: ${p.recent_news.map(n => n.headline).join('; ')}`;
+      }
+      if (p.rates) {
+        context += `\n- Key rates: 10Y=${p.rates.DGS10}, Real 10Y=${p.rates.DFII10}, DXY=${p.rates.DTWEXBGS}, 2s10s=${p.rates.spread_2s10s}`;
+      }
+      if (p.seasonality) {
+        if (p.seasonality.month) context += `\n- Seasonality: ${p.seasonality.month.name} avg ${p.seasonality.month.avg_return}%, win ${p.seasonality.month.win_rate}%`;
+        if (p.seasonality.dow) context += `, ${p.seasonality.dow.name} avg ${p.seasonality.dow.avg_return}%, win ${p.seasonality.dow.win_rate}%`;
+      }
+    }
+
+    const system = `You are an elite trading coach reviewing a completed trade with full market context.
+
+Your job:
+1. **Setup quality** (1-2 sentences) — Was this a good entry given the market conditions? Consider regime, drivers, vol, and positioning.
+2. **Execution** (1-2 sentences) — Entry timing, sizing, stop placement relative to key levels and expected move.
+3. **What went well** (1-2 bullets) — Specific strengths.
+4. **What to improve** (1-2 bullets) — Specific, actionable feedback.
+5. **Condition insight** (1 sentence) — Does this type of trade tend to work in these conditions?
+
+Be direct, specific, and grounded in the data. No generic advice. Reference actual numbers from the context.`;
+
+    const content = await callLLM({ system, prompt: context });
+    const model = AI_MODEL || 'unknown';
+
+    marketDb.prepare(
+      `INSERT INTO debriefs (trade_id, content, model)
+       VALUES (?, ?, ?)
+       ON CONFLICT(trade_id) DO UPDATE SET content = excluded.content, model = excluded.model,
+         created_at = CAST(strftime('%s','now') AS INTEGER) * 1000`
+    ).run(tradeId, content, model);
+
+    res.json({ trade_id: tradeId, content, model, created_at: Date.now() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/debrief/:tradeId — read cached debrief
+researchRouter.get('/debrief/:tradeId', (req, res) => {
+  try {
+    const tradeId = Number(req.params.tradeId);
+    if (!tradeId || tradeId < 1) return res.status(400).json({ error: 'Invalid tradeId' });
+    const row = marketDb.prepare('SELECT * FROM debriefs WHERE trade_id = ?').get(tradeId);
+    if (!row) return res.status(404).json({ error: 'No debrief for this trade' });
+    res.json({ trade_id: row.trade_id, content: row.content, model: row.model, created_at: row.created_at });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

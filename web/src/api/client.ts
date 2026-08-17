@@ -489,6 +489,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  getSnapshot: (tradeId: number) =>
+    request<import('../types').ContextSnapshotResponse>(`/research/snapshot/${tradeId}`),
+  captureSnapshot: (tradeId: number, instrument?: string, entryTime?: number) =>
+    request<{ trade_id: number; ts: number; payload: import('../types').ContextSnapshotPayload; captured: boolean }>(`/research/snapshot/${tradeId}`, {
+      method: 'POST',
+      body: JSON.stringify({ instrument, entryTime }),
+    }),
+  captureSnapshotBatch: (trades: Array<{ tradeId: number; instrument: string; entryTime?: number }>) =>
+    request<{ captured: number; total: number; results: Array<{ tradeId: number; ok: boolean; error?: string }> }>('/research/snapshot/batch', {
+      method: 'POST',
+      body: JSON.stringify({ trades }),
+    }),
+  getEdge: (instrument: string) =>
+    request<import('../types').EdgeAnalytics>(`/research/edge/${instrument}`),
+  getDebrief: (tradeId: number) =>
+    request<import('../types').Debrief>(`/research/debrief/${tradeId}`),
+  generateDebrief: (tradeId: number) =>
+    request<import('../types').Debrief>(`/research/debrief/${tradeId}`, { method: 'POST' }),
   getPositioning: (instrument: string) =>
     request<import('../types').PositioningResponse>(`/research/positioning/${instrument}`),
   getSpread: (long: string, short: string, mode?: string) => {
