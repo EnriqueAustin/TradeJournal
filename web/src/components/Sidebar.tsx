@@ -89,7 +89,7 @@ export default function Sidebar() {
           background: 'var(--term-panel-hd)',
         }}
       >
-        LOCAL · SINGLE-USER · UTC
+        LOCAL · SINGLE-USER · SAST
       </div>
     </aside>
   );

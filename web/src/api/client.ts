@@ -396,8 +396,10 @@ export const api = {
     request<import('../types').VolResponse>(`/research/vol/${instrument}`),
   triggerCboeIngest: () =>
     request<unknown>('/research/ingest/cboe', { method: 'POST', body: '{}' }),
-  getBrief: (instrument: string) =>
-    request<import('../types').BriefResponse>(`/research/brief/${instrument}`),
+  getBrief: (instrument: string, mode?: string) => {
+    const q = mode ? `?mode=${mode}` : '';
+    return request<import('../types').BriefResponse>(`/research/brief/${instrument}${q}`);
+  },
   getRates: () =>
     request<import('../types').RatesResponse>('/research/rates'),
   getEcon: () =>
@@ -412,8 +414,10 @@ export const api = {
   },
   getLevels: (instrument: string) =>
     request<import('../types').LevelsResponse>(`/research/levels/${instrument}`),
-  getSeasonality: (instrument: string) =>
-    request<import('../types').SeasonalityResponse>(`/research/seasonality/${instrument}`),
+  getSeasonality: (instrument: string, granularity?: string) => {
+    const q = granularity ? `?granularity=${granularity}` : '';
+    return request<import('../types').SeasonalityResponse>(`/research/seasonality/${instrument}${q}`);
+  },
   getCot: () =>
     request<import('../types').CotResponse>('/research/cot/gold'),
   getEtfFlows: () =>
@@ -444,6 +448,54 @@ export const api = {
   },
   triggerCalendarIngest: () =>
     request<unknown>('/research/ingest/calendar', { method: 'POST', body: '{}' }),
+  getCorrelation: (window?: number, series?: string[]) => {
+    const p = new URLSearchParams();
+    if (window) p.set('window', String(window));
+    if (series?.length) p.set('series', series.join(','));
+    const q = p.toString();
+    return request<import('../types').CorrelationResponse>(`/research/correlation${q ? `?${q}` : ''}`);
+  },
+  getRegression: (instrument: string, vs: string, window?: number) => {
+    const p = new URLSearchParams({ vs });
+    if (window) p.set('window', String(window));
+    return request<import('../types').RegressionResponse>(`/research/regression/${instrument}?${p.toString()}`);
+  },
+  getCompare: (series: string[], window?: number, mode?: string) => {
+    const p = new URLSearchParams({ series: series.join(',') });
+    if (window) p.set('window', String(window));
+    if (mode) p.set('mode', mode);
+    return request<import('../types').CompareResponse>(`/research/compare?${p.toString()}`);
+  },
+  getRegimeCorrelation: (window: number, regime: string, series?: string[]) => {
+    const p = new URLSearchParams({ window: String(window), regime });
+    if (series?.length) p.set('series', series.join(','));
+    return request<import('../types').RegimeCorrelationResponse>(`/research/correlation/regime?${p.toString()}`);
+  },
+  getNewsFeed: (opts?: { instrument?: string; limit?: number; since?: number; sentiment?: string }) => {
+    const p = new URLSearchParams();
+    if (opts?.instrument) p.set('instrument', opts.instrument);
+    if (opts?.limit) p.set('limit', String(opts.limit));
+    if (opts?.since) p.set('since', String(opts.since));
+    if (opts?.sentiment) p.set('sentiment', opts.sentiment);
+    const q = p.toString();
+    return request<import('../types').NewsResponse>(`/research/news${q ? `?${q}` : ''}`);
+  },
+  getNewsSummary: () =>
+    request<import('../types').NewsSummary>('/research/news/summary'),
+  triggerNewsIngest: () =>
+    request<unknown>('/research/ingest/news', { method: 'POST', body: '{}' }),
+  explainMove: (body: import('../types').ExplainMoveRequest) =>
+    request<import('../types').ExplainMoveResponse>('/research/explain-move', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getPositioning: (instrument: string) =>
+    request<import('../types').PositioningResponse>(`/research/positioning/${instrument}`),
+  getSpread: (long: string, short: string, mode?: string) => {
+    const p = new URLSearchParams({ long, short });
+    if (mode) p.set('mode', mode);
+    return request<import('../types').SpreadResponse>(`/research/spread?${p.toString()}`);
+  },
   getPlan: (account: number | null, day: string) => {
     const p = new URLSearchParams({ day });
     if (account != null) p.set('account', String(account));

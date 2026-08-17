@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { api } from '../../../api/client';
 import { useApi, filterKey } from '../../../hooks/useApi';
-import type { ResearchPriceResponse, EventMarker } from '../../../types';
+import type { ResearchPriceResponse, EventMarker, ExplainMoveResponse } from '../../../types';
 import type { Bar } from '../../../types';
 import CandleChart, { type ChartMarker } from '../../../components/CandleChart';
 import type { UTCTimestamp } from 'lightweight-charts';
@@ -28,8 +28,89 @@ function freshnessAge(lastOk: number | null): string {
   return `${Math.floor(secs / 3600)}h ago`;
 }
 
+function ExplainPanel({ data, onClose }: { data: ExplainMoveResponse; onClose: () => void }) {
+  return (
+    <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--sig-border)', paddingTop: '0.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+        <span style={{ fontWeight: 700, color: 'var(--sig-amber)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Explain This Move
+        </span>
+        <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
+          {data.cached && <StatusBadge kind="muted" label="CACHED" />}
+          {data.model && <span style={{ fontSize: '0.55rem', color: 'var(--sig-muted-text)' }}>{data.model}</span>}
+          <button className="sig-tab" onClick={onClose} style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>✕</button>
+        </div>
+      </div>
+
+      {data.explanation ? (
+        <div style={{ fontSize: '0.72rem', lineHeight: 1.5, maxHeight: '16rem', overflowY: 'auto' }}>
+          {data.explanation.split('\n').map((line, i) => {
+            const t = line.trim();
+            if (!t) return null;
+            if (t.startsWith('**') && t.includes('**')) {
+              const bold = t.match(/\*\*(.*?)\*\*/)?.[1] ?? '';
+              const rest = t.replace(/\*\*.*?\*\*/, '').trim();
+              return (
+                <p key={i} style={{ marginBottom: '0.3rem' }}>
+                  <strong style={{ color: 'var(--sig-green)' }}>{bold}</strong>
+                  {rest ? ` ${rest}` : ''}
+                </p>
+              );
+            }
+            if (t.startsWith('- ') || t.startsWith('• ') || /^\d+\.\s/.test(t)) {
+              return <p key={i} className="sig-brief-bullet">{t}</p>;
+            }
+            return <p key={i} style={{ marginBottom: '0.3rem' }}>{t}</p>;
+          })}
+        </div>
+      ) : (
+        <div className="sig-ph" style={{ color: 'var(--sig-red)' }}>
+          {data.error ?? 'Explanation unavailable'}
+        </div>
+      )}
+
+      {data.evidence && (
+        <details style={{ marginTop: '0.3rem', fontSize: '0.65rem', color: 'var(--sig-muted-text)' }}>
+          <summary style={{ cursor: 'pointer', color: 'var(--sig-cyan)' }}>Evidence ({data.evidence.nearbyNews.length} news, {data.evidence.nearbyEvents.length} events)</summary>
+          <div style={{ marginTop: '0.2rem', maxHeight: '8rem', overflowY: 'auto' }}>
+            {data.evidence.nearbyNews.map((n, i) => (
+              <div key={i} style={{ marginBottom: '0.15rem' }}>
+                <span style={{ color: 'var(--sig-muted-text)' }}>{new Date(n.ts).toISOString().slice(11, 16)}</span>{' '}
+                {n.headline}
+                {n.sentiment != null && (
+                  <span style={{ color: n.sentiment > 0 ? 'var(--sig-green)' : n.sentiment < 0 ? 'var(--sig-red)' : 'var(--sig-muted-text)' }}>
+                    {' '}[{n.sentiment.toFixed(2)}]
+                  </span>
+                )}
+              </div>
+            ))}
+            {data.evidence.nearbyEvents.map((e, i) => (
+              <div key={`ev-${i}`} style={{ marginBottom: '0.15rem' }}>
+                <span style={{ color: 'var(--sig-amber)' }}>EVENT</span>{' '}
+                {e.name} ({e.country})
+                {e.actual != null && ` actual: ${e.actual} vs ${e.consensus}`}
+              </div>
+            ))}
+            {data.evidence.correlatedMoves.map((cm, i) => (
+              <div key={`cm-${i}`} style={{ marginBottom: '0.15rem' }}>
+                <span style={{ color: 'var(--sig-cyan)' }}>{cm.symbol}</span>{' '}
+                <span style={{ color: cm.move > 0 ? 'var(--sig-green)' : 'var(--sig-red)' }}>
+                  {cm.move > 0 ? '+' : ''}{cm.move}%
+                </span>
+              </div>
+            ))}
+            <div>Regime: <span style={{ color: 'var(--sig-amber)' }}>{data.evidence.regime}</span></div>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
   const [tf, setTf] = useState<TF>('H1');
+  const [explainData, setExplainData] = useState<ExplainMoveResponse | null>(null);
+  const [explaining, setExplaining] = useState(false);
 
   const { data, loading, error, reload } = useApi<ResearchPriceResponse>(
     () => api.getResearchPrice(instrument, tf),
@@ -84,6 +165,23 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
     window.open(`/api/research/price/${instrument}/export?tf=${tf}`, '_blank');
   }, [instrument, tf]);
 
+  const handleExplain = useCallback(async () => {
+    if (!bars.length) return;
+    setExplaining(true);
+    try {
+      const last = bars[bars.length - 1];
+      const direction = last.close >= last.open ? 'up' : 'down';
+      const magnitude = Math.abs((last.close - last.open) / last.open * 100);
+      const timestamp = new Date(last.t).getTime();
+      const result = await api.explainMove({ instrument, timestamp, timeframe: tf, direction, magnitude });
+      setExplainData(result);
+    } catch {
+      setExplainData(null);
+    } finally {
+      setExplaining(false);
+    }
+  }, [bars, instrument, tf]);
+
   const freshLabel = data?.freshness
     ? `OANDA · ${freshnessAge(data.freshness.last_ok)}`
     : 'OANDA';
@@ -111,6 +209,15 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
             </span>
           )}
           <StatusBadge kind={freshKind} label={freshLabel} />
+          <button
+            className="sig-tab"
+            onClick={handleExplain}
+            disabled={explaining || !bars.length}
+            title="Explain last candle move"
+            style={{ fontSize: '0.6rem', opacity: explaining ? 0.5 : 1 }}
+          >
+            {explaining ? '…' : 'WHY?'}
+          </button>
           <button className="sig-tab" onClick={handleExport} title="CSV Export">
             CSV
           </button>
@@ -151,6 +258,16 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
         <div className="sig-ph">
           No data — click ⟳ or wait for OANDA ingest
         </div>
+      )}
+
+      {/* Explain-this-move panel */}
+      {explaining && (
+        <div className="sig-ph" style={{ marginTop: '0.5rem', borderTop: '1px solid var(--sig-border)', paddingTop: '0.5rem' }}>
+          Analyzing move…
+        </div>
+      )}
+      {explainData && !explaining && (
+        <ExplainPanel data={explainData} onClose={() => setExplainData(null)} />
       )}
     </Panel>
   );

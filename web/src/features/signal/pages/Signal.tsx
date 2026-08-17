@@ -4,6 +4,7 @@ import { useApi } from '../../../hooks/useApi';
 import type { ResearchHealth, ResearchProvider } from '../../../types';
 import { Panel, DataRow, StatusBadge } from '../terminal';
 import type { BadgeKind } from '../terminal';
+import { fmtClock, useSignalTz, setSignalTz, TZ_OPTIONS } from '../lib/tz';
 import PricePanel from '../panels/PricePanel';
 import LiveTicker from '../panels/LiveTicker';
 import ConstituentTable from '../panels/ConstituentTable';
@@ -26,6 +27,12 @@ import EtfFlowPanel from '../panels/EtfFlowPanel';
 import GoldSilverPanel from '../panels/GoldSilverPanel';
 import CalendarPanel from '../panels/CalendarPanel';
 import EventReactionPanel from '../panels/EventReactionPanel';
+import CorrelationPanel from '../panels/CorrelationPanel';
+import RegressionPanel from '../panels/RegressionPanel';
+import ComparePanel from '../panels/ComparePanel';
+import SpreadPanel from '../panels/SpreadPanel';
+import PositioningPanel from '../panels/PositioningPanel';
+import NewsFeedPanel from '../panels/NewsFeedPanel';
 import '../terminal/terminal.css';
 
 const INSTRUMENTS = ['XAUUSD', 'US100'] as const;
@@ -44,13 +51,10 @@ function analyticsBadge(status: ResearchHealth['analytics']): BadgeKind {
   return 'err';
 }
 
-function utcClock(d: Date): string {
-  return d.toISOString().slice(11, 19) + ' UTC';
-}
-
 export default function Signal() {
   const [instrument, setInstrument] = useState<Instrument>('US100');
   const [now, setNow] = useState(() => new Date());
+  const tz = useSignalTz();
   const [livePrice, setLivePrice] = useState<Record<string, number>>({});
   const { data: health, loading, error, reload } = useApi<ResearchHealth>(
     () => api.getResearchHealth(),
@@ -86,7 +90,19 @@ export default function Signal() {
           ))}
         </div>
         <span className="sig-spacer" />
-        <span className="sig-clock">{utcClock(now)}</span>
+        <select
+          className="sig-tz-select"
+          value={tz}
+          onChange={(e) => setSignalTz(e.target.value)}
+          title="Display timezone — converts all times below"
+        >
+          {TZ_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <span className="sig-clock">{fmtClock(now.getTime(), tz)}</span>
       </div>
 
       {/* panel grid */}
@@ -167,6 +183,13 @@ export default function Signal() {
         <RatesBoard />
         <EconTracker />
         <RegimePanel />
+        {/* Epic 6 — News feed (cross-instrument) */}
+        <NewsFeedPanel instrument={instrument} />
+        {/* Epic 5 — Correlation & comparison (cross-instrument) */}
+        <CorrelationPanel />
+        <RegressionPanel />
+        <ComparePanel />
+        <SpreadPanel />
         {/* US100 cockpit panels — Epic 1 */}
         {instrument === 'US100' && (
           <>
@@ -186,6 +209,7 @@ export default function Signal() {
             <DriverScorecard />
             <RealYieldOverlay />
             <VolPanel instrument="XAUUSD" />
+            <PositioningPanel instrument="XAUUSD" />
             <CotPanel />
             <EtfFlowPanel />
             <GoldSilverPanel />

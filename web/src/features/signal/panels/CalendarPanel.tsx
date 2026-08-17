@@ -4,6 +4,7 @@ import { useApi, filterKey } from '../../../hooks/useApi';
 import type { CalendarResponse, CalendarEvent, UpcomingResponse } from '../../../types';
 import { Panel, StatusBadge } from '../terminal';
 import type { BadgeKind } from '../terminal';
+import { fmtTime, fmtDate, dayKey, useSignalTz } from '../lib/tz';
 
 const IMPACT_DOT: Record<string, string> = {
   high: 'var(--sig-red)',
@@ -26,19 +27,6 @@ const RISK_BADGE: Record<string, { kind: BadgeKind; label: string }> = {
   imminent: { kind: 'err', label: 'IMMINENT' },
 };
 
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  return d.toISOString().slice(11, 16) + ' UTC';
-}
-
-function formatDate(ts: number): string {
-  return new Date(ts).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    weekday: 'short',
-  });
-}
-
 function classifySurprise(e: CalendarEvent): 'beat' | 'miss' | 'inline' | null {
   if (e.actual == null || e.consensus == null) return null;
   const diff = e.actual - e.consensus;
@@ -52,6 +40,7 @@ function classifySurprise(e: CalendarEvent): 'beat' | 'miss' | 'inline' | null {
 export default function CalendarPanel() {
   const [impact, setImpact] = useState<ImpactFilter>('high,medium');
   const [, setTick] = useState(0);
+  const tz = useSignalTz();
 
   const { data, loading, error, reload } = useApi<CalendarResponse>(
     () => api.getResearchCalendar(impact === 'all' ? undefined : impact),
@@ -74,7 +63,7 @@ export default function CalendarPanel() {
   const byDate = new Map<string, CalendarEvent[]>();
   if (data) {
     for (const e of data.events) {
-      const dk = new Date(e.ts).toISOString().slice(0, 10);
+      const dk = dayKey(e.ts, tz);
       if (!byDate.has(dk)) {
         byDate.set(dk, []);
         groupedDates.push(dk);
@@ -124,7 +113,7 @@ export default function CalendarPanel() {
         <div className="sig-scroll" style={{ maxHeight: '400px' }}>
           {groupedDates.map((dk) => {
             const dayEvents = byDate.get(dk)!;
-            const isToday = dk === new Date().toISOString().slice(0, 10);
+            const isToday = dk === dayKey(Date.now(), tz);
             return (
               <div key={dk} style={{ marginBottom: '8px' }}>
                 <div
@@ -138,7 +127,7 @@ export default function CalendarPanel() {
                     color: isToday ? 'var(--sig-amber)' : undefined,
                   }}
                 >
-                  {formatDate(dayEvents[0].ts)}
+                  {fmtDate(dayEvents[0].ts, tz)}
                   {isToday && ' · TODAY'}
                 </div>
                 <table className="sig-table" style={{ fontSize: '11px' }}>
@@ -150,8 +139,8 @@ export default function CalendarPanel() {
                           key={e.id}
                           style={{ opacity: e.isPast ? 0.6 : 1 }}
                         >
-                          <td style={{ width: '60px', whiteSpace: 'nowrap' }}>
-                            {formatTime(e.ts)}
+                          <td style={{ width: '72px', whiteSpace: 'nowrap' }}>
+                            {fmtTime(e.ts, tz, true)}
                           </td>
                           <td style={{ width: '16px', textAlign: 'center' }}>
                             <span

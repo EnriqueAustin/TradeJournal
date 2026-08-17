@@ -3,9 +3,9 @@
 > Read this first every session. Update it last.
 
 ## Status
-- **Last completed:** **Epic 4 — Events & reaction studies (S4.1–S4.3)** ✓ (2026-08-13)
-- **Next session:** **Epic 5 — Positioning, correlation, seasonality** (run deep-research pass first → write `FEATURE-SPEC-epic5-corr.md`)
-- **Current epic:** Epic 4 — Events ✅ COMPLETE
+- **Last completed:** **Epic 6 — News & AI (S6.1–S6.3)** ✓ (2026-08-16)
+- **Next session:** **Epic 7 — Journal Fusion** (context snapshots, replay, edge analytics)
+- **Current epic:** Epic 6 — News & AI ✅ COMPLETE
 - **Branch:** `bloomberg-terminal`
 
 ## In-progress notes
@@ -27,7 +27,16 @@
 - **Docker WS fix** (pre-Epic 4): nginx.conf `/ws/` proxy + LiveTicker same-origin WS URL in production
 - Data ingestors need manual trigger: `POST /ingest/fred`, `/ingest/cboe`, `/ingest/cftc`, `/ingest/etf`, `/ingest/calendar`. Scheduled refresh deferred.
 - Python compute deferred for: Fed rate probability (S2.2), surprise z-scores (S2.3), regime composite (S2.4), driver z-scores (S3.1), event-reaction (S4.2). Node stubs serve same API shape.
-- Before Epic 5 (Correlation): run deep-research pass → write `FEATURE-SPEC-epic5-corr.md`, update BLOOMBERG-PARITY.md.
+- **Epic 5 complete** (S5.1–S5.3). Correlation, regression, comparison & positioning:
+  - **S5.1:** CorrelationPanel (heatmap, 20/60/120/252d windows), RegressionPanel (scatter+OLS), ComparePanel (z-score/% overlay), SpreadPanel (ratio/diff + σ bands). New helpers: getDailyValues, alignByDay, pearson. WTICO_USD added to instrument universe.
+  - **S5.2:** Regime-conditional correlation (VIX/HY regime filter on matrix), PositioningPanel (consolidated COT+ETF+contrarian).
+  - **S5.3:** Enhanced SeasonalityPanel (monthly/weekly/dow/session granularity, t-stat significance, OpEx effect).
+- **Epic 6 complete** (S6.1–S6.3). News & AI:
+  - **S6.1:** NewsFeedPanel — GDELT + RSS ingestor (news.js), instrument tagging, LLM sentiment scoring, filtered feed API, full-width panel with sentiment/instrument filters
+  - **S6.2:** Enhanced BriefPanel — QUICK/FULL toggle, enhanced mode gathers news+events+regime context, structured BI-style sections
+  - **S6.3:** Explain-this-move — WHY? button on PricePanel, gathers nearby news/events/regime/correlatedMoves, LLM explanation with evidence, cached in explanations table
+  - **Bug fix:** callLLM return value mismatch in brief endpoint (was destructuring object, callLLM returns string)
+- Before Epic 7 (Journal Fusion): plan context snapshot schema and trade-detail integration.
 
 ## Dev preview
 - `.claude/launch.json` defines the `web` config (Vite :5173) + `server` (:4000) for the preview tools, both with `autoPort: true`. Backend (:4000) + analytics (:8001) run separately. Open `http://localhost:5173/research`.

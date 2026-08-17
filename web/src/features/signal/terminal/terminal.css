@@ -70,7 +70,27 @@
   font-weight: 700;
 }
 .sig-spacer { flex: 1; }
-.sig-clock { color: var(--sig-cyan); font-variant-numeric: tabular-nums; }
+.sig-tz-select {
+  margin-right: 10px;
+  padding: 3px 6px;
+  border: 1px solid var(--sig-border-2);
+  border-radius: 2px;
+  color: var(--sig-text-dim);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.sig-tz-select:hover { color: var(--sig-text); border-color: var(--sig-cyan); }
+.sig-tz-select option { background: var(--sig-bg); color: var(--sig-text); }
+.sig-clock {
+  color: var(--sig-cyan);
+  font-variant-numeric: tabular-nums;
+  min-width: 96px;
+  display: inline-block;
+  text-align: right;
+}
 
 /* --- panel grid --- */
 .sig-grid {

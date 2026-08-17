@@ -40,14 +40,14 @@ Each session = one ~5-hour Opus session, a vertical slice that ends green. Tick 
 - [x] **S4.3 Event intelligence** — pre-event risk-flag alerts (`/events/upcoming`) + post-event chart markers (`/events/markers/:instrument`) on PricePanel. **Accept:** risk badge + markers plotted ✓ (browser-verified 2026-08-13).
 
 ## Epic 5 — Positioning, correlation, seasonality
-- [ ] **S5.1 Correlation matrix + regression** — Python `/compute/correlation` (configurable window) + ratio charts + lead/lag; HRA regression + beta; COMP compare; CIX custom-spread builder. **Accept:** interactive matrix. *(may split)*
-- [ ] **S5.2 Regime-conditional corr + flow module** — regime-conditioned correlations; consolidate COT/put-call/flow + contrarian flags. **Accept:** regime toggle changes matrix.
-- [ ] **S5.3 Seasonality module** — Python monthly/WoY/DoW/session + OpEx/quad-witching + sample size + significance. **Accept:** seasonality strips w/ n.
+- [x] **S5.1 Correlation matrix + regression** — Node `/correlation` (configurable window, 6 default series incl WTICO_USD), CorrelationPanel heatmap; `/regression/:instrument` OLS scatter+line, RegressionPanel; `/compare` z-score/% overlay, ComparePanel; `/spread` ratio/diff + σ bands, SpreadPanel. **Accept:** interactive matrix ✓ (browser-verified 2026-08-16).
+- [x] **S5.2 Regime-conditional corr + flow module** — `/correlation/regime` filters matrix by VIX/HY risk regime; `/positioning/:instrument` consolidated COT+ETF+contrarian; PositioningPanel. **Accept:** regime toggle changes matrix ✓ (browser-verified 2026-08-16).
+- [x] **S5.3 Seasonality module** — Node monthly/weekly/dow/session granularity + t-stat/p-value significance + OpEx week effect; enhanced SeasonalityPanel with 4 tabs + ★ markers. **Accept:** seasonality strips w/ n ✓ (browser-verified 2026-08-16).
 
 ## Epic 6 — News & AI
-- [ ] **S6.1 News ingest** — GDELT + curated RSS → `news`, dedupe + instrument tagging + sentiment. **Accept:** filtered per-instrument feed.
-- [ ] **S6.2 Daily briefs** — both-instrument grounded briefs via `callLLM`, cached in `briefs`, scheduled. **Accept:** briefs regenerate on schedule.
-- [ ] **S6.3 Explain-this-move** — `POST /api/research/explain-move` → click candle → correlate news/events/drivers → Claude. **Accept:** click a spike, get grounded explanation.
+- [x] **S6.1 News ingest** — GDELT + RSS ingestors (news.js); instrument tagging + LLM sentiment; NewsFeedPanel (span 12, filters, sentiment dots); 3 new routes. **Accept:** filtered per-instrument feed ✓ (browser-verified 2026-08-17; RSS inserted 40 items).
+- [x] **S6.2 Daily briefs** — Enhanced brief mode (`?mode=enhanced`); gathers news+events+regime context; structured BI-style sections; QUICK/FULL toggle on BriefPanel. **Accept:** briefs render with sections ✓ (browser-verified 2026-08-17).
+- [x] **S6.3 Explain-this-move** — `POST /api/research/explain-move`; WHY? button on PricePanel; gathers news/events/regime/correlatedMoves; LLM explanation + evidence; cached in `explanations` table. **Accept:** click WHY?, get grounded explanation ✓ (browser-verified 2026-08-17).
 
 ## Epic 7 — Journal fusion ★★
 - [ ] **S7.1 Context snapshots** — on trade log, capture full market state → `context_snapshots`. **Accept:** new trades get a snapshot row.

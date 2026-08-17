@@ -10,18 +10,20 @@ import { getLatestVol, getVolHistory, ingestAllVol, seedVolSeries } from './inge
 import { ingestCftc, getCotHistory } from './ingest/cftc.js';
 import { ingestGldEtf, parseAndStoreGld, getEtfHistory } from './ingest/etf.js';
 import { ingestCalendar, ingestCalendarPayload, getCalendarEvents, getEventsForReaction } from './ingest/calendar.js';
+import { ingestAllNews, getNewsFeed, getNewsSummary } from './ingest/news.js';
 import { callLLM } from '../ai.js';
 import {
   FRED_API_KEY,
   FINNHUB_KEY,
   ALPACA_KEY,
   OANDA_API_TOKEN,
+  AI_MODEL,
 } from '../env.js';
 
 export const researchRouter = Router();
 
 const VALID_TF = new Set(['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1']);
-const SYMBOL_MAP = { XAUUSD: 'XAUUSD', US100: 'US100', XAGUSD: 'XAGUSD', xauusd: 'XAUUSD', us100: 'US100', xagusd: 'XAGUSD' };
+const SYMBOL_MAP = { XAUUSD: 'XAUUSD', US100: 'US100', XAGUSD: 'XAGUSD', WTICO_USD: 'WTICO_USD', xauusd: 'XAUUSD', us100: 'US100', xagusd: 'XAGUSD', wtico_usd: 'WTICO_USD' };
 
 function resolveInstrument(raw) {
   if (!raw) return null;
@@ -462,19 +464,21 @@ researchRouter.post('/ingest/cboe', async (_req, res) => {
   }
 });
 
-// GET /api/research/brief/:instrument — cached AI daily brief
+// GET /api/research/brief/:instrument?mode=enhanced — cached AI daily brief
 researchRouter.get('/brief/:instrument', async (req, res) => {
   try {
     const symbol = resolveInstrument(req.params.instrument);
     if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+    const enhanced = req.query.mode === 'enhanced';
 
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     const dateMs = today.getTime();
 
+    const briefType = enhanced ? 'enhanced' : 'basic';
     const cached = marketDb.prepare(
-      'SELECT * FROM briefs WHERE instrument = ? AND date = ?'
-    ).get(symbol, dateMs);
+      'SELECT * FROM briefs WHERE instrument = ? AND date = ? AND brief_type = ?'
+    ).get(symbol, dateMs, briefType);
 
     if (cached) {
       return res.json({
@@ -482,6 +486,7 @@ researchRouter.get('/brief/:instrument', async (req, res) => {
         date: dateMs,
         content: cached.content,
         model: cached.model,
+        briefType,
         cached: true,
       });
     }
@@ -509,30 +514,77 @@ researchRouter.get('/brief/:instrument', async (req, res) => {
       }
     }
 
-    const system = `You are a concise market analyst. Provide a brief daily analysis (3-5 bullet points) for the given instrument. Include: trend assessment, key levels, volatility read, and what to watch. Use data provided only — never invent numbers.`;
-    const prompt = `Generate today's daily brief for ${symbol}.\n\n${context}`;
+    if (enhanced) {
+      const recentNews = getNewsFeed({ instrument: symbol, limit: 10 });
+      if (recentNews.length) {
+        context += '\n\nRecent headlines:\n';
+        for (const n of recentNews) {
+          const dt = new Date(n.ts).toISOString().slice(0, 16);
+          const sent = n.sentiment != null ? ` [sentiment: ${n.sentiment.toFixed(2)}]` : '';
+          context += `- ${dt} ${n.headline}${sent}\n`;
+        }
+      }
+
+      const now = Date.now();
+      const upcomingEvents = getCalendarEvents({ impact: 'high', from: now, to: now + 48 * 3600000, limit: 10 });
+      if (upcomingEvents.length) {
+        context += '\nUpcoming high-impact events (next 48h):\n';
+        for (const e of upcomingEvents) {
+          const dt = new Date(e.ts).toISOString().slice(0, 16);
+          context += `- ${dt} ${e.country} ${e.name}${e.consensus != null ? ` (fcst: ${e.consensus}, prior: ${e.prior})` : ''}\n`;
+        }
+      }
+
+      seedVolSeries();
+      const vixRow = getLatestVol('VIX');
+      const hyRow = marketDb.prepare("SELECT value FROM series_data WHERE series_id = 'BAMLH0A0HYM2' ORDER BY ts DESC LIMIT 1").get();
+      const regime = computeRegimeForDay(vixRow?.value, hyRow?.value);
+      context += `\nRisk regime: ${regime}`;
+      if (vixRow) context += ` (VIX: ${vixRow.value})`;
+    }
+
+    const system = enhanced
+      ? `You are a senior market analyst at a Bloomberg-style terminal. Write a structured daily brief for ${symbol}.
+
+Format:
+## Market Snapshot
+1-2 sentences: price, trend direction, key level proximity.
+
+## Key Drivers Today
+2-3 bullets: what's moving the market (news, events, macro).
+
+## Risk Assessment
+1-2 bullets: regime, vol read, positioning extremes.
+
+## What to Watch
+2-3 bullets: upcoming events, levels, catalysts.
+
+Rules: Use ONLY the data provided. Never invent numbers. Be specific with prices and levels. If data is missing, say "data unavailable" for that section.`
+      : `You are a concise market analyst. Provide a brief daily analysis (3-5 bullet points) for the given instrument. Include: trend assessment, key levels, volatility read, and what to watch. Use data provided only — never invent numbers.`;
+
+    const prompt = `Generate today's ${enhanced ? 'enhanced ' : ''}daily brief for ${symbol}.\n\n${context}`;
 
     let content, model;
     try {
-      const result = await callLLM({ system, prompt });
-      content = result.text;
-      model = result.model;
+      content = await callLLM({ system, prompt });
+      model = AI_MODEL || 'unknown';
     } catch (err) {
       return res.json({
         instrument: symbol,
         date: dateMs,
         content: null,
         model: null,
+        briefType,
         error: err.message,
       });
     }
 
     marketDb.prepare(
-      `INSERT INTO briefs (instrument, date, content, model) VALUES (?, ?, ?, ?)
+      `INSERT INTO briefs (instrument, date, content, model, brief_type) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(instrument, date) DO UPDATE SET content = excluded.content, model = excluded.model`
-    ).run(symbol, dateMs, content, model);
+    ).run(symbol, dateMs, content, model, briefType);
 
-    res.json({ instrument: symbol, date: dateMs, content, model, cached: false });
+    res.json({ instrument: symbol, date: dateMs, content, model, briefType, cached: false });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -908,61 +960,202 @@ researchRouter.get('/levels/:instrument', (req, res) => {
   }
 });
 
-// GET /api/research/seasonality/:instrument — monthly avg returns
+// t-statistic approximation for significance
+function tStat(returns) {
+  const n = returns.length;
+  if (n < 3) return { tStat: 0, pValue: 1, significant: false };
+  const mean = returns.reduce((a, b) => a + b, 0) / n;
+  const std = Math.sqrt(returns.reduce((a, v) => a + (v - mean) ** 2, 0) / (n - 1));
+  if (std === 0) return { tStat: 0, pValue: 1, significant: false };
+  const t = mean / (std / Math.sqrt(n));
+  const df = n - 1;
+  const p = Math.exp(-0.717 * Math.abs(t) - 0.416 * t * t);
+  return { tStat: Math.round(t * 100) / 100, pValue: Math.round(p * 1000) / 1000, significant: p < 0.05 };
+}
+
+function medianOf(arr) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+function buildBuckets(bucketMap) {
+  return Object.entries(bucketMap).map(([label, returns]) => {
+    const n = returns.length;
+    const avgReturn = n ? returns.reduce((a, b) => a + b, 0) / n : 0;
+    const winRate = n ? (returns.filter(r => r > 0).length / n) * 100 : 0;
+    const sig = tStat(returns);
+    return {
+      label,
+      avgReturn: Math.round(avgReturn * 100) / 100,
+      medianReturn: Math.round(medianOf(returns) * 100) / 100,
+      winRate: Math.round(winRate * 10) / 10,
+      sampleSize: n,
+      tStat: sig.tStat,
+      pValue: sig.pValue,
+      significant: sig.significant,
+    };
+  });
+}
+
+// GET /api/research/seasonality/:instrument — enhanced with granularity
 researchRouter.get('/seasonality/:instrument', (req, res) => {
   try {
     const symbol = resolveInstrument(req.params.instrument);
     if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+    const granularity = req.query.granularity || 'monthly';
 
     const instId = instrumentId(symbol);
+    const tf = granularity === 'session' ? 'H1' : 'D1';
     const bars = marketDb.prepare(
-      `SELECT ts, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1' ORDER BY ts ASC`
-    ).all(instId);
+      `SELECT ts, o, c FROM prices WHERE instrument_id = ? AND timeframe = ? ORDER BY ts ASC`
+    ).all(instId, tf);
 
-    // Group closes by month, compute monthly returns
-    const monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const monthReturns = Array.from({ length: 12 }, () => []);
+    const freshness = { source: 'oanda', last_ok: bars.length ? bars[bars.length - 1].ts : null, status: bars.length ? 'ok' : 'no_data' };
 
-    // Get first/last close per calendar month
-    const monthlyCloses = new Map();
-    for (const bar of bars) {
-      const d = new Date(bar.ts);
-      const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
-      if (!monthlyCloses.has(key)) monthlyCloses.set(key, { first: bar.c, last: bar.c, month: d.getUTCMonth() });
-      else monthlyCloses.get(key).last = bar.c;
+    if (granularity === 'monthly') {
+      const monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const monthReturns = Array.from({ length: 12 }, () => []);
+      const monthlyCloses = new Map();
+      for (const bar of bars) {
+        const d = new Date(bar.ts);
+        const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+        if (!monthlyCloses.has(key)) monthlyCloses.set(key, { first: bar.c, last: bar.c, month: d.getUTCMonth() });
+        else monthlyCloses.get(key).last = bar.c;
+      }
+      const entries = [...monthlyCloses.entries()].sort();
+      for (let i = 1; i < entries.length; i++) {
+        const [, curr] = entries[i];
+        const [, prev] = entries[i - 1];
+        const ret = ((curr.last - prev.last) / prev.last) * 100;
+        monthReturns[curr.month].push(ret);
+      }
+
+      const months = monthReturns.map((returns, i) => {
+        const n = returns.length;
+        const avgReturn = n ? returns.reduce((a, b) => a + b, 0) / n : 0;
+        const winRate = n ? (returns.filter(r => r > 0).length / n) * 100 : 0;
+        const sig = tStat(returns);
+        return {
+          month: i + 1,
+          label: monthLabels[i],
+          avgReturn: Math.round(avgReturn * 100) / 100,
+          medianReturn: Math.round(medianOf(returns) * 100) / 100,
+          winRate: Math.round(winRate * 10) / 10,
+          sampleSize: n,
+          tStat: sig.tStat,
+          pValue: sig.pValue,
+          significant: sig.significant,
+        };
+      });
+
+      // OpEx effect: 3rd Friday of each month
+      const opexReturns = [];
+      const nonOpexReturns = [];
+      const weeklyCloses = new Map();
+      for (const bar of bars) {
+        const d = new Date(bar.ts);
+        const isoWeek = getISOWeek(d);
+        const key = `${d.getUTCFullYear()}-W${isoWeek}`;
+        if (!weeklyCloses.has(key)) weeklyCloses.set(key, { first: bar.c, last: bar.c, ts: bar.ts });
+        else weeklyCloses.get(key).last = bar.c;
+      }
+      const weekEntries = [...weeklyCloses.entries()].sort();
+      for (let i = 1; i < weekEntries.length; i++) {
+        const [, curr] = weekEntries[i];
+        const [, prev] = weekEntries[i - 1];
+        const ret = ((curr.last - prev.last) / prev.last) * 100;
+        const d = new Date(curr.ts);
+        const isOpex = isOpExWeek(d);
+        if (isOpex) opexReturns.push(ret);
+        else nonOpexReturns.push(ret);
+      }
+
+      let opexEffect = null;
+      if (opexReturns.length >= 3 && nonOpexReturns.length >= 3) {
+        const opexAvg = opexReturns.reduce((a, b) => a + b, 0) / opexReturns.length;
+        const nonAvg = nonOpexReturns.reduce((a, b) => a + b, 0) / nonOpexReturns.length;
+        const diff = opexAvg - nonAvg;
+        opexEffect = {
+          opexWeekAvg: Math.round(opexAvg * 100) / 100,
+          nonOpexWeekAvg: Math.round(nonAvg * 100) / 100,
+          significant: Math.abs(diff) > 0.3,
+        };
+      }
+
+      return res.json({
+        instrument: symbol,
+        granularity: 'monthly',
+        months,
+        buckets: months,
+        currentMonth: new Date().getUTCMonth() + 1,
+        opexEffect,
+        freshness,
+      });
     }
 
-    const entries = [...monthlyCloses.entries()].sort();
-    for (let i = 1; i < entries.length; i++) {
-      const [, curr] = entries[i];
-      const [, prev] = entries[i - 1];
-      const ret = ((curr.last - prev.last) / prev.last) * 100;
-      monthReturns[curr.month].push(ret);
+    if (granularity === 'dow') {
+      const dowLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+      const bucketMap = {};
+      for (const l of dowLabels) bucketMap[l] = [];
+      for (let i = 1; i < bars.length; i++) {
+        const ret = ((bars[i].c - bars[i - 1].c) / bars[i - 1].c) * 100;
+        const d = new Date(bars[i].ts);
+        const dow = d.getUTCDay();
+        if (dow >= 1 && dow <= 5) {
+          bucketMap[dowLabels[dow - 1]].push(ret);
+        }
+      }
+      return res.json({ instrument: symbol, granularity: 'dow', buckets: buildBuckets(bucketMap), freshness });
     }
 
-    const months = monthReturns.map((returns, i) => {
-      const n = returns.length;
-      const avgReturn = n ? returns.reduce((a, b) => a + b, 0) / n : 0;
-      const winRate = n ? (returns.filter(r => r > 0).length / n) * 100 : 0;
-      return {
-        month: i + 1,
-        label: monthLabels[i],
-        avgReturn: Math.round(avgReturn * 100) / 100,
-        winRate: Math.round(winRate * 10) / 10,
-        sampleSize: n,
-      };
-    });
+    if (granularity === 'weekly') {
+      const bucketMap = {};
+      for (let w = 1; w <= 52; w++) bucketMap[`W${String(w).padStart(2, '0')}`] = [];
+      for (let i = 1; i < bars.length; i++) {
+        const ret = ((bars[i].c - bars[i - 1].c) / bars[i - 1].c) * 100;
+        const d = new Date(bars[i].ts);
+        const w = getISOWeek(d);
+        if (w >= 1 && w <= 52) bucketMap[`W${String(w).padStart(2, '0')}`].push(ret);
+      }
+      return res.json({ instrument: symbol, granularity: 'weekly', buckets: buildBuckets(bucketMap), freshness });
+    }
 
-    res.json({
-      instrument: symbol,
-      months,
-      currentMonth: new Date().getUTCMonth() + 1,
-      freshness: { source: 'oanda', last_ok: bars.length ? bars[bars.length - 1].ts : null, status: bars.length ? 'ok' : 'no_data' },
-    });
+    if (granularity === 'session') {
+      const bucketMap = { Asia: [], London: [], NewYork: [] };
+      for (let i = 1; i < bars.length; i++) {
+        const ret = ((bars[i].c - bars[i - 1].c) / bars[i - 1].c) * 100;
+        const h = new Date(bars[i].ts).getUTCHours();
+        if (h >= 0 && h < 8) bucketMap['Asia'].push(ret);
+        else if (h >= 8 && h < 13) bucketMap['London'].push(ret);
+        else if (h >= 13 && h < 21) bucketMap['NewYork'].push(ret);
+      }
+      return res.json({ instrument: symbol, granularity: 'session', buckets: buildBuckets(bucketMap), freshness });
+    }
+
+    res.status(400).json({ error: `Unknown granularity: ${granularity}. Use monthly|weekly|dow|session` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+function getISOWeek(date) {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+function isOpExWeek(date) {
+  const y = date.getUTCFullYear(), m = date.getUTCMonth();
+  const first = new Date(Date.UTC(y, m, 1));
+  let firstFri = first.getUTCDay() <= 5 ? (5 - first.getUTCDay() + 1) : (5 + 7 - first.getUTCDay() + 1);
+  const thirdFri = firstFri + 14;
+  const opexDate = new Date(Date.UTC(y, m, thirdFri));
+  const opexWeek = getISOWeek(opexDate);
+  return getISOWeek(date) === opexWeek;
+}
 
 // POST /api/research/ingest/cftc — trigger CFTC COT ingest
 researchRouter.post('/ingest/cftc', async (_req, res) => {
@@ -1452,6 +1645,597 @@ researchRouter.get('/event-reaction/:instrument', (req, res) => {
       sampleSize: history.length,
       freshness: { source: 'calendar+prices', last_ok: Date.now(), status: history.length ? 'ok' : 'no_data' },
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Epic 5 — Correlation, regression, comparison, spread ----------
+
+const DEFAULT_CORR_SERIES = ['XAUUSD', 'US100', 'DGS10', 'DFII10', 'DTWEXBGS', 'VIX'];
+const INSTRUMENT_SET = new Set(['XAUUSD', 'US100', 'XAGUSD', 'WTICO_USD']);
+
+function getDailyValues(seriesId, limit) {
+  if (INSTRUMENT_SET.has(seriesId)) {
+    const instId = instrumentId(seriesId);
+    if (instId == null) return [];
+    return marketDb.prepare(
+      `SELECT ts, c AS value FROM prices WHERE instrument_id = ? AND timeframe = 'D1' ORDER BY ts DESC LIMIT ?`
+    ).all(instId, limit).reverse();
+  }
+  const volIds = new Set(['VIX', 'VXN', 'GVZ']);
+  if (volIds.has(seriesId)) {
+    seedVolSeries();
+    return marketDb.prepare(
+      'SELECT ts, value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT ?'
+    ).all(seriesId, limit).reverse();
+  }
+  seedSeriesRegistry();
+  return marketDb.prepare(
+    'SELECT ts, value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT ?'
+  ).all(seriesId, limit).reverse();
+}
+
+function alignByDay(...seriesArrays) {
+  const dayMaps = seriesArrays.map(arr => {
+    const m = new Map();
+    for (const row of arr) {
+      m.set(Math.floor(row.ts / 86400000), row.value);
+    }
+    return m;
+  });
+  const allDays = [...dayMaps[0].keys()].filter(d =>
+    dayMaps.every(m => m.has(d) && m.get(d) != null)
+  ).sort((a, b) => a - b);
+  return { days: allDays, values: dayMaps.map(m => allDays.map(d => m.get(d))) };
+}
+
+function pearson(xs, ys) {
+  const n = xs.length;
+  if (n < 5) return null;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let num = 0, dx = 0, dy = 0;
+  for (let i = 0; i < n; i++) {
+    const xi = xs[i] - mx, yi = ys[i] - my;
+    num += xi * yi;
+    dx += xi * xi;
+    dy += yi * yi;
+  }
+  const denom = Math.sqrt(dx * dy);
+  return denom === 0 ? 0 : num / denom;
+}
+
+// GET /api/research/correlation?window=60&series=XAUUSD,US100,DGS10
+researchRouter.get('/correlation', (req, res) => {
+  try {
+    const window = Math.min(Number(req.query.window) || 60, 500);
+    const seriesParam = req.query.series
+      ? String(req.query.series).split(',').map(s => s.trim()).filter(Boolean)
+      : DEFAULT_CORR_SERIES;
+
+    const raw = seriesParam.map(id => ({ id, data: getDailyValues(id, window + 50) }));
+    const labels = raw.map(r => r.id);
+    const n = labels.length;
+    const matrix = Array.from({ length: n }, () => Array(n).fill(0));
+    const cells = [];
+
+    for (let i = 0; i < n; i++) {
+      matrix[i][i] = 1;
+      for (let j = i + 1; j < n; j++) {
+        const { values } = alignByDay(raw[i].data, raw[j].data);
+        const xs = values[0].slice(-window);
+        const ys = values[1].slice(-window);
+        const corr = pearson(xs, ys);
+        const c = corr != null ? Math.round(corr * 1000) / 1000 : null;
+        matrix[i][j] = c;
+        matrix[j][i] = c;
+        cells.push({ pair: [labels[i], labels[j]], corr: c, n: xs.length });
+      }
+    }
+
+    res.json({ window, labels, matrix, cells, asOf: Date.now() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/regression/:instrument?vs=DGS10&window=60
+researchRouter.get('/regression/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+    const vs = String(req.query.vs || 'DGS10').toUpperCase();
+    const window = Math.min(Number(req.query.window) || 60, 500);
+
+    const instData = getDailyValues(symbol, window + 50);
+    const vsData = getDailyValues(vs, window + 50);
+    const { days, values } = alignByDay(instData, vsData);
+
+    const yPrices = values[0].slice(-window);
+    const xPrices = values[1].slice(-window);
+
+    if (yPrices.length < 10) {
+      return res.json({ instrument: symbol, vs, window, error: 'insufficient data', n: yPrices.length });
+    }
+
+    const yReturns = [];
+    const xReturns = [];
+    for (let i = 1; i < yPrices.length; i++) {
+      if (yPrices[i - 1] > 0 && xPrices[i - 1] > 0) {
+        yReturns.push(Math.log(yPrices[i] / yPrices[i - 1]));
+        xReturns.push(Math.log(xPrices[i] / xPrices[i - 1]));
+      }
+    }
+
+    const n = xReturns.length;
+    if (n < 5) return res.json({ instrument: symbol, vs, window, error: 'insufficient data', n });
+
+    const mx = xReturns.reduce((a, b) => a + b, 0) / n;
+    const my = yReturns.reduce((a, b) => a + b, 0) / n;
+    let covXY = 0, varX = 0;
+    for (let i = 0; i < n; i++) {
+      covXY += (xReturns[i] - mx) * (yReturns[i] - my);
+      varX += (xReturns[i] - mx) ** 2;
+    }
+    const beta = varX === 0 ? 0 : covXY / varX;
+    const intercept = my - beta * mx;
+    const corr = pearson(xReturns, yReturns);
+    const r2 = corr != null ? corr * corr : null;
+
+    const scatter = xReturns.map((x, i) => ({
+      x: Math.round(x * 10000) / 10000,
+      y: Math.round(yReturns[i] * 10000) / 10000,
+    }));
+
+    res.json({
+      instrument: symbol,
+      vs,
+      window,
+      beta: Math.round(beta * 10000) / 10000,
+      r2: r2 != null ? Math.round(r2 * 10000) / 10000 : null,
+      intercept: Math.round(intercept * 100000) / 100000,
+      correlation: corr != null ? Math.round(corr * 1000) / 1000 : null,
+      n,
+      scatter,
+      asOf: Date.now(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/compare?series=XAUUSD,US100,DGS10&window=60&mode=zscore
+researchRouter.get('/compare', (req, res) => {
+  try {
+    const seriesParam = req.query.series
+      ? String(req.query.series).split(',').map(s => s.trim()).filter(Boolean)
+      : ['XAUUSD', 'US100'];
+    const window = Math.min(Number(req.query.window) || 60, 500);
+    const mode = req.query.mode === 'pctChange' ? 'pctChange' : 'zscore';
+
+    const raw = seriesParam.map(id => ({ id, data: getDailyValues(id, window + 50) }));
+    const { days, values } = alignByDay(...raw.map(r => r.data));
+
+    const sliced = values.map(v => v.slice(-window));
+    const slicedDays = days.slice(-window);
+
+    const data = slicedDays.map((dayKey, i) => {
+      const point = { ts: dayKey * 86400000, values: {} };
+      for (let s = 0; s < seriesParam.length; s++) {
+        const arr = sliced[s];
+        if (mode === 'zscore') {
+          const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+          const std = Math.sqrt(arr.reduce((a, v) => a + (v - mean) ** 2, 0) / arr.length);
+          point.values[seriesParam[s]] = std === 0 ? 0 : Math.round(((arr[i] - mean) / std) * 1000) / 1000;
+        } else {
+          const base = arr[0];
+          point.values[seriesParam[s]] = base === 0 ? 0 : Math.round(((arr[i] - base) / base) * 10000) / 100;
+        }
+      }
+      return point;
+    });
+
+    res.json({ series: seriesParam, mode, window, data, asOf: Date.now() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/spread?long=XAUUSD&short=XAGUSD&mode=ratio
+researchRouter.get('/spread', (req, res) => {
+  try {
+    const longSym = String(req.query.long || 'XAUUSD');
+    const shortSym = String(req.query.short || 'XAGUSD');
+    const mode = req.query.mode === 'difference' ? 'difference' : 'ratio';
+    const limit = Math.min(Number(req.query.limit) || 365, 2000);
+
+    const longData = getDailyValues(longSym, limit + 50);
+    const shortData = getDailyValues(shortSym, limit + 50);
+    const { days, values } = alignByDay(longData, shortData);
+
+    const longs = values[0].slice(-limit);
+    const shorts = values[1].slice(-limit);
+    const slicedDays = days.slice(-limit);
+
+    const spreadVals = longs.map((lv, i) => {
+      const sv = shorts[i];
+      return mode === 'ratio' ? (sv === 0 ? null : lv / sv) : lv - sv;
+    }).filter(v => v != null);
+
+    if (!spreadVals.length) {
+      return res.json({ long: longSym, short: shortSym, mode, error: 'no overlapping data' });
+    }
+
+    const data = slicedDays.map((d, i) => {
+      const sv = shorts[i];
+      const val = mode === 'ratio' ? (sv === 0 ? null : longs[i] / sv) : longs[i] - sv;
+      return { ts: d * 86400000, value: val != null ? Math.round(val * 10000) / 10000 : null, longPrice: longs[i], shortPrice: shorts[i] };
+    });
+
+    const current = spreadVals[spreadVals.length - 1];
+    const mean = spreadVals.reduce((a, b) => a + b, 0) / spreadVals.length;
+    const variance = spreadVals.reduce((a, v) => a + (v - mean) ** 2, 0) / spreadVals.length;
+    const stddev = Math.sqrt(variance);
+    const z = stddev === 0 ? 0 : (current - mean) / stddev;
+    const sorted = [...spreadVals].sort((a, b) => a - b);
+    const percentile = (sorted.filter(v => v <= current).length / sorted.length) * 100;
+
+    res.json({
+      long: longSym,
+      short: shortSym,
+      mode,
+      current: Math.round(current * 10000) / 10000,
+      mean: Math.round(mean * 10000) / 10000,
+      stddev: Math.round(stddev * 10000) / 10000,
+      zScore: Math.round(z * 100) / 100,
+      percentile: Math.round(percentile * 10) / 10,
+      data,
+      asOf: Date.now(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- S5.2 — Regime-conditional correlation + positioning ----------
+
+function computeRegimeForDay(vixVal, hyVal) {
+  let score = 0;
+  if (vixVal != null) {
+    if (vixVal < 15) score += 2;
+    else if (vixVal < 20) score += 1;
+    else if (vixVal < 30) score -= 1;
+    else score -= 2;
+  }
+  if (hyVal != null) {
+    if (hyVal < 3) score += 1;
+    else if (hyVal >= 5) score -= 1;
+  }
+  if (score >= 2) return 'risk-on';
+  if (score >= 0) return 'neutral';
+  if (score >= -2) return 'risk-off';
+  return 'crisis';
+}
+
+// GET /api/research/correlation/regime?window=252&series=...&regime=risk-on
+researchRouter.get('/correlation/regime', (req, res) => {
+  try {
+    const window = Math.min(Number(req.query.window) || 252, 500);
+    const targetRegime = req.query.regime || 'risk-on';
+    const seriesParam = req.query.series
+      ? String(req.query.series).split(',').map(s => s.trim()).filter(Boolean)
+      : DEFAULT_CORR_SERIES;
+
+    seedVolSeries();
+    seedSeriesRegistry();
+
+    const vixData = marketDb.prepare(
+      'SELECT ts, value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT ?'
+    ).all('VIX', window + 50).reverse();
+    const hyData = marketDb.prepare(
+      'SELECT ts, value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT ?'
+    ).all('BAMLH0A0HYM2', window + 50).reverse();
+
+    const vixByDay = new Map(vixData.map(r => [Math.floor(r.ts / 86400000), r.value]));
+    const hyByDay = new Map(hyData.map(r => [Math.floor(r.ts / 86400000), r.value]));
+
+    const raw = seriesParam.map(id => {
+      const data = getDailyValues(id, window + 50);
+      return { id, dayMap: new Map(data.map(r => [Math.floor(r.ts / 86400000), r.value])) };
+    });
+
+    const allDays = [...raw[0].dayMap.keys()]
+      .filter(d => raw.every(r => r.dayMap.has(d) && r.dayMap.get(d) != null))
+      .sort((a, b) => a - b)
+      .slice(-window);
+
+    const regimeDays = allDays.filter(d => {
+      const regime = computeRegimeForDay(vixByDay.get(d), hyByDay.get(d));
+      return regime === targetRegime;
+    });
+
+    const labels = raw.map(r => r.id);
+    const n = labels.length;
+    const matrix = Array.from({ length: n }, () => Array(n).fill(0));
+    const cells = [];
+
+    for (let i = 0; i < n; i++) {
+      matrix[i][i] = 1;
+      for (let j = i + 1; j < n; j++) {
+        const xs = regimeDays.map(d => raw[i].dayMap.get(d));
+        const ys = regimeDays.map(d => raw[j].dayMap.get(d));
+        const corr = pearson(xs, ys);
+        const c = corr != null ? Math.round(corr * 1000) / 1000 : null;
+        matrix[i][j] = c;
+        matrix[j][i] = c;
+        cells.push({ pair: [labels[i], labels[j]], corr: c, n: xs.length });
+      }
+    }
+
+    res.json({
+      window, labels, matrix, cells,
+      regime: targetRegime,
+      regimeDays: regimeDays.length,
+      asOf: Date.now(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/positioning/:instrument — consolidated positioning view
+researchRouter.get('/positioning/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+
+    let cot = null;
+    if (symbol === 'XAUUSD') {
+      const history = getCotHistory('GOLD - COMMODITY EXCHANGE INC.', { limit: 156 });
+      if (history.length) {
+        const current = history[history.length - 1];
+        const mmNet = current.mm_long - current.mm_short;
+        const pctLong = current.mm_long + current.mm_short > 0
+          ? (current.mm_long / (current.mm_long + current.mm_short)) * 100 : 50;
+        const prev = history.length >= 2 ? history[history.length - 2] : current;
+        const prevNet = prev.mm_long - prev.mm_short;
+        const nets = history.map(r => r.mm_long - r.mm_short);
+        const sorted1y = [...nets.slice(-52)].sort((a, b) => a - b);
+        const pctRank = (arr, val) => arr.length ? (arr.filter(v => v <= val).length / arr.length) * 100 : 50;
+        const percentile1y = Math.round(pctRank(sorted1y, mmNet) * 10) / 10;
+
+        cot = {
+          mmNet,
+          pctLong: Math.round(pctLong * 10) / 10,
+          wowChange: mmNet - prevNet,
+          percentile1y,
+          extreme: percentile1y > 90 || percentile1y < 10,
+        };
+      }
+    }
+
+    let etf = null;
+    if (symbol === 'XAUUSD') {
+      const history = getEtfHistory('GLD', { limit: 30 });
+      if (history.length) {
+        const latest = history[history.length - 1];
+        const prev = history.length >= 2 ? history[history.length - 2] : latest;
+        const last20 = history.slice(-20).map(h => h.tonnes).filter(t => t != null);
+        let trend = 'flat';
+        if (last20.length >= 10) {
+          const half = Math.floor(last20.length / 2);
+          const firstAvg = last20.slice(0, half).reduce((a, b) => a + b, 0) / half;
+          const lastAvg = last20.slice(half).reduce((a, b) => a + b, 0) / (last20.length - half);
+          if (lastAvg > firstAvg + 0.5) trend = 'inflow';
+          else if (lastAvg < firstAvg - 0.5) trend = 'outflow';
+        }
+        etf = {
+          tonnes: latest.tonnes,
+          delta: Math.round(((latest.tonnes ?? 0) - (prev.tonnes ?? 0)) * 100) / 100,
+          trend,
+        };
+      }
+    }
+
+    let contrarian = { flag: false, reason: '' };
+    if (cot?.extreme) {
+      if (cot.percentile1y > 90) {
+        contrarian = { flag: true, reason: `MM net long at ${cot.percentile1y.toFixed(0)}th percentile — historically bearish` };
+      } else if (cot.percentile1y < 10) {
+        contrarian = { flag: true, reason: `MM net long at ${cot.percentile1y.toFixed(0)}th percentile — historically bullish` };
+      }
+    }
+
+    res.json({
+      instrument: symbol,
+      cot,
+      etf,
+      contrarian,
+      asOf: Date.now(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Epic 6: News & AI ──────────────────────────────────────────────
+
+// POST /api/research/ingest/news — trigger GDELT + RSS news ingest
+researchRouter.post('/ingest/news', express.json(), async (_req, res) => {
+  try {
+    const result = await ingestAllNews();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/news?instrument=XAUUSD&limit=50&since=&sentiment=&source=
+researchRouter.get('/news', (req, res) => {
+  try {
+    const items = getNewsFeed({
+      instrument: req.query.instrument || null,
+      limit: Math.min(Number(req.query.limit) || 50, 200),
+      since: req.query.since ? Number(req.query.since) : null,
+      sentiment: req.query.sentiment || null,
+      source: req.query.source || null,
+    });
+
+    res.json({
+      items,
+      total: items.length,
+      asOf: Date.now(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/research/news/summary — aggregated 24h stats
+researchRouter.get('/news/summary', (_req, res) => {
+  try {
+    res.json(getNewsSummary());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/research/explain-move — AI explain a price candle
+researchRouter.post('/explain-move', express.json(), async (req, res) => {
+  try {
+    const { instrument, timestamp, timeframe, direction, magnitude } = req.body || {};
+    const symbol = resolveInstrument(instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+    if (!timestamp || !timeframe) return res.status(400).json({ error: 'timestamp and timeframe required' });
+
+    const ts = Number(timestamp);
+    const tf = String(timeframe);
+
+    const cached = marketDb.prepare(
+      'SELECT * FROM explanations WHERE instrument = ? AND ts = ? AND timeframe = ?'
+    ).get(symbol, ts, tf);
+
+    if (cached) {
+      return res.json({
+        instrument: symbol,
+        timestamp: ts,
+        explanation: cached.explanation,
+        evidence: JSON.parse(cached.evidence_json || '{}'),
+        model: cached.model,
+        cached: true,
+      });
+    }
+
+    const isDaily = tf === 'D1';
+    const newsWindow = isDaily ? 12 * 3600000 : 2 * 3600000;
+    const eventWindow = isDaily ? 24 * 3600000 : 4 * 3600000;
+
+    const nearbyNews = getNewsFeed({
+      instrument: symbol,
+      since: ts - newsWindow,
+      limit: 10,
+    }).filter(n => n.ts <= ts + newsWindow);
+
+    const nearbyEvents = getCalendarEvents({
+      from: ts - eventWindow,
+      to: ts + eventWindow,
+      limit: 10,
+    });
+
+    seedVolSeries();
+    const vixRow = getLatestVol('VIX');
+    const hyRow = marketDb.prepare("SELECT value FROM series_data WHERE series_id = 'BAMLH0A0HYM2' ORDER BY ts DESC LIMIT 1").get();
+    const regime = computeRegimeForDay(vixRow?.value, hyRow?.value);
+
+    const corrSymbols = symbol === 'XAUUSD'
+      ? ['DGS10', 'DFII10', 'DTWEXBGS', 'VIX', 'GVZ']
+      : ['VIX', 'VXN', 'DGS10', 'DTWEXBGS'];
+
+    const correlatedMoves = [];
+    for (const cs of corrSymbols) {
+      const row = marketDb.prepare(
+        "SELECT value FROM series_data WHERE series_id = ? AND ts <= ? ORDER BY ts DESC LIMIT 1"
+      ).get(cs, ts);
+      const prevRow = marketDb.prepare(
+        "SELECT value FROM series_data WHERE series_id = ? AND ts <= ? ORDER BY ts DESC LIMIT 1"
+      ).get(cs, ts - 86400000);
+      if (row && prevRow && prevRow.value) {
+        const move = ((row.value - prevRow.value) / Math.abs(prevRow.value)) * 100;
+        correlatedMoves.push({ symbol: cs, move: Math.round(move * 100) / 100 });
+      }
+    }
+
+    const evidence = {
+      nearbyNews: nearbyNews.map(n => ({ id: n.id, ts: n.ts, headline: n.headline, source: n.source, sentiment: n.sentiment })),
+      nearbyEvents: nearbyEvents.map(e => ({ ts: e.ts, name: e.name, country: e.country, impact: e.impact, actual: e.actual, consensus: e.consensus })),
+      regime,
+      correlatedMoves,
+    };
+
+    let context = `${symbol} ${tf} candle at ${new Date(ts).toISOString()}: moved ${direction || 'unknown'} ${magnitude != null ? magnitude.toFixed(2) + '%' : 'unknown magnitude'}\n`;
+
+    if (nearbyNews.length) {
+      context += '\nNearby headlines:\n';
+      for (const n of nearbyNews) {
+        context += `- ${new Date(n.ts).toISOString().slice(0, 16)} ${n.headline}${n.sentiment != null ? ` [sent: ${n.sentiment.toFixed(2)}]` : ''}\n`;
+      }
+    }
+
+    if (nearbyEvents.length) {
+      context += '\nNearby economic events:\n';
+      for (const e of nearbyEvents) {
+        context += `- ${new Date(e.ts).toISOString().slice(0, 16)} ${e.country} ${e.name}`;
+        if (e.actual != null) context += ` (actual: ${e.actual}, consensus: ${e.consensus}, prior: ${e.prior})`;
+        context += '\n';
+      }
+    }
+
+    context += `\nRisk regime: ${regime}`;
+    if (vixRow) context += ` (VIX: ${vixRow.value})`;
+
+    if (correlatedMoves.length) {
+      context += '\nCorrelated moves:\n';
+      for (const cm of correlatedMoves) {
+        context += `- ${cm.symbol}: ${cm.move > 0 ? '+' : ''}${cm.move}%\n`;
+      }
+    }
+
+    const system = `You are a market microstructure analyst. Explain why ${symbol} moved ${direction || ''} ${magnitude != null ? magnitude.toFixed(2) + '%' : ''} at ${new Date(ts).toISOString().slice(0, 16)}.
+
+Use ONLY the evidence provided. Structure your response:
+1. **Most likely driver** (1-2 sentences) — the single biggest factor
+2. **Supporting factors** (2-3 bullets) — other contributors
+3. **Context** (1 sentence) — regime/positioning backdrop
+
+If the evidence doesn't clearly explain the move, say so — "this appears to be a positioning/flow-driven move without a clear news catalyst."`;
+
+    const prompt = `Explain this move:\n\n${context}`;
+
+    let explanation, model;
+    try {
+      explanation = await callLLM({ system, prompt });
+      model = AI_MODEL || 'unknown';
+    } catch (err) {
+      return res.json({
+        instrument: symbol,
+        timestamp: ts,
+        explanation: null,
+        evidence,
+        model: null,
+        error: err.message,
+        cached: false,
+      });
+    }
+
+    marketDb.prepare(
+      `INSERT INTO explanations (instrument, ts, timeframe, explanation, evidence_json, model)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(instrument, ts, timeframe) DO UPDATE SET
+         explanation = excluded.explanation, evidence_json = excluded.evidence_json, model = excluded.model`
+    ).run(symbol, ts, tf, explanation, JSON.stringify(evidence), model);
+
+    res.json({ instrument: symbol, timestamp: ts, explanation, evidence, model, cached: false });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

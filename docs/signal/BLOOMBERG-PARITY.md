@@ -11,7 +11,6 @@ Every Bloomberg Terminal capability a gold desk or a Nasdaq desk uses for **XAUU
 | GIP | Intraday view + session shading | S0.4 | planned (chart renders intraday; session shading deferred) |
 | HP | OHLCV table + CSV export | S0.4 | **built** (CSV export live) |
 | TAS | Auto S/R, pivots, round numbers, prior H/L, event markers | S0.4/S4.3 | planned |
-| CIX | Custom synthetic spread builder | S5.1 | planned |
 | GRAB | Panel share (html-to-image, exists) | S8.3 | planned |
 
 ## US100 — index analysis
@@ -35,7 +34,7 @@ Every Bloomberg Terminal capability a gold desk or a Nasdaq desk uses for **XAUU
 |---|---|---|---|
 | Forward curve | Term structure + contango/backwardation + roll | S3.6 | gap (free-data; deferred — see FEATURE-SPEC) |
 | CFTC/COT | Positioning gauge + percentiles + extremes | S3.3 | **built** (CotPanel; net MM/%long/WoW/percentile/extreme) |
-| SEAG | Seasonality + significance | S3.5/S5.3 | **built** (monthly avg/win-rate; significance in S5.3) |
+| SEAG | Seasonality + significance | S3.5/S5.3 | **built** (monthly/weekly/dow/session + t-stat significance + OpEx effect) |
 | real-yield/DXY | Driver scorecard + composite gauge | S3.1 | **built** (7-driver z-score + composite gauge) |
 | ETF holdings | GLD/IAU flows + trend | S3.4 | **built** (GLD only; IAU deferred) |
 | CB demand | WGC structural demand | S3.4 | planned (manual/quarterly) |
@@ -69,16 +68,17 @@ Every Bloomberg Terminal capability a gold desk or a Nasdaq desk uses for **XAUU
 ## Cross-asset & relative value (both)
 | BBG fn | Feature | Session | Status |
 |---|---|---|---|
-| CORR | Rolling correlation matrix | S5.1 | planned |
-| HRA/BETA | Regression + beta + lead/lag | S5.1 | planned |
-| COMP/TRAY | Normalized return compare | S5.1 | planned |
-| regime corr | Regime-conditional correlations | S5.2 | planned |
+| CORR | Rolling correlation matrix | S5.1 | **built** (CorrelationPanel; 20/60/120/252d windows, 6-series heatmap) |
+| HRA/BETA | Regression + beta + lead/lag | S5.1 | **built** (RegressionPanel; OLS scatter, β/R²/corr stats) |
+| COMP/TRAY | Normalized return compare | S5.1 | **built** (ComparePanel; z-score/% overlay, multi-series toggle) |
+| CIX | Custom synthetic spread builder | S5.1 | **built** (SpreadPanel; ratio/diff + mean ± σ bands, z-score) |
+| regime corr | Regime-conditional correlations | S5.2 | **built** (regime dropdown on CorrelationPanel; risk-on/neutral/risk-off/crisis) |
 
 ## News, research & AI (both)
 | BBG fn | Feature | Session | Status |
 |---|---|---|---|
-| N/TOP/NI/CN | Tagged, sentiment-scored feed | S6.1 | planned |
-| BI-style briefs | Daily AI brief + explain-this-move | S6.2/S6.3 | planned |
+| N/TOP/NI/CN | Tagged, sentiment-scored feed | S6.1 | **built** (NewsFeedPanel; GDELT+RSS, sentiment, instrument tags) |
+| BI-style briefs | Daily AI brief + explain-this-move | S6.2/S6.3 | **built** (BriefPanel QUICK/FULL; WHY? on PricePanel) |
 
 ## Monitors, alerts, workspace (both)
 | BBG fn | Feature | Session | Status |

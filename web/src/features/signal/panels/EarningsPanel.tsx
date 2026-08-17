@@ -2,8 +2,10 @@ import { api } from '../../../api/client';
 import { useApi } from '../../../hooks/useApi';
 import type { EarningsResponse } from '../../../types';
 import { Panel, StatusBadge, TickerCell } from '../terminal';
+import { useSignalTz } from '../lib/tz';
 
 export default function EarningsPanel() {
+  const tz = useSignalTz();
   const { data, loading, error, reload } = useApi<EarningsResponse>(
     () => api.getEarnings(),
     []
@@ -58,6 +60,7 @@ export default function EarningsPanel() {
                         {new Date(e.report_date).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
+                          timeZone: tz,
                         })}
                       </td>
                       <td>

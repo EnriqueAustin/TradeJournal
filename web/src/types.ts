@@ -747,13 +747,38 @@ export interface SeasonalMonth {
   month: number;
   label: string;
   avgReturn: number;
+  medianReturn?: number;
   winRate: number;
   sampleSize: number;
+  tStat?: number;
+  pValue?: number;
+  significant?: boolean;
 }
+
+export interface SeasonalBucket {
+  label: string;
+  avgReturn: number;
+  medianReturn: number;
+  winRate: number;
+  sampleSize: number;
+  tStat: number;
+  pValue: number;
+  significant: boolean;
+}
+
+export interface OpExEffect {
+  opexWeekAvg: number;
+  nonOpexWeekAvg: number;
+  significant: boolean;
+}
+
 export interface SeasonalityResponse {
   instrument: string;
-  months: SeasonalMonth[];
-  currentMonth: number;
+  granularity?: string;
+  months?: SeasonalMonth[];
+  buckets?: SeasonalBucket[];
+  currentMonth?: number;
+  opexEffect?: OpExEffect | null;
   freshness: Freshness;
 }
 
@@ -806,6 +831,46 @@ export interface NewsItem {
   url: string | null;
   instruments: string | null; // CSV of symbols
   sentiment: number | null;
+}
+
+export interface NewsResponse {
+  items: NewsItem[];
+  total: number;
+  asOf: number;
+}
+
+export interface NewsSummary {
+  total24h: number;
+  bullish: number;
+  bearish: number;
+  neutral: number;
+  topSources: { source: string; count: number }[];
+  lastIngest: number | null;
+}
+
+export interface ExplainMoveRequest {
+  instrument: string;
+  timestamp: number;
+  timeframe: string;
+  direction: 'up' | 'down';
+  magnitude: number;
+}
+
+export interface ExplainEvidence {
+  nearbyNews: { id: string; ts: number; headline: string | null; source: string | null; sentiment: number | null }[];
+  nearbyEvents: { ts: number; name: string; country: string; impact: string; actual: number | null; consensus: number | null }[];
+  regime: string;
+  correlatedMoves: { symbol: string; move: number }[];
+}
+
+export interface ExplainMoveResponse {
+  instrument: string;
+  timestamp: number;
+  explanation: string | null;
+  evidence: ExplainEvidence;
+  model: string | null;
+  cached: boolean;
+  error?: string;
 }
 
 export type AlertType =
@@ -1118,4 +1183,89 @@ export interface EventMarker {
   impact: string;
   actual: number | null;
   surprise: 'beat' | 'miss' | 'inline' | null;
+}
+
+// --- Epic 5: Correlation, regression, comparison, spread ---
+
+export interface CorrelationCell {
+  pair: [string, string];
+  corr: number | null;
+  n: number;
+}
+
+export interface CorrelationResponse {
+  window: number;
+  labels: string[];
+  matrix: (number | null)[][];
+  cells: CorrelationCell[];
+  asOf: number;
+}
+
+export interface RegressionResponse {
+  instrument: string;
+  vs: string;
+  window: number;
+  beta: number;
+  r2: number | null;
+  intercept: number;
+  correlation: number | null;
+  n: number;
+  scatter: { x: number; y: number }[];
+  asOf: number;
+  error?: string;
+}
+
+export interface CompareSeriesPoint {
+  ts: number;
+  values: Record<string, number>;
+}
+
+export interface CompareResponse {
+  series: string[];
+  mode: 'zscore' | 'pctChange';
+  window: number;
+  data: CompareSeriesPoint[];
+  asOf: number;
+}
+
+export interface SpreadPoint {
+  ts: number;
+  value: number | null;
+  longPrice: number;
+  shortPrice: number;
+}
+
+export interface RegimeCorrelationResponse extends CorrelationResponse {
+  regime: string;
+  regimeDays: number;
+}
+
+export interface PositioningCot {
+  mmNet: number;
+  pctLong: number;
+  wowChange: number;
+  percentile1y: number;
+  extreme: boolean;
+}
+
+export interface PositioningResponse {
+  instrument: string;
+  cot: PositioningCot | null;
+  etf: { tonnes: number; delta: number; trend: string } | null;
+  contrarian: { flag: boolean; reason: string };
+  asOf: number;
+}
+
+export interface SpreadResponse {
+  long: string;
+  short: string;
+  mode: 'ratio' | 'difference';
+  current: number;
+  mean: number;
+  stddev: number;
+  zScore: number;
+  percentile: number;
+  data: SpreadPoint[];
+  asOf: number;
+  error?: string;
 }

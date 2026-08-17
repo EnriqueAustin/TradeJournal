@@ -12,6 +12,8 @@ const OANDA_HOSTS = {
 const OANDA_SYMBOL = {
   XAUUSD: 'XAU_USD',
   US100: 'NAS100_USD',
+  XAGUSD: 'XAG_USD',
+  WTICO_USD: 'WTICO_USD',
 };
 
 // OANDA caps a candles request at 5000; 3 days of M1 = 4320 < 5000.

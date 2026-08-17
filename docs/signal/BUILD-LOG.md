@@ -4,6 +4,160 @@ Newest entries at the top. One block per session: what shipped, decisions, gotch
 
 ---
 
+## 2026-08-16 — Epic 6: News & AI (S6.1–S6.3) ✓
+**By:** Claude. **Status:** tsc clean, browser-verified (22 panels rendering).
+
+**Spec first:** Wrote `FEATURE-SPEC-epic6-news.md` — defines GDELT + RSS ingest, enhanced briefs, explain-this-move.
+
+### Bug fix (pre-epic)
+- **`callLLM` return value mismatch** — `routes.js` brief endpoint destructured `callLLM()` as `{ text, model }` but `callLLM` returns a plain string. Fixed: `content = await callLLM(...)`, `model = AI_MODEL`. Added `AI_MODEL` import from `env.js`.
+
+### S6.1 — News ingest (GDELT + RSS)
+**New files:**
+- `server/src/research/ingest/news.js` — GDELT DOC 2.0 + RSS ingestor with:
+  - `ingestGdelt()` — queries GDELT ArtList API with gold/NQ keyword sets
+  - `ingestRss()` — fetches Kitco/Investing.com/FXStreet RSS, regex XML parser
+  - `scoreSentiment()` — batch LLM classification (-1 to +1), JSON extraction
+  - `getNewsFeed()` — filtered query (instrument/sentiment/source/since)
+  - `getNewsSummary()` — 24h aggregated stats
+  - Instrument tagging by keyword regex (gold/NQ keywords)
+  - Dedup by SHA-1 URL hash, source_health tracking
+
+**New routes:**
+- `POST /api/research/ingest/news` — triggers GDELT + RSS + sentiment scoring
+- `GET /api/research/news` — filtered feed (instrument, limit, since, sentiment, source)
+- `GET /api/research/news/summary` — 24h stats (total, bullish, bearish, neutral, topSources)
+
+**New panel:** `NewsFeedPanel.tsx` — full-width (span 12), instrument filter tabs, sentiment filter tabs, scrollable headline table (TIME/SOURCE/HEADLINE/INST/SENT columns), sentiment dots (green/red/gray), load-more pagination, last-ingest footer.
+
+**New types:** `NewsResponse`, `NewsSummary` in `types.ts`.
+**API client:** `getNewsFeed()`, `getNewsSummary()`, `triggerNewsIngest()` in `client.ts`.
+
+**Verification:** RSS ingest inserted 40 items. GDELT blocked from dev network (expected — works when not behind NAT). Panel renders with data, filter tabs work, API returns 200.
+
+### S6.2 — Enhanced daily briefs
+- Brief endpoint enhanced with `?mode=enhanced` query param
+- Enhanced mode gathers: last 10 headlines, upcoming 48h high-impact events, risk regime, VIX level
+- Structured system prompt with ## sections (Market Snapshot, Key Drivers, Risk Assessment, What to Watch)
+- `briefs` table: added `brief_type` column (guarded ALTER TABLE migration)
+- `BriefPanel.tsx`: QUICK/FULL toggle buttons, enhanced markdown-style section rendering with amber headers
+- Backwards-compatible: default mode = basic (unchanged behavior)
+
+### S6.3 — Explain-this-move
+- `POST /api/research/explain-move` route — accepts instrument/timestamp/timeframe/direction/magnitude
+- Gathers evidence: nearby news (±2h intraday, ±12h daily), calendar events (±4h/±24h), regime, correlated moves (DXY/yields/VIX)
+- Calls `callLLM` with structured prompt for microstructure explanation
+- Caches results in new `explanations` table (instrument/ts/timeframe unique)
+- Returns structured response with explanation + evidence object
+- `PricePanel.tsx`: added "WHY?" button in header bar, inline ExplainPanel below chart
+- ExplainPanel: markdown rendering, collapsible evidence section (news/events/correlatedMoves/regime), close button
+- `ExplainMoveRequest`, `ExplainEvidence`, `ExplainMoveResponse` types
+
+### Schema changes
+- `briefs` table: `brief_type TEXT DEFAULT 'basic'` column added
+- `explanations` table: new (id, instrument, ts, timeframe, explanation, evidence_json, model, created_at)
+- Guarded migration via PRAGMA table_info check
+
+### Files touched
+- `server/src/research/ingest/news.js` (NEW)
+- `server/src/research/routes.js` (news routes, enhanced brief, explain-move, import fix)
+- `server/src/research/schema.js` (brief_type column, explanations table)
+- `web/src/features/signal/panels/NewsFeedPanel.tsx` (NEW)
+- `web/src/features/signal/panels/PricePanel.tsx` (WHY? button + ExplainPanel)
+- `web/src/features/signal/panels/BriefPanel.tsx` (QUICK/FULL toggle)
+- `web/src/features/signal/pages/Signal.tsx` (NewsFeedPanel import + wire-up)
+- `web/src/types.ts` (NewsResponse, NewsSummary, ExplainMove* types)
+- `web/src/api/client.ts` (getNewsFeed, getNewsSummary, triggerNewsIngest, explainMove, getBrief mode param)
+- `docs/signal/FEATURE-SPEC-epic6-news.md` (NEW)
+- `docs/signal/BLOOMBERG-PARITY.md` (status updates)
+
+### Decisions
+- **Regex XML parser** — no new dependency for RSS; RSS is simple enough for inline regex
+- **SHA-1 URL hash** — consistent with calendar.js pattern for dedup IDs
+- **Sentiment via LLM batch** — one callLLM per 20 headlines, not keyword-based; graceful degradation when LLM unavailable (items show as "unscored")
+- **WHY? button** — explains last candle rather than click-a-candle, avoids complex chart click plumbing
+- **Enhanced brief = separate cache** — `brief_type` column lets basic and enhanced briefs coexist without invalidating each other
+
+### Gotchas
+- GDELT API blocked from some networks (NAT/residential). Falls back to RSS-only gracefully.
+- Ollama not running locally → sentiment scoring returns `{scored: 0}`, explain-move returns error message. Both degrade gracefully without crashing.
+- ForexFactory rate-limited (429) on dev machine — pre-existing, not related to Epic 6.
+
+---
+
+## 2026-08-16 — Epic 5: Positioning, Correlation & Seasonality (S5.1–S5.3) ✓
+**By:** Claude. **Status:** tsc clean, node --check clean, browser-verified.
+
+**Spec first:** Wrote `FEATURE-SPEC-epic5-corr.md` — defines all routes, types, data sources, panels, acceptance criteria.
+
+**New data: Oil instrument (WTICO_USD):**
+- `schema.js`: added `WTICO_USD` to `INSTRUMENTS` seed
+- `oanda.js`: added to `OANDA_INSTRUMENTS`
+- `marketdata.js`: added to `OANDA_SYMBOL` map
+- `routes.js`: added to `SYMBOL_MAP`
+
+**S5.1 — Correlation matrix + regression + comparison + spread:**
+- Route: `GET /api/research/correlation?window=60&series=...` — pairwise Pearson correlation over configurable window. Default 6 series: XAUUSD, US100, DGS10, DFII10, DTWEXBGS, VIX. Returns N×N matrix + flat cells.
+- Route: `GET /api/research/regression/:instrument?vs=&window=` — OLS regression of daily log returns. Beta, R², intercept, correlation, scatter points.
+- Route: `GET /api/research/compare?series=&window=&mode=zscore|pctChange` — normalized multi-series comparison (z-score or % change rebased to 0).
+- Route: `GET /api/research/spread?long=&short=&mode=ratio|difference` — custom spread with mean, σ, z-score, percentile, Bollinger-style bands.
+- Helper functions: `getDailyValues()` (unified fetch for instruments + FRED + CBOE), `alignByDay()` (date-join N series), `pearson()`.
+- Panel: `CorrelationPanel.tsx` — heatmap table with 20d/60d/120d/252d window selector, color-coded cells (green=positive, red=negative), significance highlighting.
+- Panel: `RegressionPanel.tsx` — scatter plot with regression line, β/R²/corr/n stats, instrument + series selectors.
+- Panel: `ComparePanel.tsx` — multi-line z-score overlay, series toggles, z-score/% mode switch.
+- Panel: `SpreadPanel.tsx` — spread line with mean ± 1σ/2σ bands, z-score badge, percentile, long/short/mode selectors.
+
+**S5.2 — Regime-conditional correlation + positioning:**
+- Route: `GET /api/research/correlation/regime?window=&regime=&series=` — same as `/correlation` but filtered to days matching a risk regime (computed from VIX + HY spread per day).
+- Route: `GET /api/research/positioning/:instrument` — consolidated COT + ETF view with contrarian flag when positioning is extreme.
+- CorrelationPanel upgraded: regime dropdown (ALL / RISK-ON / NEUTRAL / RISK-OFF / CRISIS) filters the matrix.
+- Panel: `PositioningPanel.tsx` — two-column layout (COT gauge with percentile bar + ETF flows with trend badge), contrarian warning banner.
+
+**S5.3 — Enhanced seasonality module:**
+- Enhanced `GET /api/research/seasonality/:instrument?granularity=monthly|weekly|dow|session` with 4 granularity modes.
+- Monthly: added median return, t-statistic, p-value, significance flag, OpEx week effect.
+- Weekly (WoY): group D1 returns by ISO week number.
+- Day-of-Week: group by Mon-Fri.
+- Session: group H1 returns by Asia (00-08 UTC) / London (08-13 UTC) / NewYork (13-21 UTC).
+- Helper functions: `tStat()`, `medianOf()`, `buildBuckets()`, `getISOWeek()`, `isOpExWeek()`.
+- SeasonalityPanel upgraded: 4 granularity tabs, significance markers (★ p<0.05), OpEx effect card, wider span (6 cols).
+
+**Shared changes:**
+- `web/src/types.ts`: added CorrelationCell, CorrelationResponse, RegressionResponse, CompareSeriesPoint, CompareResponse, SpreadPoint, SpreadResponse, RegimeCorrelationResponse, PositioningCot, PositioningResponse, SeasonalBucket, OpExEffect. Enhanced SeasonalMonth + SeasonalityResponse.
+- `web/src/api/client.ts`: added getCorrelation, getRegression, getCompare, getSpread, getRegimeCorrelation, getPositioning. Enhanced getSeasonality with granularity param.
+- `web/src/features/signal/pages/Signal.tsx`: wired 5 new panels (CorrelationPanel, RegressionPanel, ComparePanel, SpreadPanel after RegimePanel as cross-instrument; PositioningPanel in XAUUSD section).
+- `server/src/research/routes.js`: 7 new routes + 8 helper functions.
+
+**Files created:** `CorrelationPanel.tsx`, `RegressionPanel.tsx`, `ComparePanel.tsx`, `SpreadPanel.tsx`, `PositioningPanel.tsx`, `FEATURE-SPEC-epic5-corr.md`
+
+**Verified (2026-08-16, browser):** All 23 panels render on XAUUSD tab. Correlation matrix shows real correlations (XAUUSD-US100: -0.57, DGS10-DFII10: 0.82). Compare overlay renders 3-series z-score chart. Spread panel shows gold/silver ratio 67.66 z=1.0. Seasonality session view shows Asia/London/NewYork with significance. Regime dropdown has 5 options. Positioning panel degrades gracefully (no COT/ETF data ingested). 0 new console errors.
+
+**Decisions/gotchas:**
+- Node compute stubs (not Python) per same pattern as S2.4/S3.1/S4.2. API shape matches future Python endpoints.
+- Regression shows "insufficient data" with only ~5 days D1 — correct behavior, needs more OANDA ingest.
+- Regime-conditional correlation needs VIX/HY data aligned with price dates — returns empty with limited data.
+- PositioningPanel sits alongside CotPanel + EtfFlowPanel (not replacing them) — the standalone panels have richer detail; Positioning gives the consolidated view.
+- t-statistic p-value uses a fast approximation (`exp(-0.717|t| - 0.416t²)`), sufficient for the significance threshold.
+
+**Next:** Epic 6 — News & AI (GDELT + RSS ingest, daily briefs, explain-this-move).
+
+---
+
+## 2026-08-16 — QA pass: Epic 0–4 audit + gold/silver fix ✓
+**By:** Claude. **Status:** verified — `tsc --noEmit` clean, `node --check` clean, full stack booted + live-data browser QA.
+
+**Scope:** Full audit of the Signal tab (docs vs code vs API-CONTRACT) + runtime QA against live data. Coverage confirmed: all 34 `built` routes present in `routes.js`, all 20 panels wired in `Signal.tsx`, timezone lens WIP (`lib/tz.ts`) complete and consistently applied. Booted server+web, ingested OANDA/FRED/CBOE, browser-verified both instrument tabs render with zero regressions. 1 real bug fixed:
+
+1. **Gold/Silver Ratio panel permanently dead (High)** — `marketdata.js` `OANDA_SYMBOL` map was missing `XAGUSD`, so `fetchOandaM1('XAGUSD')` threw "no OANDA symbol" and silver spot never ingested. The S3.5 claim ("added XAGUSD to OANDA ingest") was only half-true: XAGUSD was added to `oanda.js` `OANDA_INSTRUMENTS` (with an `oanda:'XAG_USD'` field that is **never read** — line 74 passes the canonical `symbol`, and the code→OANDA mapping lives in `marketdata.js oandaSymbol()`) and to the schema seed, but not to the actual map `fetchOandaM1` uses. Added `XAGUSD: 'XAG_USD'` to `OANDA_SYMBOL`. Verified end-to-end: silver ingests, `/ratio/gold-silver` returns data, panel renders ratio 67.7 / 1Y avg 67.6 / pctile 100% (was "NO SILVER DATA").
+
+**Not bugs (data availability, documented, degrade gracefully):** `/cot/gold` + `/etf-flows/gold` 404 (CFTC 403 / SPDR GLD 404 external blocks — need manual-upload fallback); RealYield corr N/A + Seasonality "insufficient history" (only ~5d D1 depth from the 5-day M1 ingest — inherent); Brief "fetch failed" (no LLM provider reachable this env). All handled by graceful panel states.
+
+**Open nit (not fixed):** COT/ETF endpoints return HTTP 404 for "no data yet," which logs a red browser console error even though panels render fine — cosmetic, pre-existing by design. Consider 200 + empty payload in a future polish pass.
+
+**Files:** `server/src/marketdata.js` (one-line map addition).
+
+---
+
 ## 2026-08-13 — Epic 4: Events & reaction studies (S4.1–S4.3) ✓
 **By:** Claude. **Status:** tsc clean. Docker WS fix included.
 

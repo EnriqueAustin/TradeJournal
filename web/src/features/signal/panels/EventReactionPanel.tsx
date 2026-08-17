@@ -3,6 +3,7 @@ import { api } from '../../../api/client';
 import { useApi, filterKey } from '../../../hooks/useApi';
 import type { EventReactionResponse, WindowStats } from '../../../types';
 import { Panel, StatusBadge, TickerCell } from '../terminal';
+import { fmtShortDate, useSignalTz } from '../lib/tz';
 
 const EVENT_PRESETS = [
   'Non-Farm Employment Change',
@@ -29,6 +30,7 @@ export default function EventReactionPanel({ instrument }: EventReactionPanelPro
   const [event, setEvent] = useState(EVENT_PRESETS[0]);
   const [segment, setSegment] = useState<SegmentTab>('all');
   const [customEvent, setCustomEvent] = useState('');
+  const tz = useSignalTz();
 
   const activeEvent = customEvent || event;
 
@@ -193,11 +195,7 @@ export default function EventReactionPanel({ instrument }: EventReactionPanelPro
                   {data.history.map((h, i) => (
                     <tr key={i}>
                       <td className="sig-muted">
-                        {new Date(h.eventDate).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: '2-digit',
-                        })}
+                        {fmtShortDate(h.eventDate, tz)}
                       </td>
                       <td>{h.actual ?? '—'}</td>
                       <td className="sig-muted">{h.consensus ?? '—'}</td>

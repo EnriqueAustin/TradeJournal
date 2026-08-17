@@ -27,6 +27,7 @@ export const INSTRUMENTS = [
   { symbol: 'XAUUSD', name: 'Gold Spot / US Dollar', type: 'commodity' },
   { symbol: 'US100', name: 'Nasdaq 100', type: 'index' },
   { symbol: 'XAGUSD', name: 'Silver Spot / US Dollar', type: 'commodity' },
+  { symbol: 'WTICO_USD', name: 'WTI Crude Oil', type: 'commodity' },
 ];
 
 // Apply the full schema to a given DB handle. Pure (no module state) so tests
@@ -162,14 +163,28 @@ export function applySchema(db) {
       created_at INTEGER DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
     );
 
-    -- AI briefs cache (one per instrument per day).
+    -- AI briefs cache (one per instrument per day per type).
     CREATE TABLE IF NOT EXISTS briefs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       instrument TEXT NOT NULL,
       date INTEGER NOT NULL,
       content TEXT,
       model TEXT,
+      brief_type TEXT DEFAULT 'basic',
       UNIQUE(instrument, date)
+    );
+
+    -- Cached explain-this-move results.
+    CREATE TABLE IF NOT EXISTS explanations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      instrument TEXT NOT NULL,
+      ts INTEGER NOT NULL,
+      timeframe TEXT NOT NULL,
+      explanation TEXT,
+      evidence_json TEXT,
+      model TEXT,
+      created_at INTEGER DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+      UNIQUE(instrument, ts, timeframe)
     );
 
     -- JOURNAL FUSION bridge. trade_id references journal.db trades(id) (logical,
@@ -182,6 +197,12 @@ export function applySchema(db) {
   `);
 
   seedInstruments(db);
+
+  // Additive migrations for existing tables
+  const briefCols = db.prepare("PRAGMA table_info(briefs)").all().map(c => c.name);
+  if (!briefCols.includes('brief_type')) {
+    db.exec("ALTER TABLE briefs ADD COLUMN brief_type TEXT DEFAULT 'basic'");
+  }
 
   db.prepare(
     `INSERT INTO meta (key, value) VALUES ('schema_version', ?)
