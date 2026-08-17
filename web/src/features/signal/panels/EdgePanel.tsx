@@ -1,6 +1,6 @@
 import { api } from '../../../api/client';
 import { useApi } from '../../../hooks/useApi';
-import { Panel, DataRow, StatusBadge } from '../terminal';
+import { Panel, StatusBadge } from '../terminal';
 import type { EdgeAnalytics, EdgeBucket } from '../../../types';
 import '../terminal/terminal.css';
 

@@ -23,7 +23,7 @@ function netSentimentLabel(summary: NewsSummary | null): { text: string; color: 
   return { text: `MIXED (${summary.bullish}↑ ${summary.bearish}↓)`, color: 'var(--sig-amber)' };
 }
 
-export default function NewsFeedPanel({ instrument }: { instrument: string }) {
+export default function NewsFeedPanel({ instrument: _instrument }: { instrument: string }) {
   const [filter, setFilter] = useState<InstrumentFilter>('all');
   const [sentiment, setSentiment] = useState<SentimentFilter>('all');
   const [limit, setLimit] = useState(30);

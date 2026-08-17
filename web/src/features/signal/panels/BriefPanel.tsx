@@ -115,7 +115,7 @@ export default function BriefPanel({ instrument }: Props) {
           <div className="sig-muted" style={{ fontSize: '9px', marginTop: '6px' }}>
             {data.model && <span>{data.model} · </span>}
             {data.cached ? 'cached' : 'fresh'} ·{' '}
-            {(data as Record<string, unknown>).briefType === 'enhanced' ? 'enhanced · ' : ''}
+            {(data as unknown as Record<string, unknown>).briefType === 'enhanced' ? 'enhanced · ' : ''}
             {new Date(data.date).toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../../api/client';
 import { useApi } from '../../../hooks/useApi';
-import { Panel, DataRow, StatusBadge } from '../terminal';
+import { DataRow, StatusBadge } from '../terminal';
 import DebriefPanel from './DebriefPanel';
 import type {
   ContextSnapshotResponse,
