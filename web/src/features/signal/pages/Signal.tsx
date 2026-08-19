@@ -176,7 +176,7 @@ export default function Signal() {
         {/* Price chart — S0.4 + live last price from S0.5 */}
         <PricePanel instrument={instrument} livePrice={livePrice[instrument]} />
         {/* Live ticker — S0.5 */}
-        <LiveTicker instrument={instrument} onTick={handleTick} />
+        <LiveTicker instrument={instrument} onTick={handleTick} onSelect={(sym) => setInstrument(sym as Instrument)} />
         {/* Epic 4 — Events & reaction studies (cross-instrument) */}
         <CalendarPanel />
         <EventReactionPanel instrument={instrument} />

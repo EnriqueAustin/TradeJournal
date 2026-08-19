@@ -251,7 +251,9 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
       )}
       {bars.length > 0 && (
         <div className="sig-chart-wrap">
-          <CandleChart bars={bars} height={340} markers={chartMarkers} />
+          {/* Remount per instrument so the price scale auto-fits the new symbol
+              instead of staying pinned to the previous symbol's price range. */}
+          <CandleChart key={instrument} bars={bars} height={340} markers={chartMarkers} />
         </div>
       )}
       {!loading && !error && bars.length === 0 && (
