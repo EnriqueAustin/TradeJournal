@@ -278,6 +278,9 @@ export interface PropStats {
   hold_deduct_threshold_pct: number | null;
   avg_hold_sec: number | null;
   avg_hold_ok: boolean | null;
+  avg_first_close_sec: number | null;
+  avg_first_close_ok: boolean | null;
+  first_close_count: number;
   sub_hold_count: number;
   sub_hold_profit: number;
   sub_hold_pct_of_profit: number | null;

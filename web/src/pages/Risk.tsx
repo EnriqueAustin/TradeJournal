@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
@@ -153,6 +153,80 @@ function RuleRow({
   );
 }
 
+// Average Hold Time row with a dropdown that reveals a second measurement:
+// average duration from position open until the FIRST close (partial or full).
+function AvgHoldTimeRule({ p, minHoldLabel }: { p: PropStats; minHoldLabel: string }) {
+  const [open, setOpen] = useState(false);
+  const primaryIcon = {
+    pass: { bg: 'bg-emerald-900/40', text: 'text-emerald-400', label: 'PASS' },
+    fail: { bg: 'bg-red-900/40', text: 'text-red-400', label: 'FAIL' },
+    na: { bg: 'bg-slate-800/50', text: 'text-slate-600', label: 'N/A' },
+  }[p.avg_hold_ok === null ? 'na' : p.avg_hold_ok ? 'pass' : 'fail'];
+
+  const firstStatus: RuleStatus =
+    p.avg_first_close_ok === null ? 'na' : p.avg_first_close_ok ? 'pass' : 'fail';
+  const firstIcon = {
+    pass: { text: 'text-emerald-400', label: 'PASS' },
+    fail: { text: 'text-red-400', label: 'FAIL' },
+    na: { text: 'text-slate-600', label: 'N/A' },
+  }[firstStatus === 'pass' ? 'pass' : firstStatus === 'fail' ? 'fail' : 'na'];
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-800/60 bg-slate-900/30">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-slate-800/40"
+        aria-expanded={open}
+      >
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${primaryIcon.bg} ${primaryIcon.text}`}>
+          {primaryIcon.label}
+        </span>
+        <div className="flex-1">
+          <div className="flex items-center gap-1.5 text-sm text-slate-200">
+            <span
+              className={`inline-block text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`}
+            >
+              ▸
+            </span>
+            {`Average Hold Time (min ${minHoldLabel})`}
+          </div>
+          <div className="text-[11px] text-slate-500">
+            {p.avg_hold_ok === false
+              ? 'Average trade duration is below minimum'
+              : 'Average of all trade durations · click to compare open→first-close'}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className={`num text-sm font-medium ${primaryIcon.text}`}>
+            {p.avg_hold_sec != null ? formatDuration(p.avg_hold_sec) : 'No trades'}
+          </div>
+        </div>
+      </button>
+      {open && (
+        <div className="flex items-center gap-3 border-t border-slate-800/60 bg-slate-950/40 py-2 pl-8 pr-3">
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-slate-800/50 ${firstIcon.text}`}>
+            {firstIcon.label}
+          </span>
+          <div className="flex-1">
+            <div className="text-sm text-slate-200">Open → First Close</div>
+            <div className="text-[11px] text-slate-500">
+              {p.first_close_count > 0
+                ? `Avg time from open until the first partial or full close (whichever first) · ${p.first_close_count} trade${p.first_close_count === 1 ? '' : 's'}`
+                : 'No execution-level data to measure first close'}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className={`num text-sm font-medium ${firstIcon.text}`}>
+              {p.avg_first_close_sec != null ? formatDuration(p.avg_first_close_sec) : 'No data'}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function pctToStatus(pct: number | null): RuleStatus {
   if (pct == null) return 'na';
   if (pct >= 1) return 'fail';
@@ -235,12 +309,7 @@ function PropRulesCompliance({ p, currency }: { p: PropStats; currency: string }
           />
         )}
         {p.min_hold_sec != null && p.min_hold_sec > 0 && (
-          <RuleRow
-            rule={`Average Hold Time (min ${formatDuration(p.min_hold_sec)})`}
-            status={p.avg_hold_ok === null ? 'na' : p.avg_hold_ok ? 'pass' : 'fail'}
-            value={p.avg_hold_sec != null ? formatDuration(p.avg_hold_sec) : 'No trades'}
-            note={p.avg_hold_ok === false ? 'Average trade duration is below minimum' : 'Average of all trade durations'}
-          />
+          <AvgHoldTimeRule p={p} minHoldLabel={formatDuration(p.min_hold_sec)} />
         )}
         {p.min_hold_sec != null && p.min_hold_sec > 0 && (
           <RuleRow
