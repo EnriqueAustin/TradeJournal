@@ -430,8 +430,12 @@ export function propStats(q) {
   // For static DD it's peak-to-trough vs the fixed dollar limit.
 
   const days = [...dayMap.keys()].sort();
-  const currentDay = days.length ? days[days.length - 1] : null;
-  const day_pnl = currentDay ? dayMap.get(currentDay) : 0;
+  // "Today" must be the actual calendar day, not the most recent trading day —
+  // otherwise on a day with no trades yet (e.g. Monday) the last session's P&L
+  // (Friday's) leaks through as today's day P&L. If nothing traded today, it's 0.
+  const now = new Date();
+  const currentDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const day_pnl = dayMap.get(currentDay) || 0;
 
   const day_loss_limit = account.prop_daily_loss ?? null;
   const max_dd_limit = account.prop_max_dd ?? null;
@@ -488,6 +492,33 @@ export function propStats(q) {
   }
   const avgHoldSec = holdCount > 0 ? round(totalHoldSec / holdCount, 1) : null;
   const avgHoldOk = minHoldSec != null && avgHoldSec != null ? avgHoldSec >= minHoldSec : null;
+
+  // Time-to-first-close: duration from position open until the FIRST close event
+  // (first partial close, or full close if no partials) — whichever happens first.
+  const firstCloseRows = db
+    .prepare(
+      `SELECT entry_time,
+              (SELECT MIN(e.exec_time) FROM executions e
+                 WHERE e.trade_id = trades.id AND e.side = 'out') AS first_out
+         FROM trades ${where}`
+    )
+    .all(params);
+  let totalFirstCloseSec = 0;
+  let firstCloseCount = 0;
+  for (const r of firstCloseRows) {
+    if (r.entry_time && r.first_out) {
+      const sec = Math.round(
+        (new Date(r.first_out).getTime() - new Date(r.entry_time).getTime()) / 1000
+      );
+      if (sec >= 0) {
+        totalFirstCloseSec += sec;
+        firstCloseCount++;
+      }
+    }
+  }
+  const avgFirstCloseSec = firstCloseCount > 0 ? round(totalFirstCloseSec / firstCloseCount, 1) : null;
+  const avgFirstCloseOk =
+    minHoldSec != null && avgFirstCloseSec != null ? avgFirstCloseSec >= minHoldSec : null;
   const subHoldPctOfProfit = total_pnl > 0 ? round(subHoldProfit / total_pnl, 4) : null;
   const subHoldAtRisk = holdDeductPct != null && subHoldPctOfProfit != null
     ? subHoldPctOfProfit * 100 >= holdDeductPct
@@ -561,6 +592,9 @@ export function propStats(q) {
     hold_deduct_threshold_pct: holdDeductPct,
     avg_hold_sec: avgHoldSec,
     avg_hold_ok: avgHoldOk,
+    avg_first_close_sec: avgFirstCloseSec,
+    avg_first_close_ok: avgFirstCloseOk,
+    first_close_count: firstCloseCount,
     sub_hold_count: subHoldCount,
     sub_hold_profit: round(subHoldProfit),
     sub_hold_pct_of_profit: subHoldPctOfProfit,
