@@ -241,6 +241,24 @@
   padding: 6px 0;
   font-size: 14px;
 }
+.sig-ticker-row.is-clickable {
+  cursor: pointer;
+  margin: 0 -6px;
+  padding-left: 6px;
+  padding-right: 6px;
+  border-radius: 4px;
+  transition: background 120ms;
+}
+.sig-ticker-row.is-clickable:hover {
+  background: var(--sig-hover, rgba(148, 163, 184, 0.1));
+}
+.sig-ticker-row.is-clickable:focus-visible {
+  outline: 1px solid var(--sig-amber);
+  outline-offset: -1px;
+}
+.sig-ticker-row.is-clickable.is-primary {
+  background: var(--sig-hover, rgba(148, 163, 184, 0.08));
+}
 .sig-ticker-sym {
   color: var(--sig-amber);
   font-weight: 700;

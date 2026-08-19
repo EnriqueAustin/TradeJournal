@@ -58,6 +58,30 @@ function lastStoredTs(instId, tf) {
   return row?.maxTs ?? null;
 }
 
+const selectM1From = marketDb.prepare(
+  `SELECT ts, o, h, l, c, v FROM prices
+   WHERE instrument_id = ? AND timeframe = 'M1' AND ts >= ?
+   ORDER BY ts`
+);
+
+// Re-aggregate every higher timeframe from the COMPLETE M1 history covering the
+// affected buckets, not just the freshly-fetched batch. Aggregating only the new
+// M1 slice (and upserting via ON CONFLICT) overwrote each in-progress H1/H4/D1
+// candle with a partial slice — producing thin/degenerate candles that render as
+// gaps. `fromTs` is the earliest M1 timestamp touched; we rebuild from the start
+// of the bucket that timestamp falls into so partial candles are made whole.
+function reaggregateFrom(instId, fromTs) {
+  const agg = {};
+  for (const tf of AGGREGATE_TFS) {
+    const ms = TF_MINUTES[tf] * 60000;
+    const bucketStart = Math.floor(fromTs / ms) * ms;
+    const m1 = selectM1From.all(instId, bucketStart);
+    const tfBars = aggregateM1(m1, tf);
+    agg[tf] = upsertPrices(instId, tf, tfBars);
+  }
+  return agg;
+}
+
 export async function ingestOanda({ days = 5 } = {}) {
   if (!oandaConfigured()) return { skipped: true, reason: 'OANDA_API_TOKEN not set' };
 
@@ -93,11 +117,8 @@ export async function ingestOanda({ days = 5 } = {}) {
     }
 
     const m1Count = upsertPrices(instId, 'M1', m1Bars);
-    const agg = {};
-    for (const tf of AGGREGATE_TFS) {
-      const tfBars = aggregateM1(m1Bars, tf);
-      agg[tf] = upsertPrices(instId, tf, tfBars);
-    }
+    const minNewTs = m1Bars.reduce((min, b) => (b.ts < min ? b.ts : min), m1Bars[0].ts);
+    const agg = reaggregateFrom(instId, minNewTs);
 
     updateHealth(symbol, null);
     results.push({ symbol, m1: m1Count, aggregated: agg });
@@ -120,6 +141,26 @@ function updateHealth(symbol, error) {
        ON CONFLICT(source) DO UPDATE SET last_ok = excluded.last_ok, last_error = NULL, status = 'ok'`
     ).run(source, Date.now());
   }
+}
+
+// One-time repair: rebuild every higher timeframe for every OANDA instrument
+// from the full M1 history, fixing candles corrupted by the old partial-slice
+// aggregation. Safe to run repeatedly (idempotent upsert).
+export function rebuildAggregates() {
+  const results = [];
+  for (const { symbol } of OANDA_INSTRUMENTS) {
+    const instId = instrumentId(symbol);
+    if (instId == null) continue;
+    const first = marketDb
+      .prepare("SELECT MIN(ts) AS minTs FROM prices WHERE instrument_id = ? AND timeframe = 'M1'")
+      .get(instId);
+    if (first?.minTs == null) {
+      results.push({ symbol, skipped: 'no M1 data' });
+      continue;
+    }
+    results.push({ symbol, rebuilt: reaggregateFrom(instId, first.minTs) });
+  }
+  return { results };
 }
 
 let _running = false;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, type KeyboardEvent } from 'react';
 import type { PriceTick } from '../../../types';
 import { Panel, StatusBadge, TickerCell } from '../terminal';
 import type { BadgeKind } from '../terminal';
@@ -23,9 +23,11 @@ const RECONNECT_MS = 3000;
 interface LiveTickerProps {
   instrument: string;
   onTick?: (instrument: string, mid: number) => void;
+  /** select a pair (drives the whole dashboard, like the top header tabs) */
+  onSelect?: (instrument: string) => void;
 }
 
-export default function LiveTicker({ instrument, onTick }: LiveTickerProps) {
+export default function LiveTicker({ instrument, onTick, onSelect }: LiveTickerProps) {
   const [prices, setPrices] = useState<Map<string, TickState>>(new Map());
   const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const wsRef = useRef<WebSocket | null>(null);
@@ -106,8 +108,8 @@ export default function LiveTicker({ instrument, onTick }: LiveTickerProps) {
       right={<StatusBadge kind={statusBadge} label={statusLabel} />}
     >
       <div className="sig-ticker-grid">
-        <TickerRow label={instrument} tick={tick} dp={instrument === 'XAUUSD' ? 2 : 1} primary />
-        <TickerRow label={otherInstrument} tick={otherTick} dp={otherInstrument === 'XAUUSD' ? 2 : 1} />
+        <TickerRow label={instrument} tick={tick} dp={instrument === 'XAUUSD' ? 2 : 1} primary onSelect={onSelect} />
+        <TickerRow label={otherInstrument} tick={otherTick} dp={otherInstrument === 'XAUUSD' ? 2 : 1} onSelect={onSelect} />
       </div>
       {!tick && status === 'connected' && (
         <div className="sig-ph" style={{ marginTop: 4 }}>Waiting for ticks…</div>
@@ -121,15 +123,36 @@ function TickerRow({
   tick,
   dp,
   primary,
+  onSelect,
 }: {
   label: string;
   tick: TickState | undefined;
   dp: number;
   primary?: boolean;
+  onSelect?: (instrument: string) => void;
 }) {
+  const clickable = !!onSelect;
+  const rowProps = clickable
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        onClick: () => onSelect!(label),
+        onKeyDown: (e: KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelect!(label);
+          }
+        },
+        title: `Select ${label}`,
+      }
+    : {};
+
   if (!tick) {
     return (
-      <div className={`sig-ticker-row${primary ? ' is-primary' : ''}`}>
+      <div
+        className={`sig-ticker-row${primary ? ' is-primary' : ''}${clickable ? ' is-clickable' : ''}`}
+        {...rowProps}
+      >
         <span className="sig-ticker-sym">{label}</span>
         <span className="sig-num sig-flat">—</span>
       </div>
@@ -139,7 +162,10 @@ function TickerRow({
   const dir = tick.mid > tick.prev ? 'up' : tick.mid < tick.prev ? 'down' : 'flat';
 
   return (
-    <div className={`sig-ticker-row${primary ? ' is-primary' : ''}`}>
+    <div
+      className={`sig-ticker-row${primary ? ' is-primary' : ''}${clickable ? ' is-clickable' : ''}`}
+      {...rowProps}
+    >
       <span className="sig-ticker-sym">{label}</span>
       <span className={`sig-ticker-price sig-num sig-${dir}`}>
         {tick.mid.toFixed(dp)}
