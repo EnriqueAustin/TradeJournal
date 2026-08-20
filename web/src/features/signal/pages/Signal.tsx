@@ -36,6 +36,7 @@ import NewsFeedPanel from '../panels/NewsFeedPanel';
 import EdgePanel from '../panels/EdgePanel';
 import AdrPanel from '../panels/AdrPanel';
 import SweepPanel from '../panels/SweepPanel';
+import RadarPanel from '../panels/RadarPanel';
 import SessionsClock from '../../../components/SessionsClock';
 import '../terminal/terminal.css';
 
@@ -223,6 +224,7 @@ export default function Signal() {
             )}
             {instrument === 'XAUUSD' && (
               <>
+                <RadarPanel instrument="XAUUSD" />
                 <DriverScorecard />
                 <SweepPanel instrument="XAUUSD" />
                 <AdrPanel instrument="XAUUSD" />
