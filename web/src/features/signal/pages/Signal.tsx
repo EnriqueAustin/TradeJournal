@@ -34,6 +34,7 @@ import SpreadPanel from '../panels/SpreadPanel';
 import PositioningPanel from '../panels/PositioningPanel';
 import NewsFeedPanel from '../panels/NewsFeedPanel';
 import EdgePanel from '../panels/EdgePanel';
+import SessionsClock from '../../../components/SessionsClock';
 import '../terminal/terminal.css';
 
 const INSTRUMENTS = ['XAUUSD', 'US100'] as const;
@@ -177,6 +178,12 @@ export default function Signal() {
         <PricePanel instrument={instrument} livePrice={livePrice[instrument]} />
         {/* Live ticker — S0.5 */}
         <LiveTicker instrument={instrument} onTick={handleTick} onSelect={(sym) => setInstrument(sym as Instrument)} />
+        {/* Market sessions clock (cross-instrument), in the header timezone */}
+        <Panel title="Sessions" tag={`local · ${tz.split('/')[1]?.replace('_', ' ') ?? tz}`} span={6}>
+          <div style={{ padding: '4px 2px' }}>
+            <SessionsClock tz={tz} />
+          </div>
+        </Panel>
         {/* Epic 4 — Events & reaction studies (cross-instrument) */}
         <CalendarPanel />
         <EventReactionPanel instrument={instrument} />

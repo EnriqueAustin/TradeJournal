@@ -1,7 +1,7 @@
 import { useFilters } from '../store/FilterContext';
 
 const INSTRUMENTS = ['All', 'XAUUSD', 'US100'];
-const SESSIONS = ['All', 'asia', 'london', 'overlap', 'ny', 'off'];
+const SESSIONS = ['All', 'asia', 'london', 'ny', 'off'];
 
 export default function FilterBar() {
   const {

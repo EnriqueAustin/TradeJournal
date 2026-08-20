@@ -4,7 +4,9 @@ import { useFilters } from '../store/FilterContext';
 import TradesDrilldownModal from './TradesDrilldownModal';
 import { formatMoney, formatR, formatPct } from '../utils/format';
 
-const SESSION_ORDER = ['asia', 'london', 'overlap', 'ny', 'off'];
+// 'overlap' retired (folded into 'ny'); kept out of the display order but still
+// tolerated if a legacy row surfaces before the DB backfill runs.
+const SESSION_ORDER = ['asia', 'london', 'ny', 'off'];
 
 // Map a net_pnl to a background style scaled against the max magnitude.
 function cellStyle(pnl: number, max: number): React.CSSProperties {
