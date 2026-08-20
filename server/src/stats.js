@@ -939,6 +939,60 @@ export function optimizer(q) {
   };
 }
 
+// GET /api/stats/wick — edge breakdown of the structured wick-fill setup tags.
+// Groups tagged trades by which liquidity was swept and by clean-vs-fakeout,
+// so you can see which variant of the setup actually pays.
+export function wickEdge(q) {
+  const { where, params } = buildFilter(q);
+  const rows = db
+    .prepare(
+      `SELECT w.swept_level, w.strat_session, w.fill_pct, w.fakeout,
+              t.net_pnl, t.r_multiple
+       FROM trades t JOIN trade_wick w ON w.trade_id = t.id
+       ${where}`
+    )
+    .all(params);
+
+  const bucket = (map, key) => {
+    if (!map.has(key)) map.set(key, { count: 0, wins: 0, net: 0, rSum: 0, rN: 0, fillSum: 0, fillN: 0 });
+    return map.get(key);
+  };
+  const tally = (g, r) => {
+    g.count++;
+    if ((r.net_pnl || 0) > 0) g.wins++;
+    g.net += r.net_pnl || 0;
+    if (r.r_multiple != null) { g.rSum += r.r_multiple; g.rN++; }
+    if (r.fill_pct != null) { g.fillSum += r.fill_pct; g.fillN++; }
+  };
+
+  const byLevel = new Map();
+  const bySession = new Map();
+  const byFakeout = new Map();
+  for (const r of rows) {
+    tally(bucket(byLevel, r.swept_level || 'unset'), r);
+    tally(bucket(bySession, r.strat_session || 'unset'), r);
+    tally(bucket(byFakeout, r.fakeout === 1 ? 'fakeout' : r.fakeout === 0 ? 'clean' : 'unset'), r);
+  }
+  const toRows = (map) =>
+    [...map.entries()]
+      .map(([key, g]) => ({
+        key,
+        count: g.count,
+        win_rate: g.count ? round(g.wins / g.count, 4) : 0,
+        net_pnl: round(g.net),
+        avg_r: g.rN ? round(g.rSum / g.rN, 4) : null,
+        avg_fill: g.fillN ? round(g.fillSum / g.fillN, 1) : null,
+      }))
+      .sort((a, b) => b.net_pnl - a.net_pnl);
+
+  return {
+    total: rows.length,
+    by_level: toRows(byLevel),
+    by_session: toRows(bySession),
+    by_fakeout: toRows(byFakeout),
+  };
+}
+
 function round(n, dp = 2) {
   if (n === null || n === undefined || isNaN(n)) return n;
   const f = Math.pow(10, dp);

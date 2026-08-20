@@ -47,6 +47,7 @@ import {
   tilt,
   optimizer,
   portfolio,
+  wickEdge,
 } from './stats.js';
 
 migrate();
@@ -522,7 +523,57 @@ app.get('/api/trades/:id', (req, res) => {
   const screenshots = db
     .prepare('SELECT * FROM screenshots WHERE trade_id = ?')
     .all(id);
-  res.json({ ...trade, executions, tags, notes, screenshots });
+  const wick = db.prepare('SELECT * FROM trade_wick WHERE trade_id = ?').get(id) ?? null;
+  res.json({ ...trade, executions, tags, notes, screenshots, wick });
+});
+
+// Allowed values for the structured wick-setup fields.
+const WICK_LEVELS = new Set([
+  'asian_high', 'asian_low', 'london_high', 'london_low',
+  'pdh', 'pdl', 'ny_open', 'equal_highs', 'equal_lows', 'other',
+]);
+const WICK_SESSIONS = new Set(['asia', 'london', 'ny', 'off']);
+
+// PUT /api/trades/:id/wick — upsert the structured wick-fill setup tags.
+// Any field may be null to clear it. Sending an all-null body removes the row.
+app.put('/api/trades/:id/wick', express.json(), (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
+    return res.status(404).json({ error: 'trade not found' });
+  const b = req.body || {};
+
+  const swept = b.swept_level ?? null;
+  const session = b.strat_session ?? null;
+  if (swept != null && !WICK_LEVELS.has(swept))
+    return res.status(400).json({ error: `invalid swept_level: ${swept}` });
+  if (session != null && !WICK_SESSIONS.has(session))
+    return res.status(400).json({ error: `invalid strat_session: ${session}` });
+
+  let fill = b.fill_pct == null || b.fill_pct === '' ? null : Number(b.fill_pct);
+  if (fill != null) {
+    if (Number.isNaN(fill)) return res.status(400).json({ error: 'fill_pct must be a number' });
+    fill = Math.max(0, Math.min(100, fill));
+  }
+  const fakeout = b.fakeout == null ? null : (b.fakeout ? 1 : 0);
+
+  // No data at all → clear the row.
+  if (swept == null && session == null && fill == null && fakeout == null) {
+    db.prepare('DELETE FROM trade_wick WHERE trade_id = ?').run(id);
+    return res.json({ trade_id: id, wick: null });
+  }
+
+  db.prepare(
+    `INSERT INTO trade_wick (trade_id, swept_level, strat_session, fill_pct, fakeout, updated_at)
+     VALUES (@id, @swept, @session, @fill, @fakeout, datetime('now'))
+     ON CONFLICT(trade_id) DO UPDATE SET
+       swept_level = excluded.swept_level,
+       strat_session = excluded.strat_session,
+       fill_pct = excluded.fill_pct,
+       fakeout = excluded.fakeout,
+       updated_at = excluded.updated_at`
+  ).run({ id, swept, session, fill, fakeout });
+
+  res.json({ trade_id: id, wick: db.prepare('SELECT * FROM trade_wick WHERE trade_id = ?').get(id) });
 });
 
 const EDITABLE = new Set([
@@ -724,6 +775,7 @@ app.get('/api/stats/prop', (req, res) => res.json(propStats(req.query)));
 app.get('/api/stats/adherence', (req, res) => res.json(adherence(req.query)));
 app.get('/api/stats/streaks', (req, res) => res.json(streaks(req.query)));
 app.get('/api/stats/tilt', (req, res) => res.json(tilt(req.query)));
+app.get('/api/stats/wick', (req, res) => res.json(wickEdge(req.query)));
 app.get('/api/stats/optimizer', (req, res) => res.json(optimizer(req.query)));
 app.get('/api/stats/portfolio', (req, res) => res.json(portfolio(req.query)));
 

@@ -145,11 +145,41 @@ export interface Screenshot {
   url: string;
 }
 
+export type WickLevel =
+  | 'asian_high' | 'asian_low' | 'london_high' | 'london_low'
+  | 'pdh' | 'pdl' | 'ny_open' | 'equal_highs' | 'equal_lows' | 'other';
+export type WickSession = 'asia' | 'london' | 'ny' | 'off';
+
+export interface WickTag {
+  trade_id: number;
+  swept_level: WickLevel | null;
+  strat_session: WickSession | null;
+  fill_pct: number | null;
+  fakeout: number | null;
+  updated_at?: string;
+}
+
 export interface TradeDetail extends Trade {
   executions: Execution[];
   tags: Tag[];
   notes: Note[];
   screenshots: Screenshot[];
+  wick?: WickTag | null;
+}
+
+export interface WickEdgeRow {
+  key: string;
+  count: number;
+  win_rate: number;
+  net_pnl: number;
+  avg_r: number | null;
+  avg_fill: number | null;
+}
+export interface WickEdgeStats {
+  total: number;
+  by_level: WickEdgeRow[];
+  by_session: WickEdgeRow[];
+  by_fakeout: WickEdgeRow[];
 }
 
 export interface TradesResponse {

@@ -16,6 +16,8 @@ import type {
   ReplayResponse,
   ReplayFrame,
   NewsEvent,
+  WickLevel,
+  WickSession,
 } from '../types';
 import {
   formatMoney,
@@ -350,6 +352,9 @@ function TradeBody({
         {/* Tags */}
         <TagsPanel trade={trade} onChanged={onChanged} />
       </div>
+
+      {/* Wick-fill setup tags */}
+      <WickSetupPanel trade={trade} onChanged={onChanged} />
 
       {/* Partials / executions */}
       <PartialsPanel trade={trade} />
@@ -913,6 +918,139 @@ function TagsPanel({
         </button>
       </div>
       {err && <p className="mt-2 text-sm text-red-400">{err}</p>}
+    </div>
+  );
+}
+
+const WICK_LEVELS: { value: WickLevel; label: string }[] = [
+  { value: 'asian_high', label: 'Asian High' },
+  { value: 'asian_low', label: 'Asian Low' },
+  { value: 'london_high', label: 'London High' },
+  { value: 'london_low', label: 'London Low' },
+  { value: 'pdh', label: 'Prev Day High' },
+  { value: 'pdl', label: 'Prev Day Low' },
+  { value: 'ny_open', label: 'NY Open' },
+  { value: 'equal_highs', label: 'Equal Highs' },
+  { value: 'equal_lows', label: 'Equal Lows' },
+  { value: 'other', label: 'Other' },
+];
+const WICK_SESSIONS: { value: WickSession; label: string }[] = [
+  { value: 'asia', label: 'Asia' },
+  { value: 'london', label: 'London' },
+  { value: 'ny', label: 'New York' },
+  { value: 'off', label: 'Off-hours' },
+];
+
+// Structured "Wicks Don't Lie" setup tagging: which liquidity the entry swept,
+// the session, how much of the wick filled, and whether it faked out first.
+// Feeds the Wick-Fill Edge breakdown on Analytics.
+function WickSetupPanel({
+  trade,
+  onChanged,
+}: {
+  trade: TTradeDetail;
+  onChanged: () => void;
+}) {
+  const w = trade.wick;
+  const [swept, setSwept] = useState<string>(w?.swept_level ?? '');
+  const [session, setSession] = useState<string>(w?.strat_session ?? '');
+  const [fill, setFill] = useState<string>(w?.fill_pct != null ? String(w.fill_pct) : '');
+  const [fakeout, setFakeout] = useState<boolean>(w?.fakeout === 1);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSwept(trade.wick?.swept_level ?? '');
+    setSession(trade.wick?.strat_session ?? '');
+    setFill(trade.wick?.fill_pct != null ? String(trade.wick.fill_pct) : '');
+    setFakeout(trade.wick?.fakeout === 1);
+  }, [trade.id, trade.wick]);
+
+  const save = async () => {
+    setSaving(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      await api.saveWick(trade.id, {
+        swept_level: (swept || null) as WickLevel | null,
+        strat_session: (session || null) as WickSession | null,
+        fill_pct: fill === '' ? null : Number(fill),
+        fakeout: fakeout ? 1 : 0,
+      });
+      setMsg('Saved');
+      onChanged();
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMsg(null), 2500);
+    }
+  };
+
+  return (
+    <div className="card p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-200">Wick-Fill Setup</h2>
+        <span className="text-xs text-slate-500">Liquidity swept · session · fill · fakeout</span>
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="label" htmlFor="wick-level">Liquidity Swept</label>
+          <select
+            id="wick-level"
+            className="input"
+            value={swept}
+            onChange={(e) => setSwept(e.target.value)}
+          >
+            <option value="">— none —</option>
+            {WICK_LEVELS.map((l) => (
+              <option key={l.value} value={l.value}>{l.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label" htmlFor="wick-session">Session</label>
+          <select
+            id="wick-session"
+            className="input"
+            value={session}
+            onChange={(e) => setSession(e.target.value)}
+          >
+            <option value="">— none —</option>
+            {WICK_SESSIONS.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label" htmlFor="wick-fill">Wick Fill %</label>
+          <input
+            id="wick-fill"
+            type="number"
+            min={0}
+            max={100}
+            step="any"
+            className="input w-28"
+            value={fill}
+            onChange={(e) => setFill(e.target.value)}
+          />
+        </div>
+        <label className="flex items-center gap-2 pb-2 text-sm text-slate-400">
+          <input
+            type="checkbox"
+            checked={fakeout}
+            onChange={(e) => setFakeout(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-600 bg-slate-800"
+          />
+          Faked out first
+        </label>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        {msg && <span className="text-sm text-emerald-400">{msg}</span>}
+        {err && <span className="text-sm text-red-400">{err}</span>}
+      </div>
     </div>
   );
 }

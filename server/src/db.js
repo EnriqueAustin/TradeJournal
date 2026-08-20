@@ -208,6 +208,19 @@ export function migrate() {
       style_json TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_bt_drawings_session ON bt_drawings(session_id);
+
+    -- Structured "Wicks Don't Lie" setup tags, one row per trade. Records which
+    -- liquidity the entry swept, the session traded, how much of the rejecting
+    -- wick was filled, and whether it faked out first — so Analytics can prove
+    -- which variant of the setup actually has an edge.
+    CREATE TABLE IF NOT EXISTS trade_wick (
+      trade_id INTEGER PRIMARY KEY REFERENCES trades(id) ON DELETE CASCADE,
+      swept_level TEXT,   -- asian_high|asian_low|london_high|london_low|pdh|pdl|ny_open|equal_highs|equal_lows|other
+      strat_session TEXT, -- asia|london|ny|off
+      fill_pct REAL,      -- 0-100, how much of the wick filled
+      fakeout INTEGER,    -- 0/1, did price fake the other way first
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   // Per-event ForexFactory permalink (from the browser userscript scrape) so
