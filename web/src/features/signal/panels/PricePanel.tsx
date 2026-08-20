@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { api } from '../../../api/client';
 import { useApi, filterKey } from '../../../hooks/useApi';
 import type { ResearchPriceResponse, EventMarker, ExplainMoveResponse, LevelsResponse } from '../../../types';
@@ -114,6 +114,17 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
   const [tf, setTf] = useState<TF>('H1');
   const [explainData, setExplainData] = useState<ExplainMoveResponse | null>(null);
   const [explaining, setExplaining] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  // Esc exits fullscreen.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
 
   const { data, loading, error, reload } = useApi<ResearchPriceResponse>(
     () => api.getResearchPrice(instrument, tf),
@@ -221,6 +232,7 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
       title={`${instrument} · Price`}
       tag={`${data?.count ?? 0} bars`}
       span={8}
+      className={fullscreen ? 'sig-panel-fs' : ''}
       right={
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {livePrice != null && (
@@ -244,6 +256,13 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
           </button>
           <button className="sig-tab" onClick={reload} title="Refresh">
             ⟳
+          </button>
+          <button
+            className="sig-tab"
+            onClick={() => setFullscreen((v) => !v)}
+            title={fullscreen ? 'Exit full screen (Esc)' : 'Full screen'}
+          >
+            {fullscreen ? '⤢' : '⛶'}
           </button>
         </div>
       }
@@ -271,10 +290,11 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
         </div>
       )}
       {bars.length > 0 && (
-        <div className="sig-chart-wrap">
+        <div className={`sig-chart-wrap${fullscreen ? ' sig-chart-wrap-fs' : ''}`}>
           {/* Remount per instrument so the price scale auto-fits the new symbol
-              instead of staying pinned to the previous symbol's price range. */}
-          <CandleChart key={instrument} bars={bars} height={340} markers={chartMarkers} priceLines={priceLines} />
+              instead of staying pinned to the previous symbol's price range.
+              height=0 → the chart fills the wrapper (autoSize) in fullscreen. */}
+          <CandleChart key={instrument} bars={bars} height={fullscreen ? 0 : 340} markers={chartMarkers} priceLines={priceLines} />
         </div>
       )}
       {!loading && !error && bars.length === 0 && (

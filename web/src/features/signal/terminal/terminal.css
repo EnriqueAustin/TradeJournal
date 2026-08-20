@@ -224,6 +224,30 @@
 }
 .sig-chart-wrap canvas { border-radius: 0 0 2px 2px; }
 
+/* --- fullscreen price panel --- */
+.sig-panel-fs {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border: none;
+}
+.sig-panel-fs .sig-panel-bd {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+/* Chart fills the remaining height below the TF bar in fullscreen. */
+.sig-chart-wrap-fs {
+  flex: 1;
+  min-height: 0;
+  margin-bottom: 0;
+}
+
 /* --- placeholder (empty future panels) --- */
 .sig-ph {
   color: var(--sig-muted);
