@@ -10,6 +10,7 @@ import {
   formatR,
   formatDateTime,
   formatNumber,
+  sessionLabel,
 } from '../utils/format';
 
 const PAGE_SIZE = 25;
@@ -131,8 +132,8 @@ export default function Trades() {
                     >
                       {formatR(t.r_multiple)}
                     </td>
-                    <td className="px-4 py-2.5 capitalize text-slate-400">
-                      {t.session}
+                    <td className="px-4 py-2.5 text-slate-400">
+                      {sessionLabel(t.session)}
                     </td>
                     <td className="px-4 py-2.5 text-slate-400">
                       {setupName(t.setup_id) ? (

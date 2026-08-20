@@ -24,6 +24,7 @@ import {
   formatDateTime,
   formatDuration,
   signClass,
+  sessionLabel,
 } from '../utils/format';
 
 const TAG_CATEGORIES: TagCategory[] = [
@@ -205,8 +206,8 @@ function TradeBody({
             >
               {trade.direction}
             </span>
-            <span className="rounded bg-slate-800 px-2 py-0.5 text-xs capitalize text-slate-400">
-              {trade.session}
+            <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-400">
+              {sessionLabel(trade.session)}
             </span>
             <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-500">
               #{trade.id}

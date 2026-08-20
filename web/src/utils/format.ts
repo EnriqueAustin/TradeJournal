@@ -53,6 +53,22 @@ export function signClass(v: number | null | undefined): string {
 // lens. South Africa (UTC+2, no DST) matches the user's wall clock.
 export const DISPLAY_TZ = 'Africa/Johannesburg';
 
+// Human labels for the stored session codes. The DB/filter values stay short
+// ('ny', 'london', …); this is purely the display name. 'overlap' is legacy.
+export const SESSION_LABELS: Record<string, string> = {
+  asia: 'Asia',
+  london: 'London',
+  ny: 'New York',
+  overlap: 'Overlap',
+  off: 'Off-Hours',
+};
+
+export function sessionLabel(s?: string | null): string {
+  if (!s) return '';
+  if (s === 'All') return 'All';
+  return SESSION_LABELS[s] ?? s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);

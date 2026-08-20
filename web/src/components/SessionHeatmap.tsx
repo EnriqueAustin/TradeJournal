@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { SessionStat } from '../types';
 import { useFilters } from '../store/FilterContext';
 import TradesDrilldownModal from './TradesDrilldownModal';
-import { formatMoney, formatR, formatPct } from '../utils/format';
+import { formatMoney, formatR, formatPct, sessionLabel } from '../utils/format';
 
 // 'overlap' retired (folded into 'ny'); kept out of the display order but still
 // tolerated if a legacy row surfaces before the DB backfill runs.
@@ -66,8 +66,8 @@ export default function SessionHeatmap({
         <tbody>
           {rows.map((s) => (
             <tr key={s}>
-              <td className="px-2 py-1 text-xs font-medium capitalize text-slate-400">
-                {s}
+              <td className="px-2 py-1 text-xs font-medium text-slate-400">
+                {sessionLabel(s)}
               </td>
               {instruments.map((inst) => {
                 const cell = grid.get(`${s}|${inst}`);
@@ -100,8 +100,8 @@ export default function SessionHeatmap({
                       style={cellStyle(cell?.net_pnl ?? 0, max)}
                       title={
                         cell
-                          ? `${s} · ${inst}\n${formatMoney(cell.net_pnl, currency)} · ${cell.trade_count} trades · ${formatPct(cell.win_rate)} win · ${formatR(cell.avg_r)}`
-                          : `${s} · ${inst}: no trades`
+                          ? `${sessionLabel(s)} · ${inst}\n${formatMoney(cell.net_pnl, currency)} · ${cell.trade_count} trades · ${formatPct(cell.win_rate)} win · ${formatR(cell.avg_r)}`
+                          : `${sessionLabel(s)} · ${inst}: no trades`
                       }
                     >
                       {cell && cell.trade_count > 0 ? (
@@ -134,7 +134,7 @@ export default function SessionHeatmap({
 
       {open && (
         <TradesDrilldownModal
-          title={`${open.session} · ${open.instrument}`}
+          title={`${sessionLabel(open.session)} · ${open.instrument}`}
           filters={{ ...filters, session: open.session, instrument: open.instrument }}
           currency={currency}
           timelineSession={open.session}

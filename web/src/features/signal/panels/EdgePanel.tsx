@@ -2,6 +2,7 @@ import { api } from '../../../api/client';
 import { useApi } from '../../../hooks/useApi';
 import { Panel, StatusBadge } from '../terminal';
 import type { EdgeAnalytics, EdgeBucket } from '../../../types';
+import { sessionLabel } from '../../../utils/format';
 import '../terminal/terminal.css';
 
 const DIM_LABELS: Record<string, string> = {
@@ -39,7 +40,7 @@ function DimensionTable({ name, buckets }: { name: string; buckets: EdgeBucket[]
           <span className="sig-muted" style={{ fontWeight: 600 }}>Avg P&L</span>
           {buckets.map(b => (
             <div key={b.bucket} style={{ display: 'contents' }}>
-              <span className="sig-num">{b.bucket.replace(/_/g, ' ')}</span>
+              <span className="sig-num">{name === 'session' ? sessionLabel(b.bucket) : b.bucket.replace(/_/g, ' ')}</span>
               <span className="sig-num sig-muted">{b.trades_n}</span>
               <WinBar winRate={b.win_rate} />
               <span className={`sig-num ${b.avg_r != null ? (b.avg_r > 0 ? 'sig-up' : b.avg_r < 0 ? 'sig-down' : '') : 'sig-muted'}`}>
