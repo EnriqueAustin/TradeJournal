@@ -855,6 +855,26 @@ export interface LevelsResponse {
   levels: KeyLevel[];
   freshness: Freshness;
 }
+export type RadarSeverity = 'hot' | 'warn' | 'info';
+export interface RadarSignal {
+  severity: RadarSeverity;
+  kind: string;
+  title: string;
+  detail: string;
+  level?: string;
+  price?: number;
+  distance?: number;
+  direction?: 'bullish' | 'bearish';
+  ts?: number;
+}
+export interface RadarResponse {
+  instrument: string;
+  price: number | null;
+  adr: number | null;
+  session: string;
+  signals: RadarSignal[];
+  freshness?: Freshness;
+}
 
 export interface Constituent {
   index_id: string; // 'QQQ' | 'NDX'

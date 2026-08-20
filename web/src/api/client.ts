@@ -428,6 +428,8 @@ export const api = {
     request<import('../types').AdrResponse>(`/research/adr/${instrument}${days ? `?days=${days}` : ''}`),
   getSweeps: (instrument: string, limit?: number) =>
     request<import('../types').SweepsResponse>(`/research/sweeps/${instrument}${limit ? `?limit=${limit}` : ''}`),
+  getRadar: (instrument: string) =>
+    request<import('../types').RadarResponse>(`/research/radar/${instrument}`),
   getSeasonality: (instrument: string, granularity?: string) => {
     const q = granularity ? `?granularity=${granularity}` : '';
     return request<import('../types').SeasonalityResponse>(`/research/seasonality/${instrument}${q}`);

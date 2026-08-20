@@ -1208,6 +1208,164 @@ researchRouter.get('/sweeps/:instrument', (req, res) => {
   }
 });
 
+// Average daily range over `n` prior complete days (excludes today). Shared by
+// the ADR endpoint's logic and the radar. Returns { adr, today } or null.
+function computeAdr(instId, n = 14) {
+  const bars = marketDb
+    .prepare(
+      `SELECT ts, o, h, l, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1'
+       ORDER BY ts DESC LIMIT ?`
+    )
+    .all(instId, n + 1);
+  if (bars.length < 2) return null;
+  const today = bars[0];
+  const prior = bars.slice(1);
+  const adr = prior.reduce((s, b) => s + (b.h - b.l), 0) / prior.length;
+  return { adr, today };
+}
+
+// Which trading session is live right now, and minutes until the next open the
+// strategy trades (London 07:00 UTC, NY 13:00 UTC). Both sessions are traded, so
+// both are surfaced. NY is treated as live through ~21:00 UTC, London 07–13.
+function sessionClock(now = new Date()) {
+  const h = now.getUTCHours();
+  const minsInto = (openH) => ((h - openH) * 60 + now.getUTCMinutes());
+  const minsTo = (openH) => {
+    let d = (openH - h) * 60 - now.getUTCMinutes();
+    if (d <= 0) d += 24 * 60; // next occurrence
+    return d;
+  };
+  let live = 'off';
+  if (h >= 7 && h < 13) live = 'London';
+  else if (h >= 13 && h < 21) live = 'New York';
+  return {
+    live,
+    minsIntoLondon: h >= 7 && h < 13 ? minsInto(7) : null,
+    minsIntoNY: h >= 13 && h < 21 ? minsInto(13) : null,
+    minsToLondon: minsTo(7),
+    minsToNY: minsTo(13),
+  };
+}
+
+// GET /api/research/radar/:instrument — the live "Setup Radar": evaluates the
+// current tape against the things a Wicks-Don't-Lie session scalper watches and
+// returns a prioritized signal list. Composes session-open proximity, key-level
+// proximity (scaled to ADR), ADR exhaustion, fresh sweeps, and the session clock.
+// severity: 'hot' (actionable now) > 'warn' (caution) > 'info' (context).
+researchRouter.get('/radar/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+    const instId = instrumentId(symbol);
+    if (instId == null) return res.status(400).json({ error: 'Instrument not seeded' });
+
+    const round = (x) => Math.round(x * 100) / 100;
+    const latest = marketDb
+      .prepare(
+        `SELECT ts, c FROM prices WHERE instrument_id = ? AND timeframe = 'M1'
+         ORDER BY ts DESC LIMIT 1`
+      )
+      .get(instId);
+    if (!latest) return res.json({ instrument: symbol, price: null, signals: [] });
+
+    const price = latest.c;
+    const adrInfo = computeAdr(instId);
+    const adr = adrInfo?.adr ?? null;
+    // "Approaching" band: 15% of ADR (fallback to 0.2% of price if no ADR yet).
+    const nearBand = adr != null ? adr * 0.15 : price * 0.002;
+
+    const signals = [];
+    const clock = sessionClock();
+
+    // 1) Session clock — live session or imminent open.
+    if (clock.live !== 'off') {
+      signals.push({
+        severity: 'info', kind: 'session',
+        title: `${clock.live} session live`,
+        detail: clock.live === 'London'
+          ? `${clock.minsIntoLondon}m into London`
+          : `${clock.minsIntoNY}m into New York`,
+      });
+    }
+    for (const [name, mins] of [['London', clock.minsToLondon], ['New York', clock.minsToNY]]) {
+      if (mins > 0 && mins <= 30) {
+        signals.push({
+          severity: 'warn', kind: 'session-open',
+          title: `${name} open in ${mins}m`,
+          detail: 'Session open — expect a liquidity grab.',
+        });
+      }
+    }
+
+    // 2) Proximity to hunt levels (session levels + PDH/PDL).
+    const levels = huntLevels(instId);
+    for (const lv of levels) {
+      const dist = Math.abs(price - lv.price);
+      if (dist <= nearBand) {
+        signals.push({
+          severity: 'hot', kind: 'level-approach',
+          title: `Approaching ${lv.label}`,
+          detail: `${round(dist)} away (${price > lv.price ? 'above' : 'below'} @ ${lv.price}) — watch for a sweep.`,
+          level: lv.label, price: lv.price, distance: round(dist),
+        });
+      }
+    }
+
+    // 3) ADR exhaustion — mean-reversion risk / poor breakout continuation.
+    if (adr != null && adrInfo.today) {
+      const usedPct = (adrInfo.today.h - adrInfo.today.l) / adr;
+      if (usedPct >= 0.9) {
+        signals.push({
+          severity: 'warn', kind: 'adr-exhausted',
+          title: `ADR ${Math.round(usedPct * 100)}% used`,
+          detail: 'Daily range near exhausted — favour fades, avoid fresh breakout entries.',
+        });
+      }
+    }
+
+    // 4) Fresh sweeps in the last 20 minutes — the wick-fill entry trigger.
+    const sweepFrom = latest.ts - 20 * 60000;
+    const recentM1 = marketDb
+      .prepare(
+        `SELECT ts, o, h, l, c FROM prices WHERE instrument_id = ? AND timeframe = 'M1'
+         AND ts >= ? ORDER BY ts`
+      )
+      .all(instId, sweepFrom);
+    for (const b of recentM1) {
+      for (const lv of levels) {
+        const bearish = b.h > lv.price && b.c < lv.price && b.o < lv.price;
+        const bullish = b.l < lv.price && b.c > lv.price && b.o > lv.price;
+        if (!bearish && !bullish) continue;
+        const agoMin = Math.round((latest.ts - b.ts) / 60000);
+        signals.push({
+          severity: 'hot', kind: 'sweep',
+          title: `${lv.label} swept ${agoMin}m ago`,
+          detail: bullish
+            ? `Bullish sweep — wick-fill long setup off ${lv.label}.`
+            : `Bearish sweep — wick-fill short setup off ${lv.label}.`,
+          level: lv.label, price: lv.price,
+          direction: bullish ? 'bullish' : 'bearish', ts: b.ts,
+        });
+      }
+    }
+
+    // Prioritize: hot > warn > info; within a tier, most recent sweep first.
+    const rank = { hot: 0, warn: 1, info: 2 };
+    signals.sort((a, b) => (rank[a.severity] - rank[b.severity]) || ((b.ts || 0) - (a.ts || 0)));
+
+    res.json({
+      instrument: symbol,
+      price: round(price),
+      adr: adr != null ? round(adr) : null,
+      session: clock.live,
+      signals,
+      freshness: { source: 'oanda', last_ok: latest.ts, status: 'ok' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // t-statistic approximation for significance
 function tStat(returns) {
   const n = returns.length;
