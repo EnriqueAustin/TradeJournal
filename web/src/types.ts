@@ -824,7 +824,33 @@ export interface SeasonalityResponse {
 export interface KeyLevel {
   label: string;
   price: number;
-  type: 'pivot' | 'round' | 'structure' | 'session';
+  type: 'pivot' | 'round' | 'structure' | 'session' | 'liquidity';
+}
+export interface StructureShift {
+  type: 'BOS' | 'CHoCH';
+  direction: 'bullish' | 'bearish';
+  ts: number;
+  level: number;
+}
+export interface StructureSwing {
+  ts: number;
+  price: number;
+  type: 'H' | 'L';
+}
+export interface EqualPool {
+  price: number;
+  count: number;
+  lastTs: number;
+}
+export interface StructureResponse {
+  instrument: string;
+  tf: string;
+  bias: 'bullish' | 'bearish' | 'neutral';
+  shift: StructureShift | null;
+  swings: StructureSwing[];
+  equalHighs: EqualPool[];
+  equalLows: EqualPool[];
+  freshness?: Freshness;
 }
 export interface AdrResponse {
   instrument: string;
@@ -872,6 +898,7 @@ export interface RadarResponse {
   price: number | null;
   adr: number | null;
   session: string;
+  bias?: 'bullish' | 'bearish' | 'neutral';
   signals: RadarSignal[];
   freshness?: Freshness;
 }
