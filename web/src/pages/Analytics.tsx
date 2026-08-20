@@ -5,8 +5,83 @@ import { useApi, filterKey } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
 import HoldTimeBars from '../components/HoldTimeBars';
 import OptimizerHeatmap from '../components/OptimizerHeatmap';
-import { formatNumber, formatPct, formatDuration } from '../utils/format';
-import type { ExcursionStats } from '../types';
+import { formatNumber, formatPct, formatDuration, formatMoney, signClass } from '../utils/format';
+import type { ExcursionStats, WickEdgeStats, WickEdgeRow } from '../types';
+
+// Pretty labels for the wick-edge grouping keys.
+const WICK_KEY_LABELS: Record<string, string> = {
+  asian_high: 'Asian High', asian_low: 'Asian Low',
+  london_high: 'London High', london_low: 'London Low',
+  pdh: 'Prev Day High', pdl: 'Prev Day Low', ny_open: 'NY Open',
+  equal_highs: 'Equal Highs', equal_lows: 'Equal Lows', other: 'Other',
+  asia: 'Asia', london: 'London', ny: 'New York', off: 'Off-hours',
+  clean: 'Clean sweep', fakeout: 'Faked out first', unset: 'Untagged',
+};
+
+function WickEdgeTable({ title, rows }: { title: string; rows: WickEdgeRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        {title}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[420px] text-sm">
+          <thead>
+            <tr className="border-b border-slate-800 text-left text-[11px] uppercase tracking-wide text-slate-500">
+              <th className="py-1.5 pr-3 font-medium">Group</th>
+              <th className="py-1.5 px-3 text-right font-medium">N</th>
+              <th className="py-1.5 px-3 text-right font-medium">Win%</th>
+              <th className="py-1.5 px-3 text-right font-medium">Net P&L</th>
+              <th className="py-1.5 px-3 text-right font-medium">Avg R</th>
+              <th className="py-1.5 pl-3 text-right font-medium">Avg Fill%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key} className="border-b border-slate-800/60">
+                <td className="py-1.5 pr-3 text-slate-200">{WICK_KEY_LABELS[r.key] ?? r.key}</td>
+                <td className="num py-1.5 px-3 text-right text-slate-400">{r.count}</td>
+                <td className="num py-1.5 px-3 text-right text-slate-300">{formatPct(r.win_rate)}</td>
+                <td className={`num py-1.5 px-3 text-right font-semibold ${signClass(r.net_pnl)}`}>
+                  {formatMoney(r.net_pnl)}
+                </td>
+                <td className={`num py-1.5 px-3 text-right ${r.avg_r == null ? 'text-slate-500' : signClass(r.avg_r)}`}>
+                  {r.avg_r == null ? '—' : formatNumber(r.avg_r, 2)}
+                </td>
+                <td className="num py-1.5 pl-3 text-right text-slate-400">
+                  {r.avg_fill == null ? '—' : `${formatNumber(r.avg_fill, 0)}%`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function WickEdgePanel({ data }: { data: WickEdgeStats }) {
+  if (data.total === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        No wick-tagged trades match the filters. Tag a trade's liquidity swept,
+        session and wick fill on its detail page (Wick-Fill Setup) to build this.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-5">
+      <WickEdgeTable title="By liquidity swept" rows={data.by_level} />
+      <WickEdgeTable title="By session" rows={data.by_session} />
+      <WickEdgeTable title="Clean vs fakeout" rows={data.by_fakeout} />
+      <p className="text-xs text-slate-500">
+        {data.total} tagged trade{data.total === 1 ? '' : 's'}. Which sweep, session
+        and fill actually pays — the edge inside the setup.
+      </p>
+    </div>
+  );
+}
 
 function SectionCard({
   title,
@@ -107,6 +182,7 @@ export default function Analytics() {
   const key = filterKey(filters);
   const holdtime = useApi(() => api.getHoldtime(filters), [key]);
   const excursion = useApi(() => api.getExcursion(filters), [key]);
+  const wickEdge = useApi(() => api.getWickEdge(filters), [key]);
   const [slGrid, setSlGrid] = useState('0.5,0.75,1,1.25,1.5,2');
   const [tpGrid, setTpGrid] = useState('1,1.5,2,2.5,3,4');
   const optimizer = useApi(
@@ -164,6 +240,17 @@ export default function Analytics() {
           loadingLabel="Loading excursion…"
         >
           {excursion.data && <ExcursionPanel e={excursion.data} />}
+        </AsyncBoundary>
+      </SectionCard>
+
+      <SectionCard title="Wick-Fill Edge">
+        <AsyncBoundary
+          loading={wickEdge.loading}
+          error={wickEdge.error}
+          onRetry={wickEdge.reload}
+          loadingLabel="Loading wick edge…"
+        >
+          {wickEdge.data && <WickEdgePanel data={wickEdge.data} />}
         </AsyncBoundary>
       </SectionCard>
 

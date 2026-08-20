@@ -140,6 +140,14 @@ export const api = {
     }),
   removeTag: (id: number, tagId: number) =>
     request<void>(`/trades/${id}/tags/${tagId}`, { method: 'DELETE' }),
+  saveWick: (
+    id: number,
+    body: Partial<Pick<import('../types').WickTag, 'swept_level' | 'strat_session' | 'fill_pct' | 'fakeout'>>
+  ) =>
+    request<{ trade_id: number; wick: import('../types').WickTag | null }>(`/trades/${id}/wick`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
   addNote: (id: number, body: string, rules_followed: 0 | 1) =>
     request<Note>(`/trades/${id}/notes`, {
       method: 'POST',
@@ -204,6 +212,8 @@ export const api = {
   getStreaks: (f: Filters) =>
     request<StreakStats>(`/stats/streaks${filterParams(f)}`),
   getTilt: (f: Filters) => request<TiltStats>(`/stats/tilt${filterParams(f)}`),
+  getWickEdge: (f: Filters) =>
+    request<import('../types').WickEdgeStats>(`/stats/wick${filterParams(f)}`),
   getOptimizer: (f: Filters, sl?: string, tp?: string) =>
     request<OptimizerStats>(
       `/stats/optimizer${filterParams(f, { sl, tp })}`
