@@ -13,6 +13,7 @@ import {
 import type { Bar } from '../types';
 import { DISPLAY_TZ } from '../utils/format';
 import { PositionBoxPrimitive } from './positionBoxPrimitive';
+import { KillZonePrimitive, buildKillZones } from './killZonePrimitive';
 import {
   DrawingsPrimitive,
   makeCoords,
@@ -74,6 +75,7 @@ export default function CandleChart({
   onDrawingSelect,
   onClickPrice,
   onContextPrice,
+  showKillZones = false,
 }: {
   bars: Bar[];
   /** number of leading bars to show (for progressive replay); default all */
@@ -102,6 +104,8 @@ export default function CandleChart({
   /** right-clicking yields the price at cursor y plus container-relative x/y
    *  (for positioning a context menu) — used for right-click order execution */
   onContextPrice?: (price: number, pos: { x: number; y: number }) => void;
+  /** shade the London/NY kill-zone windows behind the candles */
+  showKillZones?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -119,6 +123,9 @@ export default function CandleChart({
   const boxRef = useRef<PositionBox | null | undefined>(positionBox);
   boxRef.current = positionBox;
   const boxPrimRef = useRef<PositionBoxPrimitive | null>(null);
+  const kzPrimRef = useRef<KillZonePrimitive | null>(null);
+  const showKzRef = useRef(showKillZones);
+  showKzRef.current = showKillZones;
   // Position-box readout is shown only while the box is "selected" (clicked),
   // TradingView-style, so the chart stays clean until you ask for the numbers.
   const [boxSelected, setBoxSelected] = useState(false);
@@ -178,6 +185,11 @@ export default function CandleChart({
     series.attachPrimitive(boxPrim);
     boxPrim.setBox(boxRef.current ?? null);
     boxPrimRef.current = boxPrim;
+
+    // Kill-zone shading (painted below the candles).
+    const kzPrim = new KillZonePrimitive();
+    series.attachPrimitive(kzPrim);
+    kzPrimRef.current = kzPrim;
 
     // Drawings layer (trendlines / fib / rectangles …).
     const drawPrim = new DrawingsPrimitive();
@@ -255,6 +267,7 @@ export default function CandleChart({
       seriesRef.current = null;
       linesRef.current = [];
       boxPrimRef.current = null;
+      kzPrimRef.current = null;
       drawPrimRef.current = null;
     };
     // height is intentionally fixed for the lifetime of the chart
@@ -350,6 +363,21 @@ export default function CandleChart({
       );
     }
   }, [priceLines]);
+
+  // Kill-zone bands: build the London/NY windows spanning the loaded bars, or
+  // clear them when disabled.
+  useEffect(() => {
+    const kz = kzPrimRef.current;
+    if (!kz) return;
+    if (!showKillZones || bars.length === 0) {
+      kz.setZones([]);
+      return;
+    }
+    const times = bars.map((b) => Math.floor(new Date(b.t).getTime() / 1000));
+    const from = Math.min(...times);
+    const to = Math.max(...times);
+    kz.setZones(buildKillZones(from, to));
+  }, [bars, showKillZones]);
 
   // Feed the canvas position-box primitive; it redraws with the chart itself.
   useEffect(() => {

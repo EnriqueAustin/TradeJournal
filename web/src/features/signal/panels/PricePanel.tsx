@@ -239,6 +239,13 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
   const [explaining, setExplaining] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [hiddenLevels, setHiddenLevels] = useState<Set<string>>(loadHiddenLevels);
+  const [showKZ, setShowKZ] = useState<boolean>(() => {
+    try { return localStorage.getItem('sig-killzones') === '1'; } catch { return false; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('sig-killzones', showKZ ? '1' : '0'); } catch { /* ignore */ }
+  }, [showKZ]);
 
   // Persist which levels are hidden across sessions.
   useEffect(() => {
@@ -416,6 +423,14 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
             />
           )}
           <button
+            className={`sig-tab${showKZ ? ' is-active' : ''}`}
+            onClick={() => setShowKZ((v) => !v)}
+            title="Shade London / NY kill zones"
+            style={{ fontSize: '0.6rem', color: showKZ ? 'var(--sig-amber)' : undefined }}
+          >
+            KZ
+          </button>
+          <button
             className="sig-tab"
             onClick={() => setFullscreen((v) => !v)}
             title={fullscreen ? 'Exit full screen (Esc)' : 'Full screen'}
@@ -452,7 +467,7 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
           {/* Remount per instrument so the price scale auto-fits the new symbol
               instead of staying pinned to the previous symbol's price range.
               height=0 → the chart fills the wrapper (autoSize) in fullscreen. */}
-          <CandleChart key={instrument} bars={bars} height={fullscreen ? 0 : 340} markers={chartMarkers} priceLines={priceLines} />
+          <CandleChart key={instrument} bars={bars} height={fullscreen ? 0 : 340} markers={chartMarkers} priceLines={priceLines} showKillZones={showKZ} />
         </div>
       )}
       {!loading && !error && bars.length === 0 && (
