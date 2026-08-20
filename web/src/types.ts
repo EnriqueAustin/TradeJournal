@@ -149,6 +149,17 @@ export type WickLevel =
   | 'asian_high' | 'asian_low' | 'london_high' | 'london_low'
   | 'pdh' | 'pdl' | 'ny_open' | 'equal_highs' | 'equal_lows' | 'other';
 export type WickSession = 'asia' | 'london' | 'ny' | 'off';
+export interface WickSuggestResponse {
+  trade_id: number;
+  suggestion: {
+    swept_level: WickLevel | null;
+    strat_session: WickSession | null;
+    matched: boolean;
+  };
+  detail?: { level: string; price: number; entry: number; direction: string } | null;
+  candidates?: { level: string; price: number }[];
+  reason?: string;
+}
 
 export interface WickTag {
   trade_id: number;

@@ -432,6 +432,8 @@ export const api = {
     request<import('../types').RadarResponse>(`/research/radar/${instrument}`),
   getStructure: (instrument: string, tf?: string) =>
     request<import('../types').StructureResponse>(`/research/structure/${instrument}${tf ? `?tf=${tf}` : ''}`),
+  suggestWick: (id: number) =>
+    request<import('../types').WickSuggestResponse>(`/trades/${id}/wick/suggest`),
   getSeasonality: (instrument: string, granularity?: string) => {
     const q = granularity ? `?granularity=${granularity}` : '';
     return request<import('../types').SeasonalityResponse>(`/research/seasonality/${instrument}${q}`);
