@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { api } from '../../../api/client';
 import { useApi, filterKey } from '../../../hooks/useApi';
 import type { ResearchPriceResponse, EventMarker, ExplainMoveResponse, LevelsResponse } from '../../../types';
@@ -17,6 +17,127 @@ const TF_LABELS: Record<TF, string> = {
 
 // S5 (5-second) is ingested only for the focus instrument (gold).
 const S5_INSTRUMENTS = new Set(['XAUUSD']);
+
+// Colour per level type — magenta for intraday liquidity pools, dim for prior
+// day/week structure. Shared by the chart lines and the level-picker swatches.
+const LEVEL_COLOR: Record<string, string> = {
+  session: '#c07bff',
+  structure: '#7d8f88',
+};
+const DRAWABLE_TYPES = new Set(['session', 'structure']);
+const HIDDEN_LEVELS_KEY = 'sig-hidden-levels';
+
+function loadHiddenLevels(): Set<string> {
+  try {
+    const raw = localStorage.getItem(HIDDEN_LEVELS_KEY);
+    if (raw) return new Set(JSON.parse(raw) as string[]);
+  } catch { /* ignore */ }
+  return new Set();
+}
+
+// Dropdown to choose which key levels are drawn on the chart. A checkbox per
+// level (grouped session vs structure) plus All/None; the choice persists.
+function LevelsMenu({
+  levels,
+  hidden,
+  onToggle,
+  onSetAll,
+}: {
+  levels: { label: string; type: string }[];
+  hidden: Set<string>;
+  onToggle: (label: string) => void;
+  onSetAll: (hideAll: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const shownCount = levels.filter((l) => !hidden.has(l.label)).length;
+  const groups: [string, typeof levels][] = [
+    ['Session', levels.filter((l) => l.type === 'session')],
+    ['Structure', levels.filter((l) => l.type === 'structure')],
+  ];
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        className="sig-tab"
+        onClick={() => setOpen((v) => !v)}
+        title="Choose which levels to show"
+        style={{ fontSize: '0.6rem' }}
+      >
+        LVLS {shownCount}/{levels.length} ▾
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 210,
+            minWidth: 160, background: 'var(--sig-panel-hd)',
+            border: '1px solid var(--sig-border)', borderRadius: 4,
+            padding: 6, boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
+          }}
+        >
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+            <button className="sig-tab" style={{ flex: 1, fontSize: '0.58rem' }} onClick={() => onSetAll(false)}>
+              All
+            </button>
+            <button className="sig-tab" style={{ flex: 1, fontSize: '0.58rem' }} onClick={() => onSetAll(true)}>
+              None
+            </button>
+          </div>
+          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+            {groups.map(([name, items]) =>
+              items.length === 0 ? null : (
+                <div key={name} style={{ marginBottom: 4 }}>
+                  <div
+                    style={{
+                      fontSize: '0.55rem', textTransform: 'uppercase', letterSpacing: '0.06em',
+                      color: 'var(--sig-muted)', padding: '2px 2px',
+                    }}
+                  >
+                    {name}
+                  </div>
+                  {items.map((l) => (
+                    <label
+                      key={l.label}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '3px 2px', fontSize: '0.68rem', cursor: 'pointer',
+                        color: 'var(--sig-text)',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!hidden.has(l.label)}
+                        onChange={() => onToggle(l.label)}
+                        style={{ accentColor: LEVEL_COLOR[l.type] }}
+                      />
+                      <span
+                        style={{
+                          width: 10, height: 2, background: LEVEL_COLOR[l.type],
+                          display: 'inline-block', flexShrink: 0,
+                        }}
+                      />
+                      {l.label}
+                    </label>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface PricePanelProps {
   instrument: string;
@@ -115,6 +236,14 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
   const [explainData, setExplainData] = useState<ExplainMoveResponse | null>(null);
   const [explaining, setExplaining] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [hiddenLevels, setHiddenLevels] = useState<Set<string>>(loadHiddenLevels);
+
+  // Persist which levels are hidden across sessions.
+  useEffect(() => {
+    try {
+      localStorage.setItem(HIDDEN_LEVELS_KEY, JSON.stringify([...hiddenLevels]));
+    } catch { /* ignore */ }
+  }, [hiddenLevels]);
 
   // Esc exits fullscreen.
   useEffect(() => {
@@ -147,16 +276,35 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
     [instrument]
   );
 
-  const priceLines: PriceLineSpec[] = useMemo(() => {
-    if (!levelsData?.levels?.length) return [];
-    const COLOR: Record<string, string> = {
-      session: '#c07bff', // magenta — intraday liquidity pools
-      structure: '#7d8f88', // dim — prior day / week H-L
-    };
-    return levelsData.levels
-      .filter((l) => l.type === 'session' || l.type === 'structure')
-      .map((l) => ({ price: l.price, color: COLOR[l.type], title: l.label }));
-  }, [levelsData]);
+  // All levels the chart can draw (session pools + prior day/week structure).
+  const drawableLevels = useMemo(
+    () => (levelsData?.levels ?? []).filter((l) => DRAWABLE_TYPES.has(l.type)),
+    [levelsData]
+  );
+
+  const priceLines: PriceLineSpec[] = useMemo(
+    () =>
+      drawableLevels
+        .filter((l) => !hiddenLevels.has(l.label))
+        .map((l) => ({ price: l.price, color: LEVEL_COLOR[l.type], title: l.label })),
+    [drawableLevels, hiddenLevels]
+  );
+
+  const toggleLevel = useCallback((label: string) => {
+    setHiddenLevels((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }, []);
+
+  const setAllLevels = useCallback(
+    (hideAll: boolean) => {
+      setHiddenLevels(hideAll ? new Set(drawableLevels.map((l) => l.label)) : new Set());
+    },
+    [drawableLevels]
+  );
 
   const chartMarkers: ChartMarker[] = useMemo(() => {
     if (!markersData?.markers?.length) return [];
@@ -257,6 +405,14 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
           <button className="sig-tab" onClick={reload} title="Refresh">
             ⟳
           </button>
+          {drawableLevels.length > 0 && (
+            <LevelsMenu
+              levels={drawableLevels}
+              hidden={hiddenLevels}
+              onToggle={toggleLevel}
+              onSetAll={setAllLevels}
+            />
+          )}
           <button
             className="sig-tab"
             onClick={() => setFullscreen((v) => !v)}
