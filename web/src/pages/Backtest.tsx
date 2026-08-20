@@ -31,7 +31,7 @@ export default function Backtest() {
 
   const [series, setSeries] = useState<BarSeriesInfo[]>([]);
   const [instrument, setInstrument] = useState('XAUUSD');
-  const [tf, setTf] = useState('M1');
+  const [tf, setTf] = useState('M15');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [setupId, setSetupId] = useState('');
@@ -78,7 +78,7 @@ export default function Backtest() {
   const tfs = useMemo(() => {
     const set = new Set<string>(['S5', 'M1']);
     for (const s of series) set.add(s.tf);
-    const ORDER = ['S5', 'S15', 'S30', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
+    const ORDER = ['S5', 'S15', 'S30', 'M1', 'M5', 'M15', 'M30', 'H1', 'H2', 'H4', 'D1'];
     return [...set].sort(
       (a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99)
     );

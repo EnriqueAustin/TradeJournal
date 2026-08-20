@@ -370,7 +370,9 @@ function TradeBody({
   );
 }
 
-const CHART_TFS = ['M5', 'M15', 'M30', 'H1'];
+// Entry TFs (15m/30m) plus the intraday confirmation TFs (1h/2h/4h) the strategy
+// leans on; 5m is the scalp floor. Higher confirmations aggregate from stored M1.
+const CHART_TFS = ['M5', 'M15', 'M30', 'H1', 'H2', 'H4'];
 
 function TradeChartCard({
   trade,

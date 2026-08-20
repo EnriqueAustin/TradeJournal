@@ -7,12 +7,12 @@ import CandleChart, { type ChartMarker, type PriceLineSpec } from '../../../comp
 import type { UTCTimestamp } from 'lightweight-charts';
 import { Panel, StatusBadge, TickerCell } from '../terminal';
 
-const TIMEFRAMES = ['S5', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const;
+const TIMEFRAMES = ['S5', 'M1', 'M5', 'M15', 'M30', 'H1', 'H2', 'H4', 'D1'] as const;
 type TF = (typeof TIMEFRAMES)[number];
 
 const TF_LABELS: Record<TF, string> = {
   S5: '5s', M1: '1m', M5: '5m', M15: '15m', M30: '30m',
-  H1: '1H', H4: '4H', D1: '1D',
+  H1: '1H', H2: '2H', H4: '4H', D1: '1D',
 };
 
 // S5 (5-second) is ingested only for the focus instrument (gold).
