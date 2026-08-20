@@ -11,10 +11,13 @@ import os
 
 from fastapi import FastAPI
 
-APP_VERSION = "0.1.0"
+from app.routers import drivers as drivers_router
+
+APP_VERSION = "0.2.0"
 MARKET_DB_PATH = os.environ.get("MARKET_DB_PATH", "/data/market.db")
 
 app = FastAPI(title="Signal Analytics", version=APP_VERSION)
+app.include_router(drivers_router.router)
 
 
 @app.get("/health")

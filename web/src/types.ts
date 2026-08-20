@@ -687,14 +687,20 @@ export interface DriverScore {
   name: string;
   value: number | null;
   zScore: number | null;
+  zChange: number | null;         // z-score of the latest change (Python compute)
   signal: 'bullish' | 'neutral' | 'bearish';
-  correlation: number | null;
+  correlation: number | null;     // returns-based (Python) or level-based (Node fallback)
+  beta: number | null;            // OLS: gold return per unit driver change
+  r2: number | null;              // regression fit
+  pValue: number | null;          // significance of the correlation
+  contribution: number | null;    // beta × latest driver change, in % gold push
   relationship: 'direct' | 'inverse';
 }
 export interface DriversResponse {
   instrument: string;
   drivers: DriverScore[];
-  composite: { score: number; label: 'tailwind' | 'neutral' | 'headwind' };
+  composite: { score: number; label: 'tailwind' | 'neutral' | 'headwind'; confidence: number | null };
+  engine?: 'python' | 'node';     // which compute engine produced the scores
   freshness: Freshness;
 }
 

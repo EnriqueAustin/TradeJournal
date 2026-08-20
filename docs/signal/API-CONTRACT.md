@@ -25,7 +25,7 @@ Two surfaces: **Node** (`/api/research/*`, client-facing, also serves cached Pyt
 | GET | `/api/research/rates` | S2.2 | **built** — Rates board (18 series sectioned: nominal/real/breakevens/spreads/policy) + yield curve points. |
 | GET | `/api/research/econ` | S2.3 | **built** — Econ tracker: CPI/PCE/PAYEMS/UNRATE with value/MoM/YoY + 12-point sparkline. |
 | GET | `/api/research/regime` | S2.4 | **built** — Risk regime label (risk-on/neutral/risk-off/crisis) + composite score + factor breakdown. |
-| GET | `/api/research/drivers/:instrument` | S3.1 | **built** — 7 drivers with z-scores, rolling correlation, signal, composite tailwind/headwind. |
+| GET | `/api/research/drivers/:instrument` | S3.1 | **built + Python compute** — 7 drivers with z-score (level), z-change, returns-based correlation + p-value, OLS β + R², contribution (β·Δ), signal; corr-weighted composite tailwind/headwind + confidence. `engine:'python'`, falls back to `'node'` stub if analytics offline. Cached in `analytics_cache` by data-version. |
 | GET | `/api/research/overlay/xauusd/realyield?limit=` | S3.2 | **built** — Gold D1 close + DFII10 + 60d rolling correlation. |
 | GET | `/api/research/cot/gold` | S3.3 | **built** — COT net MM, %long, WoW Δ, 1Y/3Y percentile, extreme flag + 52-week history. |
 | POST | `/api/research/ingest/cftc` | S3.3 | **built** — Trigger CFTC disaggregated report ingest (gold rows). |
@@ -58,7 +58,7 @@ Two surfaces: **Node** (`/api/research/*`, client-facing, also serves cached Pyt
 | POST | `/compute/contribution` | S1.2 | weight×move → index points per member. |
 | POST | `/compute/breadth` | S1.3 | %>MA, A/D, new H/L, thrust. |
 | POST | `/compute/expected-move` | S1.5 | daily/weekly bands from IV; IV/RV. |
-| POST | `/compute/zscores` | S3.1 | z-scores + percentiles + rolling corr per driver. |
+| POST | `/compute/drivers` | S3.1 | **built** — per-driver z-score/z-change, returns-based corr + p-value, OLS β/R², β·Δ contribution, corr-weighted composite + confidence. (Was planned as `/compute/zscores`.) |
 | POST | `/compute/fed-probability` | S2.2 | implied hike/hold/cut by meeting. |
 | POST | `/compute/surprise` | S2.3 | actual−consensus z-scored. |
 | POST | `/compute/regime` | S2.4 | composite risk-on/off label. |

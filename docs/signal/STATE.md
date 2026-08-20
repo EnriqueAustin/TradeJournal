@@ -3,10 +3,10 @@
 > Read this first every session. Update it last.
 
 ## Status
-- **Last completed:** **Epic 7 — Journal Fusion (S7.1–S7.3)** ✓ (2026-08-17)
-- **Next session:** **Epic 8 — Alerts, Backtesting, Launchpad, Polish**
+- **Last completed:** **S3.1b — Driver scorecard real Python quant** ✓ (2026-08-20). First real Python-compute promotion (was Node stub). See BUILD-LOG.
+- **Next session:** **Epic 8 — Alerts, Backtesting, Launchpad, Polish** (or continue promoting Node stubs → Python: event-reaction S4.2).
 - **Current epic:** Epic 7 — Journal Fusion ✅ COMPLETE
-- **Branch:** `bloomberg-terminal`
+- **Branch:** `gold-driver-compute` → merged to `main`
 
 ## In-progress notes
 - **QA pass on Epic 0–2 done** (2026-08-13). 4 bugs fixed. See BUILD-LOG QA entry.
@@ -26,7 +26,7 @@
   - **S4.3:** Event intelligence — upcoming events risk level (clear/approaching/imminent), chart event markers on PricePanel (arrowUp markers below candles)
 - **Docker WS fix** (pre-Epic 4): nginx.conf `/ws/` proxy + LiveTicker same-origin WS URL in production
 - Data ingestors need manual trigger: `POST /ingest/fred`, `/ingest/cboe`, `/ingest/cftc`, `/ingest/etf`, `/ingest/calendar`. Scheduled refresh deferred.
-- Python compute deferred for: Fed rate probability (S2.2), surprise z-scores (S2.3), regime composite (S2.4), driver z-scores (S3.1), event-reaction (S4.2). Node stubs serve same API shape.
+- Python compute deferred for: Fed rate probability (S2.2), surprise z-scores (S2.3), regime composite (S2.4), event-reaction (S4.2). Node stubs serve same API shape. **Driver z-scores (S3.1) now DONE in Python** — `POST /compute/drivers`, real returns-corr + OLS β/R²/p-value + β·Δ contribution + corr-weighted composite; Node falls back to stub if analytics offline. First live use of `analyticsClient.compute()` + `analytics_cache`. `requirements.txt` now includes `scipy`.
 - **Epic 5 complete** (S5.1–S5.3). Correlation, regression, comparison & positioning:
   - **S5.1:** CorrelationPanel (heatmap, 20/60/120/252d windows), RegressionPanel (scatter+OLS), ComparePanel (z-score/% overlay), SpreadPanel (ratio/diff + σ bands). New helpers: getDailyValues, alignByDay, pearson. WTICO_USD added to instrument universe.
   - **S5.2:** Regime-conditional correlation (VIX/HY regime filter on matrix), PositioningPanel (consolidated COT+ETF+contrarian).
