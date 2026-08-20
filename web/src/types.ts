@@ -796,6 +796,29 @@ export interface KeyLevel {
   price: number;
   type: 'pivot' | 'round' | 'structure' | 'session';
 }
+export interface AdrResponse {
+  instrument: string;
+  adr: number | null;
+  samples: number;
+  today?: { open: number; high: number; low: number; range: number };
+  pctUsed?: number | null;
+  projectedHigh?: number;
+  projectedLow?: number;
+  freshness?: Freshness;
+}
+export interface LiquiditySweep {
+  ts: number;
+  level: string;
+  price: number;
+  direction: 'bullish' | 'bearish';
+  wick: number;
+  rejection: number;
+}
+export interface SweepsResponse {
+  instrument: string;
+  sweeps: LiquiditySweep[];
+  freshness?: Freshness;
+}
 export interface LevelsResponse {
   instrument: string;
   currentPrice: number;

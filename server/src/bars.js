@@ -2,6 +2,8 @@ import { parseBarTime, normalizeInstrument } from './util.js';
 import { db } from './db.js';
 
 // Minutes per timeframe. Used for aggregation + choosing a base series.
+// Sub-minute timeframes are intentionally absent here (they don't divide into
+// whole minutes) — use TF_MS / tfMs() for anything that needs sub-minute spans.
 export const TF_MINUTES = {
   M1: 1,
   M5: 5,
@@ -14,6 +16,31 @@ export const TF_MINUTES = {
 
 export function tfMinutes(tf) {
   return TF_MINUTES[tf] ?? null;
+}
+
+// Milliseconds per timeframe, including the sub-minute (S5/S15/S30) candles the
+// finest OANDA feed provides. This is the canonical span map — prefer it over
+// TF_MINUTES wherever a duration is needed, so S5 is handled everywhere.
+export const TF_MS = {
+  S5: 5000,
+  S15: 15000,
+  S30: 30000,
+  M1: 60000,
+  M5: 300000,
+  M15: 900000,
+  M30: 1800000,
+  H1: 3600000,
+  H4: 14400000,
+  D1: 86400000,
+};
+
+export function tfMs(tf) {
+  return TF_MS[tf] ?? null;
+}
+
+// Is `tf` a timeframe we understand (minute or sub-minute)?
+export function isKnownTf(tf) {
+  return tf in TF_MS;
 }
 
 // Roll ascending base bars up into `tf` buckets (open=first, close=last,

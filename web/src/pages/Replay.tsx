@@ -18,9 +18,14 @@ const SPEEDS = [
   { label: '4×', ms: 60 },
 ];
 
-// Timeframes shown in the grid + selectable as the per-trade primary.
-const GRID_TFS = ['M5', 'M15', 'M30', 'H1'];
-const TF_MIN: Record<string, number> = { M5: 5, M15: 15, M30: 30, H1: 60 };
+// Timeframes requested for replay — from the finest OANDA candle (S5, gold
+// only) up to H1. The driver (timeline) uses the finest that actually has bars;
+// the grid shows the four finest available.
+const REQUEST_TFS = ['S5', 'M1', 'M5', 'M15', 'M30', 'H1'];
+const GRID_MAX = 4;
+const TF_SEC: Record<string, number> = {
+  S5: 5, M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600,
+};
 
 export default function Replay() {
   const { filters } = useFilters();
@@ -42,7 +47,7 @@ export default function Replay() {
   }, [tradeId, trades, setParams]);
 
   const replay = useApi<ReplayResponse>(
-    () => api.getReplay(tradeId as number, GRID_TFS),
+    () => api.getReplay(tradeId as number, REQUEST_TFS),
     [tradeId]
   );
 
@@ -115,14 +120,23 @@ function ReplayView({
   const frames = data.frames;
   const hasAnyBars = frames.some((f) => f.bars.length > 0);
 
+  // Frames that actually have bars, finest first.
+  const framesWithBars = useMemo(
+    () =>
+      frames
+        .filter((f) => f.bars.length > 0)
+        .sort((a, b) => (TF_SEC[a.tf] ?? 1e9) - (TF_SEC[b.tf] ?? 1e9)),
+    [frames]
+  );
+
   // Driver = smallest TF that actually has bars — its bars define the timeline.
-  const driver: ReplayFrame | null = useMemo(() => {
-    const withBars = frames.filter((f) => f.bars.length > 0);
-    if (withBars.length === 0) return null;
-    return withBars.reduce((a, b) =>
-      (TF_MIN[a.tf] ?? 1e9) <= (TF_MIN[b.tf] ?? 1e9) ? a : b
-    );
-  }, [frames]);
+  const driver: ReplayFrame | null = framesWithBars[0] ?? null;
+
+  // TFs the user can pick as the single-view primary (only those with bars).
+  const primaryTfs = useMemo(
+    () => framesWithBars.map((f) => f.tf),
+    [framesWithBars]
+  );
 
   const timeline = useMemo(
     () => (driver ? frameTimes(driver.bars) : []),
@@ -158,15 +172,16 @@ function ReplayView({
     setShowShare(true);
   };
 
-  // Frames shown: all four in grid view, just the primary TF in single view.
+  // Frames shown: the four finest-with-bars in grid view, just the primary TF
+  // in single view.
   const shownFrames = useMemo(() => {
-    if (layout === 'grid') return frames;
+    if (layout === 'grid') return framesWithBars.slice(0, GRID_MAX);
     const primary =
       frames.find((f) => f.tf === data.primary_tf && f.bars.length > 0) ??
       driver ??
       frames.find((f) => f.tf === data.primary_tf);
     return primary ? [primary] : frames;
-  }, [layout, frames, data.primary_tf, driver]);
+  }, [layout, frames, framesWithBars, data.primary_tf, driver]);
 
   useEffect(() => {
     setReveal(entryIdx);
@@ -210,7 +225,7 @@ function ReplayView({
     return (
       <div className="card p-8 text-center text-sm text-slate-500">
         No price bars found for {data.instrument}. Import bars on the Import page
-        (any of {GRID_TFS.join(', ')}, or M1 to auto-aggregate) to enable replay.
+        (any of {REQUEST_TFS.join(', ')}) to enable replay.
       </div>
     );
   }
@@ -227,7 +242,7 @@ function ReplayView({
               <span className="text-[11px] uppercase tracking-wide text-slate-500">
                 Primary
               </span>
-              {GRID_TFS.map((tf) => (
+              {primaryTfs.map((tf) => (
                 <button
                   key={tf}
                   className={`btn px-2 py-0.5 text-xs ${
