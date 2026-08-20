@@ -576,6 +576,109 @@ app.put('/api/trades/:id/wick', express.json(), (req, res) => {
   res.json({ trade_id: id, wick: db.prepare('SELECT * FROM trade_wick WHERE trade_id = ?').get(id) });
 });
 
+// Which strat session an entry hour (UTC) falls in.
+function sessionFromHour(h) {
+  if (h < 7) return 'asia';
+  if (h < 13) return 'london';
+  if (h < 21) return 'ny';
+  return 'off';
+}
+
+// GET /api/trades/:id/wick/suggest — auto-detect the wick-fill setup from the
+// trade's entry context: which liquidity level the entry swept and which session
+// it was in. Closes the research↔journal loop so tagging is one click, not manual.
+// Computes session levels from the journal M1 bars around the entry day and finds
+// the level the entry actually ran (pierced then closed back across) in the
+// direction of the trade. Returns a suggestion for the WickSetup form to prefill.
+app.get('/api/trades/:id/wick/suggest', (req, res) => {
+  const id = Number(req.params.id);
+  const trade = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
+  if (!trade) return res.status(404).json({ error: 'trade not found' });
+
+  const entryTs = Date.parse(trade.entry_time);
+  const entryPrice = trade.entry_price;
+  const dir = trade.direction === 'short' ? 'short' : 'long';
+  const strat_session = Number.isFinite(entryTs)
+    ? sessionFromHour(new Date(entryTs).getUTCHours())
+    : 'off';
+
+  if (!Number.isFinite(entryTs) || entryPrice == null) {
+    return res.json({ trade_id: id, suggestion: { swept_level: null, strat_session, matched: false }, reason: 'no entry time/price' });
+  }
+
+  // Journal M1 bars spanning the prior day (for PDH/PDL) through just after entry.
+  const dayStart = Math.floor(entryTs / 86400000) * 86400000;
+  const all = getBarsForTf(trade.instrument, 'M1').bars;
+  const rows = all
+    .map((b) => ({ ts: Date.parse(b.t), h: b.high, l: b.low, o: b.open, c: b.close }))
+    .filter((b) => Number.isFinite(b.ts) && b.ts >= dayStart - 86400000 && b.ts <= entryTs + 5 * 60000)
+    .sort((a, b) => a.ts - b.ts);
+
+  if (rows.length < 5) {
+    return res.json({ trade_id: id, suggestion: { swept_level: null, strat_session, matched: false }, reason: 'no bars near entry' });
+  }
+
+  const round = (n) => Math.round(n * 100) / 100;
+  const inWin = (b, s, e) => {
+    const hr = new Date(b.ts).getUTCHours();
+    return b.ts >= dayStart && hr >= s && hr < e;
+  };
+  const rangeLevels = (s, e) => {
+    const win = rows.filter((b) => inWin(b, s, e));
+    if (!win.length) return null;
+    return { hi: Math.max(...win.map((b) => b.h)), lo: Math.min(...win.map((b) => b.l)) };
+  };
+
+  // Candidate levels mapped to the wick swept_level enum.
+  const levels = [];
+  const asia = rangeLevels(0, 7);
+  if (asia) { levels.push({ enum: 'asian_high', price: asia.hi }); levels.push({ enum: 'asian_low', price: asia.lo }); }
+  const london = rangeLevels(7, 12);
+  if (london) { levels.push({ enum: 'london_high', price: london.hi }); levels.push({ enum: 'london_low', price: london.lo }); }
+  const nyBar = rows.find((b) => b.ts >= dayStart && new Date(b.ts).getUTCHours() >= 13);
+  if (nyBar) levels.push({ enum: 'ny_open', price: nyBar.o });
+  const prevDay = rows.filter((b) => b.ts < dayStart);
+  if (prevDay.length) {
+    levels.push({ enum: 'pdh', price: Math.max(...prevDay.map((b) => b.h)) });
+    levels.push({ enum: 'pdl', price: Math.min(...prevDay.map((b) => b.l)) });
+  }
+
+  // Sweep window: the 20m before entry through 5m after. A long sweeps a LOW
+  // (pierces below then closes back above); a short sweeps a HIGH.
+  const winBars = rows.filter((b) => b.ts >= entryTs - 20 * 60000 && b.ts <= entryTs + 5 * 60000);
+  // A wick-fill entry sits AT the swept level, so only accept a level within a
+  // small band of the entry (0.5% of price) — this also rejects far-off false
+  // matches when the bar data doesn't line up with the entry.
+  const nearBand = Math.abs(entryPrice) * 0.005;
+  const matches = [];
+  for (const lv of levels) {
+    if (Math.abs(lv.price - entryPrice) > nearBand) continue;
+    for (const b of winBars) {
+      const sweptLow = dir === 'long' && b.l < lv.price && b.c > lv.price;
+      const sweptHigh = dir === 'short' && b.h > lv.price && b.c < lv.price;
+      if (sweptLow || sweptHigh) {
+        matches.push({ ...lv, dist: Math.abs(lv.price - entryPrice), ts: b.ts });
+        break;
+      }
+    }
+  }
+  matches.sort((a, b) => a.dist - b.dist);
+  const best = matches[0] ?? null;
+
+  res.json({
+    trade_id: id,
+    suggestion: {
+      swept_level: best?.enum ?? null,
+      strat_session,
+      matched: !!best,
+    },
+    detail: best
+      ? { level: best.enum, price: round(best.price), entry: entryPrice, direction: dir }
+      : null,
+    candidates: levels.map((l) => ({ level: l.enum, price: round(l.price) })),
+  });
+});
+
 const EDITABLE = new Set([
   'stop_price',
   'target_price',

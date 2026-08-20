@@ -961,6 +961,7 @@ function WickSetupPanel({
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
 
   useEffect(() => {
     setSwept(trade.wick?.swept_level ?? '');
@@ -968,6 +969,31 @@ function WickSetupPanel({
     setFill(trade.wick?.fill_pct != null ? String(trade.wick.fill_pct) : '');
     setFakeout(trade.wick?.fakeout === 1);
   }, [trade.id, trade.wick]);
+
+  // Auto-detect the swept level + session from the trade's entry context and
+  // prefill the form (does not save — you review, then Save).
+  const autoDetect = async () => {
+    setDetecting(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      const r = await api.suggestWick(trade.id);
+      if (r.suggestion.strat_session) setSession(r.suggestion.strat_session);
+      if (r.suggestion.swept_level) setSwept(r.suggestion.swept_level);
+      if (r.suggestion.matched && r.detail) {
+        setMsg(`Detected: swept ${r.detail.level} @ ${r.detail.price}`);
+      } else if (r.suggestion.strat_session) {
+        setMsg(`Session set to ${r.suggestion.strat_session} — no clear sweep at entry, pick the level.`);
+      } else {
+        setMsg('Not enough data near entry to detect.');
+      }
+    } catch (e: any) {
+      setErr(e?.message || 'Detect failed');
+    } finally {
+      setDetecting(false);
+      setTimeout(() => setMsg(null), 4000);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -994,7 +1020,14 @@ function WickSetupPanel({
     <div className="card p-5">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-200">Wick-Fill Setup</h2>
-        <span className="text-xs text-slate-500">Liquidity swept · session · fill · fakeout</span>
+        <button
+          className="btn text-xs"
+          onClick={autoDetect}
+          disabled={detecting}
+          title="Detect swept level & session from the entry"
+        >
+          {detecting ? 'Detecting…' : '✨ Auto-detect'}
+        </button>
       </div>
       <div className="flex flex-wrap items-end gap-3">
         <div>
