@@ -21,10 +21,11 @@ const S5_INSTRUMENTS = new Set(['XAUUSD']);
 // Colour per level type — magenta for intraday liquidity pools, dim for prior
 // day/week structure. Shared by the chart lines and the level-picker swatches.
 const LEVEL_COLOR: Record<string, string> = {
-  session: '#c07bff',
-  structure: '#7d8f88',
+  session: '#c07bff',   // magenta — intraday session pools
+  structure: '#7d8f88', // dim — prior day/week H-L
+  liquidity: '#f0a020', // amber — equal-high/low resting liquidity
 };
-const DRAWABLE_TYPES = new Set(['session', 'structure']);
+const DRAWABLE_TYPES = new Set(['session', 'structure', 'liquidity']);
 const HIDDEN_LEVELS_KEY = 'sig-hidden-levels';
 
 function loadHiddenLevels(): Set<string> {
@@ -63,6 +64,7 @@ function LevelsMenu({
   const shownCount = levels.filter((l) => !hidden.has(l.label)).length;
   const groups: [string, typeof levels][] = [
     ['Session', levels.filter((l) => l.type === 'session')],
+    ['Liquidity', levels.filter((l) => l.type === 'liquidity')],
     ['Structure', levels.filter((l) => l.type === 'structure')],
   ];
 

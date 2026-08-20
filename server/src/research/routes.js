@@ -1062,6 +1062,21 @@ researchRouter.get('/levels/:instrument', (req, res) => {
     // the pivots above are context.
     for (const s of computeSessionLevels(instId)) levels.push(s);
 
+    // Equal highs/lows — clustered swing extremes = resting liquidity pools, the
+    // stops a sweep actually runs. Drawn as their own type so they can be toggled.
+    // Capped to the most-touched pools within ~0.7 ADR of price so the chart stays
+    // readable (the far/old clusters are noise for an intraday session trade).
+    const structure = computeStructure(instId, 'M15');
+    if (structure) {
+      const adrInfo = computeAdr(instId);
+      const nearAdr = (adrInfo?.adr ?? currentPrice * 0.01) * 0.7;
+      const near = (p) => Math.abs(p - currentPrice) <= nearAdr;
+      for (const eh of structure.equalHighs.filter((e) => near(e.price)).slice(0, 3))
+        levels.push({ label: `Equal Highs ×${eh.count}`, price: eh.price, type: 'liquidity' });
+      for (const el of structure.equalLows.filter((e) => near(e.price)).slice(0, 3))
+        levels.push({ label: `Equal Lows ×${el.count}`, price: el.price, type: 'liquidity' });
+    }
+
     // Deduplicate by price (keep first occurrence) and sort
     const seen = new Set();
     const unique = levels.filter(l => {
@@ -1208,6 +1223,145 @@ researchRouter.get('/sweeps/:instrument', (req, res) => {
   }
 });
 
+// ── Market structure (swings, MSS/BOS, equal-liquidity pools) ─────────────────
+// The Wicks-Don't-Lie entry is sweep → structure shift → wick-fill. These helpers
+// give the "structure shift" and the equal-high/low liquidity pools that are the
+// actual pools a sweep hunts (not just session/prior-day extremes).
+
+// Pivot swing detection on an ascending bar series. A swing high at i has the
+// strictly-highest high over [i-k, i+k]; a swing low the strictly-lowest low.
+// Returns swings ascending in time, collapsing consecutive same-type swings to
+// the extreme: [{ ts, price, type:'H'|'L' }].
+function computeSwings(bars, k = 2) {
+  const raw = [];
+  for (let i = k; i < bars.length - k; i++) {
+    let isH = true, isL = true;
+    for (let j = i - k; j <= i + k; j++) {
+      if (j === i) continue;
+      if (bars[j].h >= bars[i].h) isH = false;
+      if (bars[j].l <= bars[i].l) isL = false;
+    }
+    if (isH) raw.push({ ts: bars[i].ts, price: bars[i].h, type: 'H' });
+    if (isL) raw.push({ ts: bars[i].ts, price: bars[i].l, type: 'L' });
+  }
+  raw.sort((a, b) => a.ts - b.ts);
+  const out = [];
+  for (const s of raw) {
+    const last = out[out.length - 1];
+    if (last && last.type === s.type) {
+      const moreExtreme = s.type === 'H' ? s.price > last.price : s.price < last.price;
+      if (moreExtreme) out[out.length - 1] = s;
+    } else out.push(s);
+  }
+  return out;
+}
+
+// Cluster swing highs/lows that sit within `tol` of each other into equal-liquidity
+// pools (>=2 swings resting at the same price = the stops a sweep runs). Returns
+// { equalHighs:[{price,count}], equalLows:[...] }, strongest (most-touched) first.
+function computeEqualLevels(swings, tol) {
+  const round = (n) => Math.round(n * 100) / 100;
+  const cluster = (points) => {
+    const sorted = [...points].sort((a, b) => a.price - b.price);
+    const groups = [];
+    for (const p of sorted) {
+      const g = groups[groups.length - 1];
+      if (g && Math.abs(p.price - g.sum / g.count) <= tol) {
+        g.sum += p.price; g.count++; g.tss.push(p.ts);
+      } else {
+        groups.push({ sum: p.price, count: 1, tss: [p.ts] });
+      }
+    }
+    return groups
+      .filter((g) => g.count >= 2)
+      .map((g) => ({ price: round(g.sum / g.count), count: g.count, lastTs: Math.max(...g.tss) }))
+      .sort((a, b) => b.count - a.count || b.lastTs - a.lastTs);
+  };
+  return {
+    equalHighs: cluster(swings.filter((s) => s.type === 'H')),
+    equalLows: cluster(swings.filter((s) => s.type === 'L')),
+  };
+}
+
+// Full structure read for one instrument/timeframe: directional bias (HH/HL vs
+// LH/LL), the most recent structure shift (BOS = continuation, CHoCH = reversal /
+// MSS), the swing list, and equal-liquidity pools. Returns null if too little data.
+function computeStructure(instId, tf = 'M15') {
+  const rows = marketDb
+    .prepare(
+      `SELECT ts, o, h, l, c FROM prices WHERE instrument_id = ? AND timeframe = ?
+       ORDER BY ts DESC LIMIT 400`
+    )
+    .all(instId, tf);
+  if (rows.length < 20) return null;
+  const bars = rows.reverse(); // ascending
+  const swings = computeSwings(bars, 2);
+  const highs = swings.filter((s) => s.type === 'H');
+  const lows = swings.filter((s) => s.type === 'L');
+
+  let bias = 'neutral';
+  if (highs.length >= 2 && lows.length >= 2) {
+    const hh = highs[highs.length - 1].price > highs[highs.length - 2].price;
+    const hl = lows[lows.length - 1].price > lows[lows.length - 2].price;
+    const lh = highs[highs.length - 1].price < highs[highs.length - 2].price;
+    const ll = lows[lows.length - 1].price < lows[lows.length - 2].price;
+    if (hh && hl) bias = 'bullish';
+    else if (lh && ll) bias = 'bearish';
+  }
+
+  // Most recent structure shift: newest bar that closes beyond the last swing
+  // high (bullish break) or last swing low (bearish break). A break WITH the bias
+  // is a BOS (continuation); AGAINST it is a CHoCH (reversal = the MSS we want
+  // after a sweep).
+  const lastH = highs[highs.length - 1];
+  const lastL = lows[lows.length - 1];
+  let shift = null;
+  for (let i = bars.length - 1; i >= 0; i--) {
+    const b = bars[i];
+    if (lastH && b.ts > lastH.ts && b.c > lastH.price) {
+      shift = { type: bias === 'bullish' ? 'BOS' : 'CHoCH', direction: 'bullish', ts: b.ts, level: lastH.price };
+      break;
+    }
+    if (lastL && b.ts > lastL.ts && b.c < lastL.price) {
+      shift = { type: bias === 'bearish' ? 'BOS' : 'CHoCH', direction: 'bearish', ts: b.ts, level: lastL.price };
+      break;
+    }
+  }
+
+  const adrInfo = computeAdr(instId);
+  const tol = (adrInfo?.adr ?? bars[bars.length - 1].c * 0.01) * 0.03;
+  const { equalHighs, equalLows } = computeEqualLevels(swings, tol);
+
+  return {
+    tf, bias, shift,
+    swings: swings.slice(-12),
+    equalHighs, equalLows,
+    lastTs: bars[bars.length - 1].ts,
+  };
+}
+
+// GET /api/research/structure/:instrument?tf=M15 — market structure read:
+// bias, latest BOS/CHoCH (MSS), swings, and equal-liquidity pools.
+researchRouter.get('/structure/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+    const tf = (req.query.tf || 'M15').toUpperCase();
+    if (!VALID_TF.has(tf)) return res.status(400).json({ error: `Invalid timeframe: ${tf}` });
+    const instId = instrumentId(symbol);
+    if (instId == null) return res.status(400).json({ error: 'Instrument not seeded' });
+
+    const structure = computeStructure(instId, tf);
+    if (!structure) return res.json({ instrument: symbol, tf, bias: 'neutral', shift: null, swings: [], equalHighs: [], equalLows: [] });
+    res.json({
+      instrument: symbol, ...structure,
+      freshness: { source: 'oanda', last_ok: structure.lastTs, status: 'ok' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Average daily range over `n` prior complete days (excludes today). Shared by
 // the ADR endpoint's logic and the radar. Returns { adr, today } or null.
 function computeAdr(instId, n = 14) {
@@ -1297,8 +1451,18 @@ researchRouter.get('/radar/:instrument', (req, res) => {
       }
     }
 
-    // 2) Proximity to hunt levels (session levels + PDH/PDL).
-    const levels = huntLevels(instId);
+    // Market structure (M15) — bias, MSS/BOS, and equal-liquidity pools. The
+    // equal pools are added to the hunt levels so sweeps of resting liquidity are
+    // caught, not just session/prior-day extremes.
+    const structure = computeStructure(instId, 'M15');
+    const eqLevels = [];
+    if (structure) {
+      for (const eh of structure.equalHighs) eqLevels.push({ label: `Equal Highs ×${eh.count}`, price: eh.price });
+      for (const el of structure.equalLows) eqLevels.push({ label: `Equal Lows ×${el.count}`, price: el.price });
+    }
+
+    // 2) Proximity to hunt levels (session levels + PDH/PDL + equal pools).
+    const levels = [...huntLevels(instId), ...eqLevels];
     for (const lv of levels) {
       const dist = Math.abs(price - lv.price);
       if (dist <= nearBand) {
@@ -1331,21 +1495,64 @@ researchRouter.get('/radar/:instrument', (req, res) => {
          AND ts >= ? ORDER BY ts`
       )
       .all(instId, sweepFrom);
+    const freshSweeps = [];
     for (const b of recentM1) {
       for (const lv of levels) {
         const bearish = b.h > lv.price && b.c < lv.price && b.o < lv.price;
         const bullish = b.l < lv.price && b.c > lv.price && b.o > lv.price;
         if (!bearish && !bullish) continue;
         const agoMin = Math.round((latest.ts - b.ts) / 60000);
+        const direction = bullish ? 'bullish' : 'bearish';
+        freshSweeps.push({ direction, ts: b.ts, level: lv.label });
         signals.push({
           severity: 'hot', kind: 'sweep',
           title: `${lv.label} swept ${agoMin}m ago`,
           detail: bullish
             ? `Bullish sweep — wick-fill long setup off ${lv.label}.`
             : `Bearish sweep — wick-fill short setup off ${lv.label}.`,
-          level: lv.label, price: lv.price,
-          direction: bullish ? 'bullish' : 'bearish', ts: b.ts,
+          level: lv.label, price: lv.price, direction, ts: b.ts,
         });
+      }
+    }
+
+    // 5) Market structure — bias context, recent MSS/BOS, and the confirmed
+    // wick-fill trigger (sweep + structure shift in the same direction).
+    if (structure) {
+      if (structure.bias !== 'neutral') {
+        signals.push({
+          severity: 'info', kind: 'bias',
+          title: `Structure ${structure.bias} (M15)`,
+          detail: structure.bias === 'bullish'
+            ? 'M15 making higher highs & higher lows.'
+            : 'M15 making lower highs & lower lows.',
+        });
+      }
+      const sh = structure.shift;
+      if (sh) {
+        const agoMin = Math.round((latest.ts - sh.ts) / 60000);
+        if (agoMin <= 180) {
+          const isMSS = sh.type === 'CHoCH';
+          signals.push({
+            severity: isMSS ? 'warn' : 'info', kind: 'structure-shift',
+            title: `${sh.direction} ${sh.type} (M15) ${agoMin}m ago`,
+            detail: isMSS
+              ? `Structure shifted ${sh.direction} through ${sh.level} — reversal confirmation.`
+              : `${sh.direction} break of structure through ${sh.level} — continuation.`,
+            direction: sh.direction, ts: sh.ts,
+          });
+          // Confirmed setup: a fresh sweep + a structure shift the same way = the
+          // full Wicks-Don't-Lie trigger (sweep → MSS → wick-fill entry).
+          const combo = freshSweeps.find((s) => s.direction === sh.direction);
+          if (combo) {
+            signals.push({
+              severity: 'hot', kind: 'confirmed-setup',
+              title: `✦ Wick-fill ${sh.direction === 'bullish' ? 'LONG' : 'SHORT'} confirmed`,
+              detail: `Swept ${combo.level} + ${sh.direction} ${sh.type} — sweep→shift trigger is set.`,
+              direction: sh.direction, level: combo.level,
+              ts: Math.max(combo.ts, sh.ts) + 1, // +1 so it sorts above its parts
+            });
+          }
+        }
       }
     }
 
@@ -1358,6 +1565,7 @@ researchRouter.get('/radar/:instrument', (req, res) => {
       price: round(price),
       adr: adr != null ? round(adr) : null,
       session: clock.live,
+      bias: structure?.bias ?? 'neutral',
       signals,
       freshness: { source: 'oanda', last_ok: latest.ts, status: 'ok' },
     });
