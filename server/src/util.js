@@ -123,15 +123,50 @@ export function brokerIsoToUtc(iso, tz) {
   );
 }
 
-// Derive session from a UTC entry_time ISO string.
+// Minutes-since-local-midnight for an instant in a given IANA zone. DST-aware:
+// Intl resolves the correct wall-clock for the date, so market windows track the
+// real open/close year-round instead of drifting an hour each DST changeover.
+function localMinutes(date, tz) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  let h = 0;
+  let m = 0;
+  for (const p of parts) {
+    if (p.type === 'hour') h = parseInt(p.value, 10);
+    else if (p.type === 'minute') m = parseInt(p.value, 10);
+  }
+  if (h === 24) h = 0; // some engines render local midnight as "24"
+  return h * 60 + m;
+}
+
+// Market hours in each exchange's LOCAL time (minutes from midnight).
+const MKT = {
+  ny: { tz: 'America/New_York', open: 8 * 60, close: 17 * 60 }, // 08:00–17:00 ET
+  london: { tz: 'Europe/London', open: 8 * 60, close: 17 * 60 }, // 08:00–17:00 UK
+  tokyo: { tz: 'Asia/Tokyo', open: 9 * 60, close: 18 * 60 }, // 09:00–18:00 JST
+  sydney: { tz: 'Australia/Sydney', open: 7 * 60, close: 16 * 60 }, // 07:00–16:00
+};
+
+function isOpen(date, m) {
+  const mins = localMinutes(date, m.tz);
+  return mins >= m.open && mins < m.close;
+}
+
+// Derive session from a UTC entry_time ISO string. DST-aware and "NY wins":
+// once New York is open the trade is 'ny' even if London is still open (the old
+// London/NY "overlap" band is folded into 'ny'). Priority ny > london > asia.
 export function sessionFromTime(iso) {
   if (!iso) return null;
-  const h = new Date(iso).getUTCHours();
-  if (h >= 7 && h <= 11) return 'london';
-  if (h >= 12 && h <= 15) return 'overlap';
-  if (h >= 16 && h <= 20) return 'ny';
-  if (h === 21) return 'off';
-  return 'asia'; // 22,23,0..6
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  if (isOpen(d, MKT.ny)) return 'ny';
+  if (isOpen(d, MKT.london)) return 'london';
+  if (isOpen(d, MKT.tokyo) || isOpen(d, MKT.sydney)) return 'asia';
+  return 'off';
 }
 
 // R-multiple = net P&L / initial risk, where risk = stop distance × cash-per-point.

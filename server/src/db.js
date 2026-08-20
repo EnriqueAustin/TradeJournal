@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { sessionFromTime } from './util.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, '..', 'data');
@@ -279,6 +280,19 @@ export function migrate() {
     if (!acctCols.some((c) => c.name === col[0])) {
       db.exec(`ALTER TABLE accounts ADD COLUMN ${col[0]} ${col[1]}`);
     }
+  }
+
+  // One-shot backfill: recompute `session` for every trade under the new
+  // DST-aware, "NY-wins" rule in util.js sessionFromTime (retires the old fixed
+  // UTC "overlap" band). Guarded by user_version so it runs once per DB.
+  if (db.pragma('user_version', { simple: true }) < 1) {
+    const rows = db.prepare('SELECT id, entry_time FROM trades WHERE entry_time IS NOT NULL').all();
+    const upd = db.prepare('UPDATE trades SET session = ? WHERE id = ?');
+    const backfill = db.transaction((list) => {
+      for (const r of list) upd.run(sessionFromTime(r.entry_time), r.id);
+    });
+    backfill(rows);
+    db.pragma('user_version = 1');
   }
 
   // Seed default account if none exists

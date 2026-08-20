@@ -6,6 +6,7 @@ import StatTile from '../components/StatTile';
 import EquityCurve from '../components/EquityCurve';
 import Calendar from '../components/Calendar';
 import SessionHeatmap from '../components/SessionHeatmap';
+import SessionsClock from '../components/SessionsClock';
 import HourlyBars from '../components/HourlyBars';
 import AiReviewPanel from '../components/AiReviewPanel';
 import LivePositions from '../components/LivePositions';
@@ -17,6 +18,7 @@ import {
   formatPct,
   formatNumber,
   signClass,
+  DISPLAY_TZ,
 } from '../utils/format';
 
 function currentMonth(): string {
@@ -251,6 +253,14 @@ export default function Dashboard() {
           </AsyncBoundary>
         </SectionCard>
       </div>
+
+      {/* Market sessions clock */}
+      <SectionCard
+        title="Sessions"
+        right={<span className="text-[10px] text-slate-500">local · {DISPLAY_TZ.split('/')[1]?.replace('_', ' ')}</span>}
+      >
+        <SessionsClock />
+      </SectionCard>
 
       {/* Hourly */}
       <SectionCard title="Hourly P&L (UTC)">

@@ -47,12 +47,13 @@ function Stat({
   );
 }
 
-// Session UTC windows, mirrored from server/src/util.js sessionFromTime().
-// { start hour (UTC), length in hours }. asia wraps past midnight.
+// Session UTC windows for the drilldown timeline. Approximate (server sessions
+// are now DST-aware in util.js sessionFromTime, so real boundaries shift ±1h
+// across DST); these summer-ish spans keep the visual close. { start hour (UTC),
+// length in hours }. asia wraps past midnight. 'overlap' is retired (→ 'ny').
 const SESSION_WINDOWS: Record<string, { start: number; len: number }> = {
   london: { start: 7, len: 5 },
-  overlap: { start: 12, len: 4 },
-  ny: { start: 16, len: 5 },
+  ny: { start: 12, len: 9 },
   off: { start: 21, len: 1 },
   asia: { start: 22, len: 9 },
 };
