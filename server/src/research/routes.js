@@ -1,4 +1,5 @@
 import express, { Router } from 'express';
+import { createHash } from 'node:crypto';
 import { marketDb, MARKET_DB_PATH, instrumentId } from './schema.js';
 import { analyticsHealth, compute } from './analyticsClient.js';
 import { safeIngestOanda } from './ingest/oanda.js';
@@ -738,6 +739,26 @@ researchRouter.get('/regime', (_req, res) => {
   }
 });
 
+// ---------- Analytics result cache (Python compute) ----------
+// Keyed by a caller-supplied key that already encodes the data version, so a
+// hit means the inputs are unchanged. Payload stored as JSON in analytics_cache.
+
+function analyticsCacheGet(key) {
+  const row = marketDb.prepare('SELECT payload FROM analytics_cache WHERE key = ?').get(key);
+  if (!row) return null;
+  try { return JSON.parse(row.payload); } catch { return null; }
+}
+
+function analyticsCacheSet(key, payload) {
+  const json = JSON.stringify(payload);
+  marketDb.prepare(
+    `INSERT INTO analytics_cache (key, input_hash, data_version, payload, ts)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET input_hash=excluded.input_hash,
+       data_version=excluded.data_version, payload=excluded.payload, ts=excluded.ts`
+  ).run(key, createHash('sha1').update(json).digest('hex'), key, json, Date.now());
+}
+
 // ---------- Epic 3 — Gold cockpit ----------
 
 const GOLD_DRIVERS = [
@@ -776,78 +797,114 @@ function rollingCorrelation(xs, ys) {
   return denom === 0 ? 0 : num / denom;
 }
 
-// GET /api/research/drivers/:instrument — driver scorecard
-researchRouter.get('/drivers/:instrument', (req, res) => {
+// Gather the aligned inputs the driver scorecard needs from market.db.
+// Node owns all DB I/O (single writer); the arrays are handed to Python compute
+// or to the Node fallback. Returns { gold:[{ts,c}], drivers:[{...,series}] }.
+function gatherDriverInputs() {
+  seedSeriesRegistry();
+  seedVolSeries();
+  const instId = instrumentId('XAUUSD');
+  const gold = marketDb.prepare(
+    `SELECT ts, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1' ORDER BY ts DESC LIMIT 120`
+  ).all(instId).reverse();
+
+  const drivers = GOLD_DRIVERS.map(drv => {
+    let series;
+    if (drv.id === 'GVZ') {
+      series = getVolHistory('GVZ', { limit: 120 })
+        .map(r => ({ ts: r.ts, value: r.value })).filter(r => r.value != null);
+    } else {
+      series = marketDb.prepare(
+        'SELECT ts, value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT 120'
+      ).all(drv.id).reverse().filter(r => r.value != null);
+    }
+    return { id: drv.id, name: drv.name, relationship: drv.relationship, zThresh: drv.zThresh, series };
+  });
+  return { gold, drivers };
+}
+
+// Node fallback: same enriched shape as the Python compute, minus the heavy
+// stats (beta/r2/pValue left null; correlation is level-based, not returns-based).
+// Used only when the analytics service is unreachable so the panel never blanks.
+function computeDriversNode({ gold, drivers }) {
+  const goldC = gold.map(r => r.c);
+  const signalScores = { bullish: 1, neutral: 0, bearish: -1 };
+  const scored = drivers.map(drv => {
+    const values = drv.series.map(r => r.value);
+    const current = values.length ? values[values.length - 1] : null;
+    const z = zScore(values.slice(-60));
+    const corr = rollingCorrelation(values.slice(-60), goldC.slice(-60));
+    let signal = 'neutral';
+    if (z != null) {
+      if (drv.relationship === 'inverse') {
+        if (z < -drv.zThresh) signal = 'bullish';
+        else if (z > drv.zThresh) signal = 'bearish';
+      } else {
+        if (z > drv.zThresh) signal = 'bullish';
+        else if (z < -drv.zThresh) signal = 'bearish';
+      }
+    }
+    return {
+      id: drv.id, name: drv.name, value: current,
+      zScore: z != null ? Math.round(z * 100) / 100 : null,
+      zChange: null, signal,
+      correlation: corr != null ? Math.round(corr * 100) / 100 : null,
+      beta: null, r2: null, pValue: null, contribution: null,
+      relationship: drv.relationship,
+    };
+  });
+  const composite = scored.reduce((s, d) => s + signalScores[d.signal], 0) / (scored.length || 1);
+  let label = 'neutral';
+  if (composite > 0.3) label = 'tailwind';
+  else if (composite < -0.3) label = 'headwind';
+  return {
+    instrument: 'XAUUSD',
+    drivers: scored,
+    composite: { score: Math.round(composite * 100) / 100, label, confidence: null },
+    engine: 'node',
+  };
+}
+
+// GET /api/research/drivers/:instrument — driver scorecard (Python compute,
+// Node stub fallback). Cached by data-version (latest input ts) so we recompute
+// only when new data arrives.
+researchRouter.get('/drivers/:instrument', async (req, res) => {
   try {
     const symbol = resolveInstrument(req.params.instrument);
     if (symbol !== 'XAUUSD') return res.status(400).json({ error: 'Driver scorecard only available for XAUUSD' });
 
-    seedSeriesRegistry();
-    seedVolSeries();
+    const inputs = gatherDriverInputs();
 
-    const instId = instrumentId('XAUUSD');
-    const goldPrices = marketDb.prepare(
-      `SELECT ts, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1' ORDER BY ts DESC LIMIT 120`
-    ).all(instId).reverse().map(r => r.c);
-
-    const drivers = GOLD_DRIVERS.map(drv => {
-      let dataPoints;
-      if (drv.id === 'GVZ') {
-        dataPoints = getVolHistory('GVZ', { limit: 120 }).map(r => r.value).filter(v => v != null);
-      } else {
-        dataPoints = marketDb.prepare(
-          'SELECT value FROM series_data WHERE series_id = ? ORDER BY ts DESC LIMIT 120'
-        ).all(drv.id).reverse().map(r => r.value).filter(v => v != null);
-      }
-
-      const current = dataPoints.length ? dataPoints[dataPoints.length - 1] : null;
-      const window60 = dataPoints.slice(-60);
-      const z = zScore(window60);
-      const corr = rollingCorrelation(dataPoints.slice(-60), goldPrices.slice(-60));
-
-      let signal = 'neutral';
-      if (z != null) {
-        if (drv.relationship === 'inverse') {
-          if (z < -drv.zThresh) signal = 'bullish';
-          else if (z > drv.zThresh) signal = 'bearish';
-        } else {
-          if (z > drv.zThresh) signal = 'bullish';
-          else if (z < -drv.zThresh) signal = 'bearish';
-        }
-      }
-
-      return {
-        id: drv.id,
-        name: drv.name,
-        value: current,
-        zScore: z != null ? Math.round(z * 100) / 100 : null,
-        signal,
-        correlation: corr != null ? Math.round(corr * 100) / 100 : null,
-        relationship: drv.relationship,
-      };
-    });
-
-    const signalScores = { bullish: 1, neutral: 0, bearish: -1 };
-    const scored = drivers.filter(d => d.signal);
-    const compositeScore = scored.length
-      ? scored.reduce((s, d) => s + signalScores[d.signal], 0) / scored.length
-      : 0;
-    let compositeLabel = 'neutral';
-    if (compositeScore > 0.3) compositeLabel = 'tailwind';
-    else if (compositeScore < -0.3) compositeLabel = 'headwind';
+    // Data version = newest timestamp across every input series.
+    const maxTs = Math.max(
+      0,
+      ...inputs.gold.map(r => r.ts),
+      ...inputs.drivers.flatMap(d => d.series.map(r => r.ts)),
+    );
+    const cacheKey = `drivers:XAUUSD:v${maxTs}`;
 
     const fredHealth = marketDb.prepare(
       "SELECT last_ok, status FROM source_health WHERE source = 'fred_dfii10'"
     ).get();
+    const freshness = fredHealth
+      ? { source: 'fred+cboe', last_ok: fredHealth.last_ok, status: fredHealth.status }
+      : { source: 'fred+cboe', last_ok: null, status: 'no_data' };
 
-    res.json({
-      instrument: 'XAUUSD',
-      drivers,
-      composite: { score: Math.round(compositeScore * 100) / 100, label: compositeLabel },
-      freshness: fredHealth
-        ? { source: 'fred+cboe', last_ok: fredHealth.last_ok, status: fredHealth.status }
-        : { source: 'fred+cboe', last_ok: null, status: 'no_data' },
-    });
+    const cached = analyticsCacheGet(cacheKey);
+    if (cached) return res.json({ ...cached, freshness });
+
+    let result;
+    try {
+      result = await compute('/compute/drivers', {
+        instrument: 'XAUUSD', window: 60, gold: inputs.gold, drivers: inputs.drivers,
+      });
+      analyticsCacheSet(cacheKey, result);
+    } catch {
+      // Analytics down → serve the Node stub (not cached; retry Python next call).
+      result = computeDriversNode(inputs);
+    }
+
+    res.json({ ...result, freshness });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

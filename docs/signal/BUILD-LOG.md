@@ -594,6 +594,18 @@ Newest entries at the top. One block per session: what shipped, decisions, gotch
 **Next:** S0.1 — scaffold `analytics/` FastAPI `/health`, docker-compose wiring, `market.db` bootstrap, server→analytics proxy, `GET /api/research/health`.
 
 ---
+## 2026-08-20 — S3.1b Driver scorecard — real Python quant
+**Shipped:** Promoted the gold DriverScorecard from Node stub to real statistics in the FastAPI analytics service.
+- **Python:** `analytics/app/compute/drivers.py` (pure fns) + `analytics/app/routers/drivers.py` (`POST /compute/drivers`), wired in `main.py` (v0.2.0). Per driver: z-score of level, z-score of latest change, **returns-based** Pearson corr (gold log-returns vs driver first-differences — stationary, not spurious level corr) with **p-value**, **OLS β + R²** via `scipy.stats.linregress`, **contribution** = β·latest-change (expected % gold push). Composite weights each signal by |returns-corr| (floored 0.1) so co-moving drivers dominate; **confidence** = share of drivers with p<0.05. Signal = level-z extreme confirmed/neutralized by corr sign.
+- **Node:** `/drivers/:instrument` now gathers aligned inputs (`gatherDriverInputs`), POSTs to Python `compute()`, caches by data-version (`analyticsCacheGet/Set` → `analytics_cache`). Falls back to `computeDriversNode()` stub (`engine:'node'`) when analytics is unreachable so the panel never blanks.
+- **Web:** `DriverScore`/`DriversResponse` types extended (zChange, beta, r2, pValue, contribution, composite.confidence, engine). `DriverScorecard.tsx` adds a Corr column (dim/·-marked when insignificant), net driver-push line (Σβ·Δ), confidence %, and a ⚡PY/NODE engine badge.
+**Decisions:** Node passes aligned arrays to Python (rather than Python reading `market.db`) to avoid cross-process SQLite/WAL locking on Windows single-writer; keeps Python stateless + trivially testable. Endpoint named `/compute/drivers` (contract had placeholder `/compute/zscores`).
+**Gotchas:** `scipy` was only a roadmap comment in `requirements.txt` — **added `scipy==1.15.1`** or the Docker analytics image imports-fails and silently degrades to the Node engine. numpy/scipy install fine on local Py3.14 venv (numpy 2.5.2 / scipy 1.18.0) and on `python:3.12-slim` (cp312 manylinux wheels). Correlation/β need ≥5 aligned gold+driver return points; with only ~9 gold D1 bars ingested they read null (z-scores/signals still populate) — backfill gold D1 history to light them up.
+**Verify:** 4/4 compute unit tests green (`drivers_test.py`); `POST /compute/drivers` returns full stats on synthetic data; live `/api/research/drivers/XAUUSD` returns `engine:'python'`; panel renders in browser (⚡PY badge, Corr col, conf%) with 0 new console errors; `tsc --noEmit` clean.
+**Files:** `analytics/app/compute/{__init__,drivers,drivers_test}.py`, `analytics/app/routers/{__init__,drivers}.py`, `analytics/app/main.py`, `analytics/requirements.txt`, `server/src/research/routes.js`, `web/src/types.ts`, `web/src/features/signal/panels/DriverScorecard.tsx`.
+**Next:** Backfill gold D1 history (lights up corr/β/contribution); then next Python-compute promotion (event-reaction S4.2) or S8.1 gold alerts.
+
+---
 _(template for next entry)_
 ## YYYY-MM-DD — Sx.y <title>
 **Shipped:** …

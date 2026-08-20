@@ -3,6 +3,6 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pandas==2.2.3
 numpy==2.2.1
+scipy==1.15.1   # S3.1 driver compute: OLS beta/R²/p-value (linregress)
 # Added when their sessions arrive (kept here as a roadmap marker):
 #   statsmodels  -> S5.1 regression/beta
-#   scipy        -> significance tests (S5.3)
