@@ -40,6 +40,16 @@ import '../terminal/terminal.css';
 const INSTRUMENTS = ['XAUUSD', 'US100'] as const;
 type Instrument = (typeof INSTRUMENTS)[number];
 
+const SECTIONS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'macro', label: 'Macro' },
+  { id: 'events', label: 'Events' },
+  { id: 'positioning', label: 'Positioning' },
+  { id: 'correlation', label: 'Correlation' },
+  { id: 'news', label: 'News' },
+] as const;
+type Section = (typeof SECTIONS)[number]['id'];
+
 const PROVIDER_LABELS: Record<ResearchProvider, string> = {
   oanda: 'OANDA · price',
   fred: 'FRED · macro',
@@ -55,6 +65,7 @@ function analyticsBadge(status: ResearchHealth['analytics']): BadgeKind {
 
 export default function Signal() {
   const [instrument, setInstrument] = useState<Instrument>('US100');
+  const [section, setSection] = useState<Section>('overview');
   const [now, setNow] = useState(() => new Date());
   const tz = useSignalTz();
   const [livePrice, setLivePrice] = useState<Record<string, number>>({});
@@ -107,125 +118,174 @@ export default function Signal() {
         <span className="sig-clock">{fmtClock(now.getTime(), tz)}</span>
       </div>
 
+      {/* section tabs — split the cockpit into focused views */}
+      <div className="sig-subtabs">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.id}
+            className={`sig-tab${s.id === section ? ' is-active' : ''}`}
+            onClick={() => setSection(s.id)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
       {/* panel grid */}
       <div className="sig-grid">
-        {/* System status — the S0.3 proof panel */}
-        <Panel
-          title="System Status"
-          tag="/api/research/health"
-          span={6}
-          right={
-            <button className="sig-tab" onClick={reload} title="Refresh">
-              ⟳
-            </button>
-          }
-        >
-          {loading && <div className="sig-ph">Connecting…</div>}
-          {error && (
-            <div className="sig-ph" style={{ color: 'var(--sig-red)' }}>
-              API unreachable — is the server on :4000?
-            </div>
-          )}
-          {health && (
-            <>
-              <DataRow
-                label="Server"
-                value={<StatusBadge kind="ok" label="OK" />}
-              />
-              <DataRow
-                label="Market DB"
-                value={
-                  <StatusBadge
-                    kind={health.marketDb === 'ok' ? 'ok' : 'err'}
-                    label={`${health.marketDb} · v${health.schema_version ?? '?'}`}
-                  />
-                }
-              />
-              <DataRow
-                label="Analytics (Py)"
-                value={
-                  <StatusBadge
-                    kind={analyticsBadge(health.analytics)}
-                    label={health.analytics}
-                  />
-                }
-              />
-            </>
-          )}
-        </Panel>
-
-        {/* Data providers */}
-        <Panel title="Data Feeds" tag="free tier" span={6}>
-          {health ? (
-            (Object.keys(PROVIDER_LABELS) as ResearchProvider[]).map((p) => (
-              <DataRow
-                key={p}
-                label={PROVIDER_LABELS[p]}
-                value={
-                  <StatusBadge
-                    kind={health.providers[p] ? 'ok' : 'muted'}
-                    label={health.providers[p] ? 'ON' : 'OFF'}
-                  />
-                }
-              />
-            ))
-          ) : (
-            <div className="sig-ph">…</div>
-          )}
-        </Panel>
-
-        {/* Price chart — S0.4 + live last price from S0.5 */}
-        <PricePanel instrument={instrument} livePrice={livePrice[instrument]} />
-        {/* Live ticker — S0.5 */}
-        <LiveTicker instrument={instrument} onTick={handleTick} onSelect={(sym) => setInstrument(sym as Instrument)} />
-        {/* Market sessions clock (cross-instrument), in the header timezone */}
-        <Panel title="Sessions" tag={`local · ${tz.split('/')[1]?.replace('_', ' ') ?? tz}`} span={6}>
-          <div style={{ padding: '4px 2px' }}>
-            <SessionsClock tz={tz} />
-          </div>
-        </Panel>
-        {/* Epic 4 — Events & reaction studies (cross-instrument) */}
-        <CalendarPanel />
-        <EventReactionPanel instrument={instrument} />
-        {/* Macro panels — Epic 2 (cross-instrument) */}
-        <RatesBoard />
-        <EconTracker />
-        <RegimePanel />
-        {/* Epic 6 — News feed (cross-instrument) */}
-        <NewsFeedPanel instrument={instrument} />
-        {/* Epic 7 — Journal Fusion edge analytics */}
-        <EdgePanel instrument={instrument} />
-        {/* Epic 5 — Correlation & comparison (cross-instrument) */}
-        <CorrelationPanel />
-        <RegressionPanel />
-        <ComparePanel />
-        <SpreadPanel />
-        {/* US100 cockpit panels — Epic 1 */}
-        {instrument === 'US100' && (
+        {/* ── OVERVIEW ─────────────────────────────────────────── */}
+        {section === 'overview' && (
           <>
-            <ContributionGrid />
-            <BreadthPanel />
-            <RateOverlay />
-            <SectorPanel />
-            <VolPanel instrument="US100" />
-            <EarningsPanel />
-            <BriefPanel instrument="US100" />
-            <ConstituentTable />
+            {/* System status — the S0.3 proof panel */}
+            <Panel
+              title="System Status"
+              tag="/api/research/health"
+              span={6}
+              right={
+                <button className="sig-tab" onClick={reload} title="Refresh">
+                  ⟳
+                </button>
+              }
+            >
+              {loading && <div className="sig-ph">Connecting…</div>}
+              {error && (
+                <div className="sig-ph" style={{ color: 'var(--sig-red)' }}>
+                  API unreachable — is the server on :4000?
+                </div>
+              )}
+              {health && (
+                <>
+                  <DataRow
+                    label="Server"
+                    value={<StatusBadge kind="ok" label="OK" />}
+                  />
+                  <DataRow
+                    label="Market DB"
+                    value={
+                      <StatusBadge
+                        kind={health.marketDb === 'ok' ? 'ok' : 'err'}
+                        label={`${health.marketDb} · v${health.schema_version ?? '?'}`}
+                      />
+                    }
+                  />
+                  <DataRow
+                    label="Analytics (Py)"
+                    value={
+                      <StatusBadge
+                        kind={analyticsBadge(health.analytics)}
+                        label={health.analytics}
+                      />
+                    }
+                  />
+                </>
+              )}
+            </Panel>
+
+            {/* Data providers */}
+            <Panel title="Data Feeds" tag="free tier" span={6}>
+              {health ? (
+                (Object.keys(PROVIDER_LABELS) as ResearchProvider[]).map((p) => (
+                  <DataRow
+                    key={p}
+                    label={PROVIDER_LABELS[p]}
+                    value={
+                      <StatusBadge
+                        kind={health.providers[p] ? 'ok' : 'muted'}
+                        label={health.providers[p] ? 'ON' : 'OFF'}
+                      />
+                    }
+                  />
+                ))
+              ) : (
+                <div className="sig-ph">…</div>
+              )}
+            </Panel>
+
+            {/* Price chart — S0.4 + live last price from S0.5 */}
+            <PricePanel instrument={instrument} livePrice={livePrice[instrument]} />
+            {/* Live ticker — S0.5 */}
+            <LiveTicker instrument={instrument} onTick={handleTick} onSelect={(sym) => setInstrument(sym as Instrument)} />
+            {/* Market sessions clock (cross-instrument), in the header timezone */}
+            <Panel title="Sessions" tag={`local · ${tz.split('/')[1]?.replace('_', ' ') ?? tz}`} span={6}>
+              <div style={{ padding: '4px 2px' }}>
+                <SessionsClock tz={tz} />
+              </div>
+            </Panel>
+            <RegimePanel />
+            {instrument === 'US100' && (
+              <>
+                <ContributionGrid />
+                <VolPanel instrument="US100" />
+                <BriefPanel instrument="US100" />
+              </>
+            )}
+            {instrument === 'XAUUSD' && (
+              <>
+                <DriverScorecard />
+                <VolPanel instrument="XAUUSD" />
+                <KeyLevelsPanel instrument="XAUUSD" />
+                <BriefPanel instrument="XAUUSD" />
+              </>
+            )}
           </>
         )}
-        {instrument === 'XAUUSD' && (
+
+        {/* ── MACRO — Epic 2 ───────────────────────────────────── */}
+        {section === 'macro' && (
           <>
-            {/* Epic 3 — Gold cockpit */}
-            <DriverScorecard />
-            <RealYieldOverlay />
-            <VolPanel instrument="XAUUSD" />
-            <PositioningPanel instrument="XAUUSD" />
-            <CotPanel />
-            <EtfFlowPanel />
-            <GoldSilverPanel />
-            <SeasonalityPanel instrument="XAUUSD" />
-            <KeyLevelsPanel instrument="XAUUSD" />
-            <BriefPanel instrument="XAUUSD" />
+            <RatesBoard />
+            <EconTracker />
+            {instrument === 'US100' && <RateOverlay />}
+            {instrument === 'XAUUSD' && <RealYieldOverlay />}
+          </>
+        )}
+
+        {/* ── EVENTS — Epic 4 ──────────────────────────────────── */}
+        {section === 'events' && (
+          <>
+            <CalendarPanel />
+            <EventReactionPanel instrument={instrument} />
+            {instrument === 'US100' && <EarningsPanel />}
+            {instrument === 'XAUUSD' && <SeasonalityPanel instrument="XAUUSD" />}
+          </>
+        )}
+
+        {/* ── POSITIONING — Epic 1 / Epic 3 ────────────────────── */}
+        {section === 'positioning' && (
+          <>
+            {instrument === 'US100' && (
+              <>
+                <BreadthPanel />
+                <SectorPanel />
+                <ConstituentTable />
+              </>
+            )}
+            {instrument === 'XAUUSD' && (
+              <>
+                <PositioningPanel instrument="XAUUSD" />
+                <CotPanel />
+                <EtfFlowPanel />
+                <GoldSilverPanel />
+              </>
+            )}
+          </>
+        )}
+
+        {/* ── CORRELATION — Epic 5 (cross-instrument) ──────────── */}
+        {section === 'correlation' && (
+          <>
+            <CorrelationPanel />
+            <RegressionPanel />
+            <ComparePanel />
+            <SpreadPanel />
+          </>
+        )}
+
+        {/* ── NEWS — Epic 6 + Epic 7 edge ──────────────────────── */}
+        {section === 'news' && (
+          <>
+            <NewsFeedPanel instrument={instrument} />
+            <EdgePanel instrument={instrument} />
           </>
         )}
       </div>

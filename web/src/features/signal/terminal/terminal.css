@@ -70,6 +70,19 @@
   font-weight: 700;
 }
 .sig-spacer { flex: 1; }
+
+/* --- section sub-tabs (Overview / Macro / Events / …) --- */
+.sig-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: var(--sig-bg-2);
+  border: 1px solid var(--sig-border);
+  border-radius: 3px;
+}
+
 .sig-tz-select {
   margin-right: 10px;
   padding: 3px 6px;
