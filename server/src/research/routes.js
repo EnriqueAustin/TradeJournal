@@ -25,7 +25,7 @@ import {
 
 export const researchRouter = Router();
 
-const VALID_TF = new Set(['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1']);
+const VALID_TF = new Set(['S5', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1']);
 const SYMBOL_MAP = { XAUUSD: 'XAUUSD', US100: 'US100', XAGUSD: 'XAGUSD', WTICO_USD: 'WTICO_USD', xauusd: 'XAUUSD', us100: 'US100', xagusd: 'XAGUSD', wtico_usd: 'WTICO_USD' };
 
 function resolveInstrument(raw) {
@@ -947,6 +947,59 @@ researchRouter.get('/overlay/xauusd/realyield', (req, res) => {
   }
 });
 
+// Session windows in UTC hours [startHour, endHour). Asian = Tokyo/Sydney,
+// London = pre-NY European session, NY = the session the strategy trades.
+const SESSION_WINDOWS = [
+  { key: 'ASIA', label: 'Asian', start: 0, end: 7 },
+  { key: 'LON', label: 'London', start: 7, end: 12 },
+];
+const NY_OPEN_HOUR = 13; // ~NY session open (13:00 UTC); first bar at/after this
+
+// Compute intraday session liquidity levels from the latest day of M1 bars.
+// Returns level rows { label, price, type:'session' } for the Asian & London
+// range extremes, the NY open, and the current day's running high/low.
+function computeSessionLevels(instId) {
+  const latest = marketDb
+    .prepare("SELECT MAX(ts) AS maxTs FROM prices WHERE instrument_id = ? AND timeframe = 'M1'")
+    .get(instId);
+  if (latest?.maxTs == null) return [];
+
+  // Start of the UTC day the latest M1 bar falls in.
+  const dayStart = Math.floor(latest.maxTs / 86400000) * 86400000;
+  const m1 = marketDb
+    .prepare(
+      `SELECT ts, o, h, l, c FROM prices
+       WHERE instrument_id = ? AND timeframe = 'M1' AND ts >= ? ORDER BY ts`
+    )
+    .all(instId, dayStart);
+  if (!m1.length) return [];
+
+  const round = (n) => Math.round(n * 100) / 100;
+  const out = [];
+
+  for (const w of SESSION_WINDOWS) {
+    const inWin = m1.filter((b) => {
+      const hr = new Date(b.ts).getUTCHours();
+      return hr >= w.start && hr < w.end;
+    });
+    if (!inWin.length) continue;
+    const hi = Math.max(...inWin.map((b) => b.h));
+    const lo = Math.min(...inWin.map((b) => b.l));
+    out.push({ label: `${w.label} H`, price: round(hi), type: 'session' });
+    out.push({ label: `${w.label} L`, price: round(lo), type: 'session' });
+  }
+
+  // NY open — the open of the first M1 bar at/after NY_OPEN_HOUR.
+  const nyBar = m1.find((b) => new Date(b.ts).getUTCHours() >= NY_OPEN_HOUR);
+  if (nyBar) out.push({ label: 'NY Open', price: round(nyBar.o), type: 'session' });
+
+  // Today's running high/low (the intraday liquidity built so far).
+  out.push({ label: 'Day H', price: round(Math.max(...m1.map((b) => b.h))), type: 'session' });
+  out.push({ label: 'Day L', price: round(Math.min(...m1.map((b) => b.l))), type: 'session' });
+
+  return out;
+}
+
 // GET /api/research/levels/:instrument — auto key levels (pivots, rounds, structure)
 researchRouter.get('/levels/:instrument', (req, res) => {
   try {
@@ -997,6 +1050,13 @@ researchRouter.get('/levels/:instrument', (req, res) => {
       levels.push({ label: 'Prev Week H', price: weekH, type: 'structure' });
       levels.push({ label: 'Prev Week L', price: weekL, type: 'structure' });
     }
+
+    // Intraday session liquidity levels (Wicks-Don't-Lie style) — the pools the
+    // NY session hunts: Asian & London range extremes + the NY open. Computed
+    // from the most recent day of M1 bars (UTC session windows). These are the
+    // levels that actually matter for a session-timed liquidity-sweep strategy;
+    // the pivots above are context.
+    for (const s of computeSessionLevels(instId)) levels.push(s);
 
     // Deduplicate by price (keep first occurrence) and sort
     const seen = new Set();
