@@ -1392,8 +1392,14 @@ function sessionClock(now = new Date()) {
   let live = 'off';
   if (h >= 7 && h < 13) live = 'London';
   else if (h >= 13 && h < 21) live = 'New York';
+  // Kill zones — the higher-probability windows of each session (London 07–10,
+  // NY 12–15 UTC). Setups inside a KZ are prioritized.
+  let killzone = null;
+  if (h >= 7 && h < 10) killzone = 'London';
+  else if (h >= 12 && h < 15) killzone = 'New York';
   return {
     live,
+    killzone,
     minsIntoLondon: h >= 7 && h < 13 ? minsInto(7) : null,
     minsIntoNY: h >= 13 && h < 21 ? minsInto(13) : null,
     minsToLondon: minsTo(7),
@@ -1431,14 +1437,17 @@ researchRouter.get('/radar/:instrument', (req, res) => {
     const signals = [];
     const clock = sessionClock();
 
-    // 1) Session clock — live session or imminent open.
+    // 1) Session clock — live session (flagged when inside a kill zone) or open.
     if (clock.live !== 'off') {
+      const inKz = clock.killzone === clock.live;
       signals.push({
-        severity: 'info', kind: 'session',
-        title: `${clock.live} session live`,
-        detail: clock.live === 'London'
-          ? `${clock.minsIntoLondon}m into London`
-          : `${clock.minsIntoNY}m into New York`,
+        severity: inKz ? 'warn' : 'info', kind: 'session',
+        title: inKz ? `${clock.live} KILL ZONE` : `${clock.live} session live`,
+        detail: inKz
+          ? 'Prime window — highest-probability sweeps here.'
+          : (clock.live === 'London'
+              ? `${clock.minsIntoLondon}m into London (KZ 07–10 UTC)`
+              : `${clock.minsIntoNY}m into New York (KZ 12–15 UTC)`),
       });
     }
     for (const [name, mins] of [['London', clock.minsToLondon], ['New York', clock.minsToNY]]) {
@@ -1565,6 +1574,7 @@ researchRouter.get('/radar/:instrument', (req, res) => {
       price: round(price),
       adr: adr != null ? round(adr) : null,
       session: clock.live,
+      killzone: clock.killzone,
       bias: structure?.bias ?? 'neutral',
       signals,
       freshness: { source: 'oanda', last_ok: latest.ts, status: 'ok' },

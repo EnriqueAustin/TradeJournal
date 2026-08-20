@@ -898,6 +898,7 @@ export interface RadarResponse {
   price: number | null;
   adr: number | null;
   session: string;
+  killzone?: string | null;
   bias?: 'bullish' | 'bearish' | 'neutral';
   signals: RadarSignal[];
   freshness?: Freshness;
