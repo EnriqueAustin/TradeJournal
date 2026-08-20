@@ -16,8 +16,8 @@ const FINE_TF = 'S5';
 const FINE_SYMBOLS = new Set(['XAUUSD']);
 const FINE_DAYS = Number(process.env.OANDA_S5_DAYS || 2);
 
-const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440 };
-const AGGREGATE_TFS = ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
+const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H2: 120, H4: 240, D1: 1440 };
+const AGGREGATE_TFS = ['M5', 'M15', 'M30', 'H1', 'H2', 'H4', 'D1'];
 
 function aggregateM1(m1Rows, tf) {
   const size = TF_MINUTES[tf];

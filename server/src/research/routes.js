@@ -25,7 +25,7 @@ import {
 
 export const researchRouter = Router();
 
-const VALID_TF = new Set(['S5', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1']);
+const VALID_TF = new Set(['S5', 'M1', 'M5', 'M15', 'M30', 'H1', 'H2', 'H4', 'D1']);
 const SYMBOL_MAP = { XAUUSD: 'XAUUSD', US100: 'US100', XAGUSD: 'XAGUSD', WTICO_USD: 'WTICO_USD', xauusd: 'XAUUSD', us100: 'US100', xagusd: 'XAGUSD', wtico_usd: 'WTICO_USD' };
 
 function resolveInstrument(raw) {
@@ -953,6 +953,7 @@ const SESSION_WINDOWS = [
   { key: 'ASIA', label: 'Asian', start: 0, end: 7 },
   { key: 'LON', label: 'London', start: 7, end: 12 },
 ];
+const LON_OPEN_HOUR = 7; // ~London session open (07:00 UTC); first bar at/after
 const NY_OPEN_HOUR = 13; // ~NY session open (13:00 UTC); first bar at/after this
 
 // Compute intraday session liquidity levels from the latest day of M1 bars.
@@ -989,7 +990,10 @@ function computeSessionLevels(instId) {
     out.push({ label: `${w.label} L`, price: round(lo), type: 'session' });
   }
 
-  // NY open — the open of the first M1 bar at/after NY_OPEN_HOUR.
+  // Session opens — the open of the first M1 bar at/after each session hour.
+  // Both London and NY are traded, so both opens are first-class levels.
+  const lonBar = m1.find((b) => new Date(b.ts).getUTCHours() >= LON_OPEN_HOUR);
+  if (lonBar) out.push({ label: 'London Open', price: round(lonBar.o), type: 'session' });
   const nyBar = m1.find((b) => new Date(b.ts).getUTCHours() >= NY_OPEN_HOUR);
   if (nyBar) out.push({ label: 'NY Open', price: round(nyBar.o), type: 'session' });
 

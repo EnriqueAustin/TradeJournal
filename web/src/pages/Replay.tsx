@@ -19,12 +19,16 @@ const SPEEDS = [
 ];
 
 // Timeframes requested for replay — from the finest OANDA candle (S5, gold
-// only) up to H1. The driver (timeline) uses the finest that actually has bars;
-// the grid shows the four finest available.
-const REQUEST_TFS = ['S5', 'M1', 'M5', 'M15', 'M30', 'H1'];
+// only) up through the intraday confirmation TFs. The driver (timeline) uses the
+// finest that actually has bars for smooth stepping; the grid prefers the TFs the
+// strategy actually trades (see GRID_PRIORITY).
+const REQUEST_TFS = ['S5', 'M1', 'M5', 'M15', 'M30', 'H1', 'H2'];
 const GRID_MAX = 4;
+// Grid preference: entries (15m/30m) first, then the near confirmations, then the
+// scalp-refine finer TFs. Whatever has bars, in this order, fills the grid.
+const GRID_PRIORITY = ['M15', 'M30', 'H1', 'H2', 'M5', 'M1', 'S5'];
 const TF_SEC: Record<string, number> = {
-  S5: 5, M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600,
+  S5: 5, M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H2: 7200,
 };
 
 export default function Replay() {
@@ -172,10 +176,18 @@ function ReplayView({
     setShowShare(true);
   };
 
-  // Frames shown: the four finest-with-bars in grid view, just the primary TF
-  // in single view.
+  // Frames shown: in grid view, the strategy TFs (GRID_PRIORITY) that have bars,
+  // falling back to finest-first for anything not listed; single view shows the
+  // primary TF only.
   const shownFrames = useMemo(() => {
-    if (layout === 'grid') return framesWithBars.slice(0, GRID_MAX);
+    if (layout === 'grid') {
+      const withBars = new Map(framesWithBars.map((f) => [f.tf, f]));
+      const ordered = [
+        ...GRID_PRIORITY.map((tf) => withBars.get(tf)).filter(Boolean),
+        ...framesWithBars.filter((f) => !GRID_PRIORITY.includes(f.tf)),
+      ] as ReplayFrame[];
+      return ordered.slice(0, GRID_MAX);
+    }
     const primary =
       frames.find((f) => f.tf === data.primary_tf && f.bars.length > 0) ??
       driver ??

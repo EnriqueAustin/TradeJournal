@@ -21,7 +21,7 @@ const OANDA_SYMBOL = {
 export const GRANULARITY_SECONDS = {
   S5: 5, S15: 15, S30: 30,
   M1: 60, M5: 300, M15: 900, M30: 1800,
-  H1: 3600, H4: 14400, D1: 86400,
+  H1: 3600, H2: 7200, H4: 14400, D1: 86400,
 };
 
 // OANDA caps a candles request at 5000 candles. Chunk span = 4500 candles' worth
