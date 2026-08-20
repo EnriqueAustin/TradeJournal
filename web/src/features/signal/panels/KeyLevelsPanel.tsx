@@ -7,6 +7,7 @@ const TYPE_COLOR: Record<string, string> = {
   pivot: 'var(--sig-cyan)',
   round: 'var(--sig-amber)',
   structure: 'var(--sig-text-dim)',
+  session: 'var(--sig-mag)',
 };
 
 export default function KeyLevelsPanel({ instrument }: { instrument: string }) {

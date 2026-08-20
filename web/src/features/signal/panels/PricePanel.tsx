@@ -1,19 +1,22 @@
 import { useState, useMemo, useCallback } from 'react';
 import { api } from '../../../api/client';
 import { useApi, filterKey } from '../../../hooks/useApi';
-import type { ResearchPriceResponse, EventMarker, ExplainMoveResponse } from '../../../types';
+import type { ResearchPriceResponse, EventMarker, ExplainMoveResponse, LevelsResponse } from '../../../types';
 import type { Bar } from '../../../types';
-import CandleChart, { type ChartMarker } from '../../../components/CandleChart';
+import CandleChart, { type ChartMarker, type PriceLineSpec } from '../../../components/CandleChart';
 import type { UTCTimestamp } from 'lightweight-charts';
 import { Panel, StatusBadge, TickerCell } from '../terminal';
 
-const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const;
+const TIMEFRAMES = ['S5', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const;
 type TF = (typeof TIMEFRAMES)[number];
 
 const TF_LABELS: Record<TF, string> = {
-  M1: '1m', M5: '5m', M15: '15m', M30: '30m',
+  S5: '5s', M1: '1m', M5: '5m', M15: '15m', M30: '30m',
   H1: '1H', H4: '4H', D1: '1D',
 };
+
+// S5 (5-second) is ingested only for the focus instrument (gold).
+const S5_INSTRUMENTS = new Set(['XAUUSD']);
 
 interface PricePanelProps {
   instrument: string;
@@ -126,6 +129,24 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
     [filterKey(instrument, data?.bars?.[0]?.ts, data?.bars?.[data?.bars?.length - 1]?.ts)]
   );
 
+  // Session liquidity levels (Asian/London range, NY open) + prior-day structure
+  // drawn as horizontal lines — the pools a session-timed sweep strategy trades.
+  const { data: levelsData } = useApi<LevelsResponse>(
+    () => api.getLevels(instrument),
+    [instrument]
+  );
+
+  const priceLines: PriceLineSpec[] = useMemo(() => {
+    if (!levelsData?.levels?.length) return [];
+    const COLOR: Record<string, string> = {
+      session: '#c07bff', // magenta — intraday liquidity pools
+      structure: '#7d8f88', // dim — prior day / week H-L
+    };
+    return levelsData.levels
+      .filter((l) => l.type === 'session' || l.type === 'structure')
+      .map((l) => ({ price: l.price, color: COLOR[l.type], title: l.label }));
+  }, [levelsData]);
+
   const chartMarkers: ChartMarker[] = useMemo(() => {
     if (!markersData?.markers?.length) return [];
     return markersData.markers.map((m) => ({
@@ -229,7 +250,7 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
     >
       {/* TF switcher */}
       <div className="sig-tf-bar">
-        {TIMEFRAMES.map((t) => (
+        {TIMEFRAMES.filter((t) => t !== 'S5' || S5_INSTRUMENTS.has(instrument)).map((t) => (
           <button
             key={t}
             className={`sig-tf-btn${t === tf ? ' is-active' : ''}`}
@@ -253,7 +274,7 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
         <div className="sig-chart-wrap">
           {/* Remount per instrument so the price scale auto-fits the new symbol
               instead of staying pinned to the previous symbol's price range. */}
-          <CandleChart key={instrument} bars={bars} height={340} markers={chartMarkers} />
+          <CandleChart key={instrument} bars={bars} height={340} markers={chartMarkers} priceLines={priceLines} />
         </div>
       )}
       {!loading && !error && bars.length === 0 && (

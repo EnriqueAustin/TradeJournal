@@ -794,7 +794,7 @@ export interface SeasonalityResponse {
 export interface KeyLevel {
   label: string;
   price: number;
-  type: 'pivot' | 'round' | 'structure';
+  type: 'pivot' | 'round' | 'structure' | 'session';
 }
 export interface LevelsResponse {
   instrument: string;

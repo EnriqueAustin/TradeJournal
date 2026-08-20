@@ -16,8 +16,21 @@ const OANDA_SYMBOL = {
   WTICO_USD: 'WTICO_USD',
 };
 
-// OANDA caps a candles request at 5000; 3 days of M1 = 4320 < 5000.
-const CHUNK_MS = 3 * 24 * 60 * 60 * 1000;
+// Seconds per OANDA granularity we support. S5 is the finest free-tier candle;
+// finer detail = fewer gaps and smoother replay.
+export const GRANULARITY_SECONDS = {
+  S5: 5, S15: 15, S30: 30,
+  M1: 60, M5: 300, M15: 900, M30: 1800,
+  H1: 3600, H4: 14400, D1: 86400,
+};
+
+// OANDA caps a candles request at 5000 candles. Chunk span = 4500 candles' worth
+// of time (margin under the cap) so one chunk always fits, whatever the
+// granularity. For M1 this is ~3.1 days; for S5, ~6.25 hours.
+function chunkMsFor(granularity) {
+  const secs = GRANULARITY_SECONDS[granularity] ?? 60;
+  return 4500 * secs * 1000;
+}
 
 export function oandaConfigured() {
   return !!OANDA_API_TOKEN;
@@ -34,9 +47,9 @@ function normTime(t) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-async function fetchChunk(host, symbol, fromISO, toISO) {
+async function fetchChunk(host, symbol, granularity, fromISO, toISO) {
   const url = new URL(`${host}/v3/instruments/${symbol}/candles`);
-  url.searchParams.set('granularity', 'M1');
+  url.searchParams.set('granularity', granularity);
   url.searchParams.set('price', 'M'); // midpoint OHLC
   url.searchParams.set('from', fromISO);
   url.searchParams.set('to', toISO);
@@ -69,12 +82,15 @@ async function fetchChunk(host, symbol, fromISO, toISO) {
   return out;
 }
 
-// Fetch M1 candles for [from, to] (Date | ISO), chunked under OANDA's 5000 cap.
-export async function fetchOandaM1(instrument, from, to) {
+// Fetch candles at `granularity` for [from, to] (Date | ISO), chunked under
+// OANDA's 5000-candle cap. Granularity defaults to M1.
+export async function fetchOandaCandles(instrument, from, to, granularity = 'M1') {
   if (!oandaConfigured()) throw new Error('OANDA_API_TOKEN not set');
+  if (!GRANULARITY_SECONDS[granularity]) throw new Error(`unsupported granularity ${granularity}`);
   const symbol = oandaSymbol(instrument);
   if (!symbol) throw new Error(`no OANDA symbol for ${instrument}`);
   const host = OANDA_HOSTS[OANDA_ENV] || OANDA_HOSTS.practice;
+  const chunkMs = chunkMsFor(granularity);
 
   let start = new Date(from).getTime();
   // OANDA rejects a 'to' in the future (e.g. a trade closed today padded forward
@@ -84,10 +100,11 @@ export async function fetchOandaM1(instrument, from, to) {
 
   const all = [];
   while (start < end) {
-    const chunkEnd = Math.min(start + CHUNK_MS, end);
+    const chunkEnd = Math.min(start + chunkMs, end);
     const bars = await fetchChunk(
       host,
       symbol,
+      granularity,
       new Date(start).toISOString(),
       new Date(chunkEnd).toISOString()
     );
@@ -95,4 +112,9 @@ export async function fetchOandaM1(instrument, from, to) {
     start = chunkEnd;
   }
   return all;
+}
+
+// Back-compat wrapper: M1 candles for [from, to].
+export function fetchOandaM1(instrument, from, to) {
+  return fetchOandaCandles(instrument, from, to, 'M1');
 }

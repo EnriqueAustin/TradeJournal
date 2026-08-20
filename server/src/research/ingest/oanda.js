@@ -1,4 +1,4 @@
-import { fetchOandaM1, oandaConfigured } from '../../marketdata.js';
+import { fetchOandaM1, fetchOandaCandles, oandaConfigured } from '../../marketdata.js';
 import { marketDb, instrumentId } from '../schema.js';
 
 const OANDA_INSTRUMENTS = [
@@ -7,6 +7,14 @@ const OANDA_INSTRUMENTS = [
   { symbol: 'XAGUSD', oanda: 'XAG_USD' },
   { symbol: 'WTICO_USD', oanda: 'WTICO_USD' },
 ];
+
+// Finest free-tier candle (5-second). Ingested for the focus instrument(s) only
+// over a bounded recent window — it fills the gaps M1 leaves and gives replay
+// sub-minute detail without exploding storage. S5 is stored as its own series;
+// higher timeframes still aggregate from M1.
+const FINE_TF = 'S5';
+const FINE_SYMBOLS = new Set(['XAUUSD']);
+const FINE_DAYS = Number(process.env.OANDA_S5_DAYS || 2);
 
 const TF_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240, D1: 1440 };
 const AGGREGATE_TFS = ['M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
@@ -120,10 +128,36 @@ export async function ingestOanda({ days = 5 } = {}) {
     const minNewTs = m1Bars.reduce((min, b) => (b.ts < min ? b.ts : min), m1Bars[0].ts);
     const agg = reaggregateFrom(instId, minNewTs);
 
+    // Finest-granularity (S5) feed for the focus instrument(s), bounded window.
+    let s5Count;
+    if (FINE_SYMBOLS.has(symbol)) {
+      s5Count = await ingestFine(symbol, instId);
+    }
+
     updateHealth(symbol, null);
-    results.push({ symbol, m1: m1Count, aggregated: agg });
+    results.push({ symbol, m1: m1Count, aggregated: agg, ...(s5Count != null && { s5: s5Count }) });
   }
   return { results };
+}
+
+// Ingest S5 candles for one instrument over a bounded recent window, resuming
+// from the last stored S5 bar. Failures are swallowed (S5 is best-effort; M1
+// already succeeded) so they never fail the whole ingest.
+async function ingestFine(symbol, instId) {
+  const lastTs = lastStoredTs(instId, FINE_TF);
+  const from = lastTs ? new Date(lastTs) : new Date(Date.now() - FINE_DAYS * 86400000);
+  try {
+    const raw = await fetchOandaCandles(symbol, from, new Date(), FINE_TF);
+    if (!raw.length) return 0;
+    const bars = raw.map((b) => ({
+      ts: new Date(b.t).getTime(),
+      o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume ?? 0,
+    }));
+    return upsertPrices(instId, FINE_TF, bars);
+  } catch (err) {
+    console.error(`[signal] S5 ingest ${symbol} failed:`, err.message);
+    return null;
+  }
 }
 
 function updateHealth(symbol, error) {
