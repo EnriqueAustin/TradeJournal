@@ -3,7 +3,7 @@ import type { TradeDetail, ReplayFrame, ReplayMarkers } from '../types';
 import CandleChart from './CandleChart';
 import { buildMarkers, buildPriceLines, buildPositionBox } from '../utils/replay';
 import { calculateTradePips } from '../utils/pips';
-import { formatMoney, formatR, formatDateTime, formatDuration } from '../utils/format';
+import { formatMoney, formatR, formatDateTime, formatDuration, sessionLabel } from '../utils/format';
 
 export interface SocialTradeCardProps {
   trade: TradeDetail | (any & { id: number });
@@ -133,8 +133,8 @@ export default function SocialTradeCard({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-400">
-              <span className={`rounded px-2 py-0.5 border ${themeStyles.badge} capitalize`}>
-                Session: {trade.session || 'Off-Hours'}
+              <span className={`rounded px-2 py-0.5 border ${themeStyles.badge}`}>
+                Session: {sessionLabel(trade.session) || 'Off-Hours'}
               </span>
               {setupName && (
                 <span className={`rounded px-2 py-0.5 border ${themeStyles.badge}`}>

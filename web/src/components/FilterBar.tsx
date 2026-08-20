@@ -1,4 +1,5 @@
 import { useFilters } from '../store/FilterContext';
+import { sessionLabel } from '../utils/format';
 
 const INSTRUMENTS = ['All', 'XAUUSD', 'US100'];
 const SESSIONS = ['All', 'asia', 'london', 'ny', 'off'];
@@ -72,13 +73,13 @@ export default function FilterBar() {
         </label>
         <select
           id="f-session"
-          className="input min-w-[7rem] capitalize"
+          className="input min-w-[7rem]"
           value={filters.session}
           onChange={(e) => setFilters({ session: e.target.value })}
         >
           {SESSIONS.map((s) => (
-            <option key={s} value={s} className="capitalize">
-              {s}
+            <option key={s} value={s}>
+              {sessionLabel(s)}
             </option>
           ))}
         </select>
