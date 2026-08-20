@@ -76,9 +76,12 @@ export default function Backtest() {
     return [...set];
   }, [series]);
   const tfs = useMemo(() => {
-    const set = new Set<string>(['M1']);
+    const set = new Set<string>(['S5', 'M1']);
     for (const s of series) set.add(s.tf);
-    return [...set];
+    const ORDER = ['S5', 'S15', 'S30', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'];
+    return [...set].sort(
+      (a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99)
+    );
   }, [series]);
 
   const refreshResults = () => {

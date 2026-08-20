@@ -15,8 +15,8 @@ import { initResearchWs } from './research/ws.js';
 import { safeIngestOanda } from './research/ingest/oanda.js';
 import { captureSnapshot } from './research/snapshot.js';
 import { parseImport } from './import.js';
-import { parseBarsCsv, getBarsForTf, upsertBars, TF_MINUTES } from './bars.js';
-import { fetchOandaM1, oandaConfigured, oandaSymbol } from './marketdata.js';
+import { parseBarsCsv, getBarsForTf, upsertBars, TF_MINUTES, TF_MS, tfMs, isKnownTf } from './bars.js';
+import { fetchOandaM1, fetchOandaCandles, oandaConfigured, oandaSymbol } from './marketdata.js';
 import { aiReview, autoTagTrades, getAiConfig } from './ai.js';
 import {
   safeRefresh,
@@ -783,6 +783,54 @@ function brokerTimesToUtc(trade, tz) {
 // covers H1×20 with margin (still one OANDA chunk).
 const BAR_FETCH_PAD_MS = 26 * 60 * 60 * 1000;
 
+// Finest OANDA candle (5-second), fetched for the focus instrument only over a
+// tight window around each trade — enough to replay/backtest the entry at
+// sub-minute resolution without the storage of a wide S5 span.
+const FINE_TF = 'S5';
+const FINE_SYMBOLS = new Set(['XAUUSD']);
+const FINE_PAD_MS = 3 * 60 * 60 * 1000; // 3h either side
+
+// Pull S5 bars around each gold trade into price_bars. Best-effort, gold-only.
+async function autoFetchFineBars(trades) {
+  if (!oandaConfigured()) return null;
+  const byInst = new Map();
+  for (const t of trades) {
+    const inst = normalizeInstrument(t.instrument);
+    if (!FINE_SYMBOLS.has(inst) || !oandaSymbol(inst)) continue;
+    const times = [t.entry_time, t.exit_time]
+      .map((v) => (v ? new Date(v).getTime() : null))
+      .filter((v) => v != null && !Number.isNaN(v));
+    if (!times.length) continue;
+    if (!byInst.has(inst)) byInst.set(inst, []);
+    byInst.get(inst).push([Math.min(...times) - FINE_PAD_MS, Math.max(...times) + FINE_PAD_MS]);
+  }
+
+  const out = [];
+  for (const [inst, ivals] of byInst) {
+    ivals.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const iv of ivals) {
+      const last = merged[merged.length - 1];
+      if (last && iv[0] <= last[1]) last[1] = Math.max(last[1], iv[1]);
+      else merged.push([...iv]);
+    }
+    let fetched = 0;
+    let upserted = 0;
+    let error = null;
+    try {
+      for (const [lo, hi] of merged) {
+        const bars = await fetchOandaCandles(inst, new Date(lo), new Date(hi), FINE_TF);
+        fetched += bars.length;
+        upserted += upsertBars(inst, FINE_TF, bars);
+      }
+    } catch (e) {
+      error = String(e.message || e);
+    }
+    out.push({ instrument: inst, tf: FINE_TF, fetched, upserted, ...(error ? { error } : {}) });
+  }
+  return out;
+}
+
 async function autoFetchBarsForTrades(trades) {
   if (!oandaConfigured()) return null;
   const pad = BAR_FETCH_PAD_MS;
@@ -821,6 +869,14 @@ async function autoFetchBarsForTrades(trades) {
     }
     out.push({ instrument: inst, fetched, upserted, ...(error ? { error } : {}) });
   }
+
+  // Also pull S5 for the focus instrument so replay/backtest can zoom to the
+  // finest resolution. Never let an S5 hiccup fail the M1 result.
+  try {
+    const fine = await autoFetchFineBars(trades);
+    if (fine?.length) out.push(...fine);
+  } catch { /* best-effort */ }
+
   return out;
 }
 
@@ -984,11 +1040,17 @@ app.post('/api/bars/fetch', async (req, res) => {
       try {
         const bars = await fetchOandaM1(inst, from, to);
         const upserted = upsertBars(inst, 'M1', bars);
-        results.push({
+        const row = {
           instrument: normalizeInstrument(inst),
           fetched: bars.length,
           upserted,
-        });
+        };
+        // Finest (S5) feed for the focus instrument, same range.
+        if (FINE_SYMBOLS.has(normalizeInstrument(inst))) {
+          const s5 = await fetchOandaCandles(inst, from, to, FINE_TF);
+          row.s5 = upsertBars(inst, FINE_TF, s5);
+        }
+        results.push(row);
       } catch (e) {
         results.push({ instrument: inst, error: String(e.message || e) });
       }
@@ -1075,10 +1137,10 @@ app.get('/api/trades/:id/replay', (req, res) => {
   const requested = String(req.query.tf || `M5,M15,M30,H1`)
     .split(',')
     .map((s) => s.trim())
-    .filter((s) => s && TF_MINUTES[s]);
+    .filter((s) => s && isKnownTf(s));
   // De-dupe, keep request order; guarantee the primary is present.
-  const tfs = [...new Set([...requested, primaryTf])].filter((t) => TF_MINUTES[t]);
-  tfs.sort((a, b) => TF_MINUTES[a] - TF_MINUTES[b]);
+  const tfs = [...new Set([...requested, primaryTf])].filter((t) => isKnownTf(t));
+  tfs.sort((a, b) => TF_MS[a] - TF_MS[b]);
 
   const pad = req.query.pad ? Math.max(0, Number(req.query.pad)) : 20;
   const entryMs = trade.entry_time ? new Date(trade.entry_time).getTime() : null;
@@ -1086,8 +1148,7 @@ app.get('/api/trades/:id/replay', (req, res) => {
 
   const frames = tfs.map((tf) => {
     const { bars: all, source } = getBarsForTf(trade.instrument, tf);
-    const tfMs = (TF_MINUTES[tf] || 0) * 60000;
-    return { tf, source, bars: windowBars(all, entryMs, exitMs, pad, tfMs) };
+    return { tf, source, bars: windowBars(all, entryMs, exitMs, pad, tfMs(tf) || 0) };
   });
 
   res.json({

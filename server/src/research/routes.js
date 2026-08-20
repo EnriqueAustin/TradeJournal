@@ -1079,6 +1079,131 @@ researchRouter.get('/levels/:instrument', (req, res) => {
   }
 });
 
+// GET /api/research/adr/:instrument?days=14 — Average Daily Range and how much
+// of it today has already used. Wick-fill setups are higher-probability near
+// ADR exhaustion (mean-reversion) and continuation is lower — so % used is a
+// first-class read for a session scalper.
+researchRouter.get('/adr/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+    const n = Math.max(3, Math.min(60, Number(req.query.days) || 14));
+
+    const instId = instrumentId(symbol);
+    // n prior complete days + today (latest), newest first.
+    const bars = marketDb
+      .prepare(
+        `SELECT ts, o, h, l, c FROM prices WHERE instrument_id = ? AND timeframe = 'D1'
+         ORDER BY ts DESC LIMIT ?`
+      )
+      .all(instId, n + 1);
+    if (bars.length < 2) return res.json({ instrument: symbol, adr: null, samples: 0 });
+
+    const today = bars[0];
+    const prior = bars.slice(1); // exclude today from the average
+    const ranges = prior.map((b) => b.h - b.l);
+    const adr = ranges.reduce((s, r) => s + r, 0) / ranges.length;
+    const round = (x) => Math.round(x * 100) / 100;
+
+    const todayRange = today.h - today.l;
+    const pctUsed = adr > 0 ? todayRange / adr : null;
+
+    res.json({
+      instrument: symbol,
+      adr: round(adr),
+      samples: ranges.length,
+      today: { open: today.o, high: today.h, low: today.l, range: round(todayRange) },
+      pctUsed: pctUsed != null ? Math.round(pctUsed * 1000) / 1000 : null,
+      // Projection: a full-ADR day extends the current extreme to the far side.
+      projectedHigh: round(today.l + adr),
+      projectedLow: round(today.h - adr),
+      freshness: { source: 'oanda', last_ok: today.ts, status: 'ok' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// The liquidity pools a sweep hunts: intraday session levels + prior-day H/L.
+function huntLevels(instId) {
+  const out = computeSessionLevels(instId).map((l) => ({ label: l.label, price: l.price }));
+  const d1 = marketDb
+    .prepare(
+      `SELECT h, l FROM prices WHERE instrument_id = ? AND timeframe = 'D1' ORDER BY ts DESC LIMIT 2`
+    )
+    .all(instId);
+  if (d1[1]) {
+    out.push({ label: 'Prev Day H', price: Math.round(d1[1].h * 100) / 100 });
+    out.push({ label: 'Prev Day L', price: Math.round(d1[1].l * 100) / 100 });
+  }
+  return out;
+}
+
+// GET /api/research/sweeps/:instrument?limit=8 — recent liquidity sweeps: an M1
+// bar that pierced a level then closed back on the other side (the stop-hunt /
+// wick rejection that is the "Wicks Don't Lie" entry trigger).
+researchRouter.get('/sweeps/:instrument', (req, res) => {
+  try {
+    const symbol = resolveInstrument(req.params.instrument);
+    if (!symbol) return res.status(400).json({ error: 'Unknown instrument' });
+    const limit = Math.max(1, Math.min(30, Number(req.query.limit) || 8));
+
+    const instId = instrumentId(symbol);
+    const latest = marketDb
+      .prepare("SELECT MAX(ts) AS maxTs FROM prices WHERE instrument_id = ? AND timeframe = 'M1'")
+      .get(instId);
+    if (latest?.maxTs == null) return res.json({ instrument: symbol, sweeps: [] });
+
+    // Scan the last ~2 days of M1.
+    const from = latest.maxTs - 2 * 86400000;
+    const m1 = marketDb
+      .prepare(
+        `SELECT ts, o, h, l, c FROM prices
+         WHERE instrument_id = ? AND timeframe = 'M1' AND ts >= ? ORDER BY ts`
+      )
+      .all(instId, from);
+    const levels = huntLevels(instId);
+    if (!m1.length || !levels.length) return res.json({ instrument: symbol, sweeps: [] });
+
+    // Rejection = size of the rejecting wick relative to the candle body, capped
+    // at 9.9 so a doji (body≈0) doesn't produce a meaningless huge ratio.
+    const rej = (wickPart, body) =>
+      Math.min(9.9, Math.round((wickPart / Math.max(body, 1e-6)) * 10) / 10);
+
+    const sweeps = [];
+    for (const b of m1) {
+      const body = Math.abs(b.c - b.o);
+      for (const lv of levels) {
+        // Bearish sweep: pierced ABOVE the level but closed back below it.
+        if (b.h > lv.price && b.c < lv.price && b.o < lv.price) {
+          sweeps.push({
+            ts: b.ts, level: lv.label, price: lv.price, direction: 'bearish',
+            wick: Math.round((b.h - lv.price) * 100) / 100,
+            rejection: rej(b.h - Math.max(b.o, b.c), body),
+          });
+        }
+        // Bullish sweep: pierced BELOW the level but closed back above it.
+        else if (b.l < lv.price && b.c > lv.price && b.o > lv.price) {
+          sweeps.push({
+            ts: b.ts, level: lv.label, price: lv.price, direction: 'bullish',
+            wick: Math.round((lv.price - b.l) * 100) / 100,
+            rejection: rej(Math.min(b.o, b.c) - b.l, body),
+          });
+        }
+      }
+    }
+    // Most recent first.
+    sweeps.sort((a, b) => b.ts - a.ts);
+    res.json({
+      instrument: symbol,
+      sweeps: sweeps.slice(0, limit),
+      freshness: { source: 'oanda', last_ok: latest.maxTs, status: 'ok' },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // t-statistic approximation for significance
 function tStat(returns) {
   const n = returns.length;

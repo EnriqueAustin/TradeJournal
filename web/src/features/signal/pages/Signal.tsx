@@ -34,6 +34,8 @@ import SpreadPanel from '../panels/SpreadPanel';
 import PositioningPanel from '../panels/PositioningPanel';
 import NewsFeedPanel from '../panels/NewsFeedPanel';
 import EdgePanel from '../panels/EdgePanel';
+import AdrPanel from '../panels/AdrPanel';
+import SweepPanel from '../panels/SweepPanel';
 import SessionsClock from '../../../components/SessionsClock';
 import '../terminal/terminal.css';
 
@@ -222,6 +224,8 @@ export default function Signal() {
             {instrument === 'XAUUSD' && (
               <>
                 <DriverScorecard />
+                <SweepPanel instrument="XAUUSD" />
+                <AdrPanel instrument="XAUUSD" />
                 <VolPanel instrument="XAUUSD" />
                 <KeyLevelsPanel instrument="XAUUSD" />
                 <BriefPanel instrument="XAUUSD" />
