@@ -9,7 +9,13 @@ import {
 } from 'lightweight-charts';
 import type { EquityPoint } from '../types';
 
-export default function EquityCurve({ data }: { data: EquityPoint[] }) {
+export default function EquityCurve({
+  data,
+  unit = 'money',
+}: {
+  data: EquityPoint[];
+  unit?: 'money' | 'r';
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
@@ -70,7 +76,7 @@ export default function EquityCurve({ data }: { data: EquityPoint[] }) {
     const points = [...data]
       .map((p) => ({
         time: Math.floor(new Date(p.t).getTime() / 1000) as UTCTimestamp,
-        value: p.cum_pnl,
+        value: unit === 'r' ? p.cum_r ?? 0 : p.cum_pnl,
       }))
       .filter((p) => Number.isFinite(p.time))
       .sort((a, b) => a.time - b.time);
@@ -85,7 +91,7 @@ export default function EquityCurve({ data }: { data: EquityPoint[] }) {
 
     series.setData(deduped);
     chart.timeScale().fitContent();
-  }, [data]);
+  }, [data, unit]);
 
   return <div ref={containerRef} className="h-80 w-full" />;
 }

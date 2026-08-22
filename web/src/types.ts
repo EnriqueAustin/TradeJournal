@@ -287,6 +287,7 @@ export interface StatsSummary {
   avg_win: number;
   avg_loss: number;
   avg_r: number | null;
+  total_r: number | null;
   largest_win: number;
   largest_loss: number;
   commission: number;
@@ -296,6 +297,7 @@ export interface StatsSummary {
 export interface EquityPoint {
   t: string;
   cum_pnl: number;
+  cum_r?: number;
 }
 
 export interface CalendarDay {

@@ -108,6 +108,26 @@ function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
   );
 }
 
+// $ / R unit toggle — switches P&L-denominated tiles and the equity curve
+// between money and R-multiples (risk units), the way rival journals do.
+function UnitToggle({ unit, onChange }: { unit: 'money' | 'r'; onChange: (u: 'money' | 'r') => void }) {
+  return (
+    <div className="flex overflow-hidden rounded-lg border border-slate-800">
+      {(['money', 'r'] as const).map((u) => (
+        <button
+          key={u}
+          onClick={() => onChange(u)}
+          className={`px-2.5 py-1 text-xs font-semibold ${
+            unit === u ? 'bg-indigo-600 text-white' : 'bg-slate-900/40 text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          {u === 'money' ? '$' : 'R'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // Compact Edge Score badge (full breakdown lives on Analytics → Report Card).
 function EdgeScoreChip({ score }: { score: EdgeScore }) {
   const col =
@@ -139,6 +159,7 @@ function EdgeScoreChip({ score }: { score: EdgeScore }) {
 export default function Dashboard() {
   const { filters, accounts } = useFilters();
   const [month, setMonth] = useState(currentMonth);
+  const [unit, setUnit] = useState<'money' | 'r'>('money');
 
   const currency = useMemo(
     () => accounts.find((a) => a.id === filters.account)?.currency ?? 'USD',
@@ -173,7 +194,10 @@ export default function Dashboard() {
             Performance across the selected filters.
           </p>
         </div>
-        {reportCard.data?.score && <EdgeScoreChip score={reportCard.data.score} />}
+        <div className="flex items-center gap-3">
+          <UnitToggle unit={unit} onChange={setUnit} />
+          {reportCard.data?.score && <EdgeScoreChip score={reportCard.data.score} />}
+        </div>
       </div>
 
       {/* Live open positions (rendered only when EA snapshot present) */}
@@ -191,10 +215,10 @@ export default function Dashboard() {
       >
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatTile
-            label="Net P&L"
-            value={formatMoney(s?.net_pnl, currency)}
-            valueClass={signClass(s?.net_pnl)}
-            sub={`Gross ${formatMoney(s?.gross_pnl, currency)}`}
+            label={unit === 'r' ? 'Total R' : 'Net P&L'}
+            value={unit === 'r' ? formatR(s?.total_r ?? null) : formatMoney(s?.net_pnl, currency)}
+            valueClass={signClass(unit === 'r' ? s?.total_r ?? 0 : s?.net_pnl)}
+            sub={unit === 'r' ? 'sum of R' : `Gross ${formatMoney(s?.gross_pnl, currency)}`}
           />
           <StatTile
             label="Win Rate"
@@ -209,9 +233,9 @@ export default function Dashboard() {
             }
           />
           <StatTile
-            label="Expectancy"
-            value={formatMoney(s?.expectancy, currency)}
-            valueClass={signClass(s?.expectancy)}
+            label={unit === 'r' ? 'Expectancy (R)' : 'Expectancy'}
+            value={unit === 'r' ? formatR(s?.avg_r) : formatMoney(s?.expectancy, currency)}
+            valueClass={signClass(unit === 'r' ? s?.avg_r : s?.expectancy)}
             sub="per trade"
           />
           <StatTile
@@ -235,7 +259,10 @@ export default function Dashboard() {
       <GoalsCard account={filters.account} currency={currency} />
 
       {/* Equity curve */}
-      <SectionCard title="Equity Curve">
+      <SectionCard
+        title={unit === 'r' ? 'Equity Curve (R)' : 'Equity Curve'}
+        right={<UnitToggle unit={unit} onChange={setUnit} />}
+      >
         <AsyncBoundary
           loading={equity.loading}
           error={equity.error}
@@ -244,7 +271,7 @@ export default function Dashboard() {
           emptyMessage="No closed trades in range."
           loadingLabel="Loading equity…"
         >
-          {equity.data && <EquityCurve data={equity.data} />}
+          {equity.data && <EquityCurve data={equity.data} unit={unit} />}
         </AsyncBoundary>
       </SectionCard>
 
