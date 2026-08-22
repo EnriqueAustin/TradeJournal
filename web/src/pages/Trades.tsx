@@ -65,6 +65,14 @@ export default function Trades() {
             {total} trade{total === 1 ? '' : 's'} matching filters.
           </p>
         </div>
+        <a
+          className="btn text-xs"
+          href={api.tradesExportUrl(filters)}
+          download
+          title="Download the filtered trades as CSV"
+        >
+          ⤓ Export CSV
+        </a>
       </div>
 
       <div className="card overflow-hidden">

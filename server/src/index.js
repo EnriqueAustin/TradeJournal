@@ -34,6 +34,7 @@ import {
   brokerIsoToUtc,
 } from './util.js';
 import {
+  buildFilter,
   summary,
   equity,
   calendar,
@@ -504,6 +505,36 @@ app.get('/api/trades', (req, res) => {
     )
     .all({ ...params, limit, offset });
   res.json({ rows, total });
+});
+
+// CSV export of the filtered trade set (honours the same account/instrument/
+// session/setup/date filters). Defined before /api/trades/:id so "export" isn't
+// captured as an :id. Rivals all offer report export; we had none.
+const EXPORT_COLS = [
+  'id', 'account_id', 'instrument', 'direction', 'entry_time', 'exit_time',
+  'entry_price', 'exit_price', 'size', 'net_pnl', 'gross_pnl', 'commission',
+  'swap', 'r_multiple', 'session', 'hold_time_sec', 'setup_id',
+];
+function csvCell(v) {
+  if (v == null) return '';
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+app.get('/api/trades/export', (req, res) => {
+  const { where, params } = buildFilter(req.query);
+  const rows = db
+    .prepare(
+      `SELECT ${EXPORT_COLS.join(', ')} FROM trades ${where}
+       ORDER BY COALESCE(exit_time, entry_time) ASC, id ASC`
+    )
+    .all(params);
+  const lines = [EXPORT_COLS.join(',')];
+  for (const r of rows) lines.push(EXPORT_COLS.map((c) => csvCell(r[c])).join(','));
+  const csv = lines.join('\r\n');
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="trades-${stamp}.csv"`);
+  res.send(csv);
 });
 
 app.get('/api/trades/:id', (req, res) => {
