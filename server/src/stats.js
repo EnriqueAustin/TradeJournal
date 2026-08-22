@@ -993,6 +993,201 @@ export function wickEdge(q) {
   };
 }
 
+// --- Report Card ------------------------------------------------------------
+// GET /api/stats/reportcard — the consolidated performance report every rival
+// journal leads with, which we lacked: a composite Edge Score (Zella-style),
+// drawdown analysis with an underwater curve, the R-multiple distribution, and
+// a day-of-week breakdown. One pass over the filtered trades feeds all four.
+const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const R_BINS = [
+  { max: -2, label: '≤ -2R' },
+  { max: -1, label: '-2 to -1R' },
+  { max: 0, label: '-1 to 0R' },
+  { max: 1, label: '0 to 1R' },
+  { max: 2, label: '1 to 2R' },
+  { max: 3, label: '2 to 3R' },
+  { max: Infinity, label: '≥ 3R' },
+];
+
+const clamp100 = (x) => Math.max(0, Math.min(100, x));
+
+export function reportCard(q) {
+  const { where, params } = buildFilter(q);
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(exit_time, entry_time) AS t, net_pnl, r_multiple
+       FROM trades ${where}
+       ORDER BY COALESCE(exit_time, entry_time) ASC, id ASC`
+    )
+    .all(params);
+
+  const account = resolveAccount(q);
+  const starting_balance = account?.starting_balance || 0;
+
+  const n = rows.length;
+  if (n === 0) {
+    return { trade_count: 0, score: null, drawdown: null, r_distribution: [], by_dow: [], key: null };
+  }
+
+  // Single pass: cumulative equity + drawdown, streaks, day/DOW aggregation.
+  let cum = 0;
+  let peak = 0;
+  let maxDd = 0;
+  let wins = 0,
+    losses = 0,
+    grossWin = 0,
+    grossLoss = 0;
+  let curWin = 0,
+    curLoss = 0,
+    maxConsecWin = 0,
+    maxConsecLoss = 0;
+  const rawSeries = [];
+  const dayMap = new Map(); // 'YYYY-MM-DD' -> net
+  const dowMap = new Map(); // 0..6 -> { net, count, wins }
+
+  for (const r of rows) {
+    const p = r.net_pnl || 0;
+    cum += p;
+    if (cum > peak) peak = cum;
+    const dd = peak - cum; // >= 0
+    if (dd > maxDd) maxDd = dd;
+    rawSeries.push({ t: r.t, dd });
+
+    if (p > 0) {
+      wins++;
+      grossWin += p;
+      curWin++;
+      curLoss = 0;
+      if (curWin > maxConsecWin) maxConsecWin = curWin;
+    } else if (p < 0) {
+      losses++;
+      grossLoss += p;
+      curLoss++;
+      curWin = 0;
+      if (curLoss > maxConsecLoss) maxConsecLoss = curLoss;
+    } else {
+      curWin = 0;
+      curLoss = 0;
+    }
+
+    const day = (r.t || '').slice(0, 10);
+    if (day) dayMap.set(day, (dayMap.get(day) || 0) + p);
+    if (r.t) {
+      const d = new Date(r.t);
+      if (!isNaN(d)) {
+        const dow = d.getUTCDay();
+        const g = dowMap.get(dow) || { net: 0, count: 0, wins: 0 };
+        g.net += p;
+        g.count++;
+        if (p > 0) g.wins++;
+        dowMap.set(dow, g);
+      }
+    }
+  }
+
+  const net_pnl = cum;
+  const win_rate = n ? wins / n : 0;
+  const profit_factor = grossLoss !== 0 ? grossWin / Math.abs(grossLoss) : null;
+  const avg_win = wins ? grossWin / wins : 0;
+  const avg_loss = losses ? grossLoss / losses : 0; // negative
+  const payoff_ratio = avg_loss !== 0 ? avg_win / Math.abs(avg_loss) : null;
+  const recovery_factor = maxDd > 0 ? net_pnl / maxDd : null;
+
+  // Days for consistency + best/worst + averages.
+  const days = [...dayMap.entries()].map(([day, net]) => ({ day, net: round(net) }));
+  const trading_days = days.length;
+  let best_day = null,
+    worst_day = null;
+  for (const d of days) {
+    if (best_day == null || d.net > best_day.net) best_day = d;
+    if (worst_day == null || d.net < worst_day.net) worst_day = d;
+  }
+  // Consistency: how little the single best day dominates total profit.
+  const maxDayShare =
+    net_pnl > 0 && best_day && best_day.net > 0 ? best_day.net / net_pnl : 1;
+  const consistency = net_pnl > 0 ? clamp100((1 - maxDayShare) * 100) : 0;
+
+  // --- Edge Score components (each 0-100), weighted ---
+  const sWin = clamp100((win_rate / 0.6) * 100); // 60% win rate = full marks
+  const sPf =
+    profit_factor == null ? 100 : clamp100((profit_factor - 1) * 50 + 50); // PF 2 = 100, 1 = 50
+  const sPayoff =
+    payoff_ratio == null ? 100 : clamp100((payoff_ratio - 1) * 50 + 50); // 2:1 = 100
+  const sRecovery =
+    recovery_factor == null ? 100 : clamp100((recovery_factor / 3) * 100); // RF 3 = 100
+  const sConsistency = consistency;
+
+  const components = [
+    { key: 'winrate', label: 'Win rate', weight: 0.2, score: round(sWin, 0), detail: formatPctRaw(win_rate) },
+    { key: 'profit_factor', label: 'Profit factor', weight: 0.25, score: round(sPf, 0), detail: profit_factor == null ? '∞' : round(profit_factor, 2) },
+    { key: 'payoff', label: 'Payoff (win/loss)', weight: 0.15, score: round(sPayoff, 0), detail: payoff_ratio == null ? '∞' : round(payoff_ratio, 2) },
+    { key: 'recovery', label: 'Recovery factor', weight: 0.2, score: round(sRecovery, 0), detail: recovery_factor == null ? '∞' : round(recovery_factor, 2) },
+    { key: 'consistency', label: 'Consistency', weight: 0.2, score: round(sConsistency, 0), detail: `${round(consistency, 0)}/100` },
+  ];
+  const total = components.reduce((acc, c) => acc + c.score * c.weight, 0);
+  const grade = total >= 85 ? 'A' : total >= 70 ? 'B' : total >= 55 ? 'C' : total >= 40 ? 'D' : 'F';
+  const score = { total: round(total, 0), grade, components, reliable: n >= 20 };
+
+  // --- Drawdown, with a downsampled underwater series (<=120 points) ---
+  const peakEquity = starting_balance + peak;
+  const max_dd_pct = peakEquity > 0 ? round(maxDd / peakEquity, 4) : null;
+  const step = Math.max(1, Math.ceil(rawSeries.length / 120));
+  const series = rawSeries
+    .filter((_, i) => i % step === 0 || i === rawSeries.length - 1)
+    .map((s) => ({ t: s.t, dd: -round(s.dd) })); // negative = underwater
+  const drawdown = {
+    max_dd: round(maxDd),
+    max_dd_pct,
+    recovery_factor: recovery_factor == null ? null : round(recovery_factor, 2),
+    starting_balance,
+    series,
+  };
+
+  // --- R-multiple distribution ---
+  const rTrades = rows.filter((r) => r.r_multiple != null && !isNaN(r.r_multiple));
+  const r_distribution = R_BINS.map((b) => ({ label: b.label, count: 0, net_pnl: 0 }));
+  for (const r of rTrades) {
+    const idx = R_BINS.findIndex((b) => r.r_multiple < b.max);
+    const bin = idx === -1 ? r_distribution.length - 1 : idx;
+    r_distribution[bin].count++;
+    r_distribution[bin].net_pnl += r.net_pnl || 0;
+  }
+  for (const d of r_distribution) d.net_pnl = round(d.net_pnl);
+
+  // --- Day-of-week (Mon..Sun order, only days that traded) ---
+  const by_dow = [1, 2, 3, 4, 5, 6, 0]
+    .filter((dow) => dowMap.has(dow))
+    .map((dow) => {
+      const g = dowMap.get(dow);
+      return {
+        dow,
+        label: DOW_LABELS[dow],
+        count: g.count,
+        net_pnl: round(g.net),
+        win_rate: g.count ? round(g.wins / g.count, 4) : 0,
+      };
+    });
+
+  const key = {
+    net_pnl: round(net_pnl),
+    payoff_ratio: payoff_ratio == null ? null : round(payoff_ratio, 2),
+    recovery_factor: recovery_factor == null ? null : round(recovery_factor, 2),
+    max_consec_wins: maxConsecWin,
+    max_consec_losses: maxConsecLoss,
+    trading_days,
+    avg_daily_pnl: trading_days ? round(net_pnl / trading_days) : 0,
+    best_day,
+    worst_day,
+    r_sample: rTrades.length,
+  };
+
+  return { trade_count: n, score, drawdown, r_distribution, by_dow, key };
+}
+
+function formatPctRaw(x) {
+  return x == null ? '—' : `${round(x * 100, 1)}%`;
+}
+
 function round(n, dp = 2) {
   if (n === null || n === undefined || isNaN(n)) return n;
   const f = Math.pow(10, dp);

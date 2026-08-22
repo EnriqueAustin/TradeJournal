@@ -193,6 +193,59 @@ export interface WickEdgeStats {
   by_fakeout: WickEdgeRow[];
 }
 
+export interface ScoreComponent {
+  key: string;
+  label: string;
+  weight: number;
+  score: number; // 0-100
+  detail: string | number;
+}
+export interface EdgeScore {
+  total: number; // 0-100
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  components: ScoreComponent[];
+  reliable: boolean;
+}
+export interface DrawdownStats {
+  max_dd: number;
+  max_dd_pct: number | null;
+  recovery_factor: number | null;
+  starting_balance: number;
+  series: { t: string; dd: number }[]; // dd <= 0 (underwater)
+}
+export interface RDistBin {
+  label: string;
+  count: number;
+  net_pnl: number;
+}
+export interface DowRow {
+  dow: number;
+  label: string;
+  count: number;
+  net_pnl: number;
+  win_rate: number;
+}
+export interface ReportKeyNumbers {
+  net_pnl: number;
+  payoff_ratio: number | null;
+  recovery_factor: number | null;
+  max_consec_wins: number;
+  max_consec_losses: number;
+  trading_days: number;
+  avg_daily_pnl: number;
+  best_day: { day: string; net: number } | null;
+  worst_day: { day: string; net: number } | null;
+  r_sample: number;
+}
+export interface ReportCard {
+  trade_count: number;
+  score: EdgeScore | null;
+  drawdown: DrawdownStats | null;
+  r_distribution: RDistBin[];
+  by_dow: DowRow[];
+  key: ReportKeyNumbers | null;
+}
+
 export interface TradesResponse {
   rows: Trade[];
   total: number;

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
 import HoldTimeBars from '../components/HoldTimeBars';
 import OptimizerHeatmap from '../components/OptimizerHeatmap';
+import ReportCard from '../components/ReportCard';
 import { formatNumber, formatPct, formatDuration, formatMoney, signClass } from '../utils/format';
 import type { ExcursionStats, WickEdgeStats, WickEdgeRow } from '../types';
 
@@ -178,8 +179,13 @@ function ExcursionPanel({ e }: { e: ExcursionStats }) {
 }
 
 export default function Analytics() {
-  const { filters } = useFilters();
+  const { filters, accounts } = useFilters();
   const key = filterKey(filters);
+  const currency = useMemo(
+    () => accounts.find((a) => a.id === filters.account)?.currency ?? 'USD',
+    [accounts, filters.account]
+  );
+  const reportCard = useApi(() => api.getReportCard(filters), [key]);
   const holdtime = useApi(() => api.getHoldtime(filters), [key]);
   const excursion = useApi(() => api.getExcursion(filters), [key]);
   const wickEdge = useApi(() => api.getWickEdge(filters), [key]);
@@ -202,6 +208,19 @@ export default function Analytics() {
           filters.
         </p>
       </div>
+
+      <SectionCard title="Report Card">
+        <AsyncBoundary
+          loading={reportCard.loading}
+          error={reportCard.error}
+          onRetry={reportCard.reload}
+          isEmpty={!reportCard.data || reportCard.data.trade_count === 0}
+          emptyMessage="No trades match the filters."
+          loadingLabel="Building report card…"
+        >
+          {reportCard.data && <ReportCard data={reportCard.data} currency={currency} />}
+        </AsyncBoundary>
+      </SectionCard>
 
       <SectionCard
         title="Net P&L by Hold Time"

@@ -214,6 +214,8 @@ export const api = {
   getTilt: (f: Filters) => request<TiltStats>(`/stats/tilt${filterParams(f)}`),
   getWickEdge: (f: Filters) =>
     request<import('../types').WickEdgeStats>(`/stats/wick${filterParams(f)}`),
+  getReportCard: (f: Filters) =>
+    request<import('../types').ReportCard>(`/stats/reportcard${filterParams(f)}`),
   getOptimizer: (f: Filters, sl?: string, tp?: string) =>
     request<OptimizerStats>(
       `/stats/optimizer${filterParams(f, { sl, tp })}`
