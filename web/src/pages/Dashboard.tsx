@@ -10,6 +10,7 @@ import SessionsClock from '../components/SessionsClock';
 import HourlyBars from '../components/HourlyBars';
 import AiReviewPanel from '../components/AiReviewPanel';
 import LivePositions from '../components/LivePositions';
+import GoalsCard from '../components/GoalsCard';
 import { AsyncBoundary } from '../components/states';
 import type { PropStats, EdgeScore } from '../types';
 import { Link } from 'react-router-dom';
@@ -229,6 +230,9 @@ export default function Dashboard() {
           />
         </div>
       </AsyncBoundary>
+
+      {/* Goals */}
+      <GoalsCard account={filters.account} currency={currency} />
 
       {/* Equity curve */}
       <SectionCard title="Equity Curve">

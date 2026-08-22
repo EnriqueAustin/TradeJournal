@@ -258,6 +258,20 @@ export interface TagStats {
   by_category: Record<string, TagStatRow[]>;
 }
 
+export type GoalMetric = 'net_pnl' | 'win_rate' | 'trade_count' | 'avg_r' | 'profit_factor';
+export type GoalPeriod = 'month' | 'week' | 'all';
+export interface Goal {
+  id: number;
+  account_id: number | null;
+  metric: GoalMetric;
+  period: GoalPeriod;
+  target: number;
+  created_at: string;
+  current: number | null;
+  period_label: string;
+  progress: number | null;
+}
+
 export interface TradesResponse {
   rows: Trade[];
   total: number;

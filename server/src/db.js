@@ -221,6 +221,17 @@ export function migrate() {
       fakeout INTEGER,    -- 0/1, did price fake the other way first
       updated_at TEXT DEFAULT (datetime('now'))
     );
+
+    -- Performance goals: a target for one metric over the current period.
+    -- account_id NULL = applies across all accounts (portfolio-wide).
+    CREATE TABLE IF NOT EXISTS goals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+      metric TEXT NOT NULL,   -- net_pnl|win_rate|trade_count|avg_r|profit_factor
+      period TEXT NOT NULL,   -- month|week|all
+      target REAL NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   // Per-event ForexFactory permalink (from the browser userscript scrape) so
