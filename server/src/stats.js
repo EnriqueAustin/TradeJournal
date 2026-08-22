@@ -1188,6 +1188,62 @@ function formatPctRaw(x) {
   return x == null ? '—' : `${round(x * 100, 1)}%`;
 }
 
+// GET /api/stats/tags — P&L broken down by journal tag, per category. This is
+// the Edgewonk-style "leak finder": which mistakes / emotions / grades actually
+// cost (or make) money. Rows are sorted worst-first so leaks surface at the top.
+// Joins trades -> trade_tags -> tags; buildFilter's WHERE applies to trades
+// (its bare column names — account_id, instrument, session, is_backtest, exit_time
+// — don't collide with the tags/trade_tags columns, so no alias is needed).
+export function tagStats(q) {
+  const { where, params } = buildFilter(q);
+  const rows = db
+    .prepare(
+      `SELECT tags.category AS category, tags.name AS name,
+              trades.net_pnl AS net_pnl, trades.r_multiple AS r_multiple
+       FROM trades
+       JOIN trade_tags ON trade_tags.trade_id = trades.id
+       JOIN tags ON tags.id = trade_tags.tag_id
+       ${where}`
+    )
+    .all(params);
+
+  const groups = new Map(); // `${category} ${name}` -> agg
+  for (const r of rows) {
+    const k = `${r.category} ${r.name}`;
+    let g = groups.get(k);
+    if (!g) {
+      g = { category: r.category, name: r.name, count: 0, wins: 0, net: 0, rSum: 0, rN: 0 };
+      groups.set(k, g);
+    }
+    const p = r.net_pnl || 0;
+    g.count++;
+    if (p > 0) g.wins++;
+    g.net += p;
+    if (r.r_multiple != null && !isNaN(r.r_multiple)) {
+      g.rSum += r.r_multiple;
+      g.rN++;
+    }
+  }
+
+  const byCategory = {};
+  for (const g of groups.values()) {
+    const cat = g.category || 'other';
+    (byCategory[cat] ||= []).push({
+      name: g.name,
+      count: g.count,
+      win_rate: g.count ? round(g.wins / g.count, 4) : 0,
+      net_pnl: round(g.net),
+      avg_r: g.rN ? round(g.rSum / g.rN, 4) : null,
+    });
+  }
+  // Worst-first within each category so costly tags lead.
+  for (const cat of Object.keys(byCategory)) {
+    byCategory[cat].sort((a, b) => a.net_pnl - b.net_pnl);
+  }
+
+  return { total_tagged: rows.length, by_category: byCategory };
+}
+
 function round(n, dp = 2) {
   if (n === null || n === undefined || isNaN(n)) return n;
   const f = Math.pow(10, dp);

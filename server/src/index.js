@@ -49,6 +49,7 @@ import {
   portfolio,
   wickEdge,
   reportCard,
+  tagStats,
 } from './stats.js';
 
 migrate();
@@ -883,6 +884,7 @@ app.get('/api/stats/wick', (req, res) => res.json(wickEdge(req.query)));
 app.get('/api/stats/optimizer', (req, res) => res.json(optimizer(req.query)));
 app.get('/api/stats/portfolio', (req, res) => res.json(portfolio(req.query)));
 app.get('/api/stats/reportcard', (req, res) => res.json(reportCard(req.query)));
+app.get('/api/stats/tags', (req, res) => res.json(tagStats(req.query)));
 
 // ---------- Economic calendar / news ----------
 app.get('/api/news', (req, res) => res.json(getNews(req.query)));

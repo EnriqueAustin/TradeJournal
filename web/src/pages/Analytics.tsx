@@ -7,7 +7,75 @@ import HoldTimeBars from '../components/HoldTimeBars';
 import OptimizerHeatmap from '../components/OptimizerHeatmap';
 import ReportCard from '../components/ReportCard';
 import { formatNumber, formatPct, formatDuration, formatMoney, signClass } from '../utils/format';
-import type { ExcursionStats, WickEdgeStats, WickEdgeRow } from '../types';
+import type { ExcursionStats, WickEdgeStats, WickEdgeRow, TagStats, TagStatRow } from '../types';
+
+// Human labels + display order for the tag categories in the leak finder.
+const TAG_CAT_LABELS: Record<string, string> = {
+  mistake: 'Mistakes', emotion: 'Emotions', grade: 'Grades',
+  session: 'Sessions', setup: 'Setups', other: 'Other',
+};
+const TAG_CAT_ORDER = ['mistake', 'emotion', 'grade', 'session', 'setup', 'other'];
+
+function TagCategoryTable({ title, rows }: { title: string; rows: TagStatRow[] }) {
+  if (!rows || rows.length === 0) return null;
+  return (
+    <div>
+      <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        {title}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[360px] text-sm">
+          <thead>
+            <tr className="border-b border-slate-800 text-left text-[11px] uppercase tracking-wide text-slate-500">
+              <th className="py-1.5 pr-3 font-medium">Tag</th>
+              <th className="py-1.5 px-3 text-right font-medium">N</th>
+              <th className="py-1.5 px-3 text-right font-medium">Win%</th>
+              <th className="py-1.5 px-3 text-right font-medium">Net P&L</th>
+              <th className="py-1.5 pl-3 text-right font-medium">Avg R</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.name} className="border-b border-slate-800/60">
+                <td className="py-1.5 pr-3 text-slate-200">{r.name}</td>
+                <td className="num py-1.5 px-3 text-right text-slate-400">{r.count}</td>
+                <td className="num py-1.5 px-3 text-right text-slate-300">{formatPct(r.win_rate)}</td>
+                <td className={`num py-1.5 px-3 text-right font-semibold ${signClass(r.net_pnl)}`}>
+                  {formatMoney(r.net_pnl)}
+                </td>
+                <td className={`num py-1.5 pl-3 text-right ${r.avg_r == null ? 'text-slate-500' : signClass(r.avg_r)}`}>
+                  {r.avg_r == null ? '—' : formatNumber(r.avg_r, 2)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function TagAnalyticsPanel({ data }: { data: TagStats }) {
+  if (data.total_tagged === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        No tagged trades match the filters. Add emotion / mistake / grade tags on a
+        trade's detail page (or run AI auto-tag) to find your leaks.
+      </p>
+    );
+  }
+  const cats = TAG_CAT_ORDER.filter((c) => data.by_category[c]?.length);
+  return (
+    <div className="flex flex-col gap-5">
+      {cats.map((c) => (
+        <TagCategoryTable key={c} title={TAG_CAT_LABELS[c] ?? c} rows={data.by_category[c]} />
+      ))}
+      <p className="text-xs text-slate-500">
+        Sorted worst-first — the most costly tags surface at the top of each group.
+      </p>
+    </div>
+  );
+}
 
 // Pretty labels for the wick-edge grouping keys.
 const WICK_KEY_LABELS: Record<string, string> = {
@@ -189,6 +257,7 @@ export default function Analytics() {
   const holdtime = useApi(() => api.getHoldtime(filters), [key]);
   const excursion = useApi(() => api.getExcursion(filters), [key]);
   const wickEdge = useApi(() => api.getWickEdge(filters), [key]);
+  const tagStats = useApi(() => api.getTagStats(filters), [key]);
   const [slGrid, setSlGrid] = useState('0.5,0.75,1,1.25,1.5,2');
   const [tpGrid, setTpGrid] = useState('1,1.5,2,2.5,3,4');
   const optimizer = useApi(
@@ -259,6 +328,17 @@ export default function Analytics() {
           loadingLabel="Loading excursion…"
         >
           {excursion.data && <ExcursionPanel e={excursion.data} />}
+        </AsyncBoundary>
+      </SectionCard>
+
+      <SectionCard title="Tag Performance — Leak Finder">
+        <AsyncBoundary
+          loading={tagStats.loading}
+          error={tagStats.error}
+          onRetry={tagStats.reload}
+          loadingLabel="Loading tag stats…"
+        >
+          {tagStats.data && <TagAnalyticsPanel data={tagStats.data} />}
         </AsyncBoundary>
       </SectionCard>
 
