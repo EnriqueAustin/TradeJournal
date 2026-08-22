@@ -96,6 +96,7 @@ export function summary(q, opts = {}) {
     avg_win: wins ? round(grossWins / wins) : 0,
     avg_loss: losses ? round(grossLosses / losses) : 0,
     avg_r: rCount ? round(rSum / rCount, 4) : null,
+    total_r: rCount ? round(rSum, 2) : null,
     largest_win: largest_win === null ? 0 : round(largest_win),
     largest_loss: largest_loss === null ? 0 : round(largest_loss),
     commission: round(commission),
@@ -107,14 +108,16 @@ export function equity(q, opts = {}) {
   const { where, params } = buildFilter(q, opts);
   const rows = db
     .prepare(
-      `SELECT COALESCE(exit_time, entry_time) AS t, net_pnl FROM trades ${where}
+      `SELECT COALESCE(exit_time, entry_time) AS t, net_pnl, r_multiple FROM trades ${where}
        ORDER BY COALESCE(exit_time, entry_time) ASC, id ASC`
     )
     .all(params);
   let cum = 0;
+  let cumR = 0;
   return rows.map((r) => {
     cum += r.net_pnl || 0;
-    return { t: r.t, cum_pnl: round(cum) };
+    if (r.r_multiple != null && !isNaN(r.r_multiple)) cumR += r.r_multiple;
+    return { t: r.t, cum_pnl: round(cum), cum_r: round(cumR, 2) };
   });
 }
 
