@@ -232,6 +232,8 @@ export const api = {
     }),
   deleteGoal: (id: number) =>
     request<{ deleted: number }>(`/goals/${id}`, { method: 'DELETE' }),
+  // Direct URL for the CSV export (a browser download, not a JSON fetch).
+  tradesExportUrl: (f: Filters) => `${BASE}/trades/export${filterParams(f)}`,
   getOptimizer: (f: Filters, sl?: string, tp?: string) =>
     request<OptimizerStats>(
       `/stats/optimizer${filterParams(f, { sl, tp })}`
