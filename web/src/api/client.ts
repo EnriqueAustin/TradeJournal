@@ -218,6 +218,20 @@ export const api = {
     request<import('../types').ReportCard>(`/stats/reportcard${filterParams(f)}`),
   getTagStats: (f: Filters) =>
     request<import('../types').TagStats>(`/stats/tags${filterParams(f)}`),
+  getGoals: (account?: number | '') =>
+    request<import('../types').Goal[]>(`/goals${account ? `?account=${account}` : ''}`),
+  createGoal: (body: {
+    metric: string;
+    period: string;
+    target: number;
+    account_id?: number | null;
+  }) =>
+    request<import('../types').Goal>('/goals', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deleteGoal: (id: number) =>
+    request<{ deleted: number }>(`/goals/${id}`, { method: 'DELETE' }),
   getOptimizer: (f: Filters, sl?: string, tp?: string) =>
     request<OptimizerStats>(
       `/stats/optimizer${filterParams(f, { sl, tp })}`

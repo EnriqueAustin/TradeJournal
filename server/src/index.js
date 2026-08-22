@@ -9,6 +9,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { PORT, EA_TOKEN } from './env.js';
 import { db, migrate } from './db.js';
+import { listGoals, createGoal, deleteGoal } from './goals.js';
 import { migrateResearch } from './research/schema.js';
 import { researchRouter } from './research/routes.js';
 import { initResearchWs } from './research/ws.js';
@@ -885,6 +886,15 @@ app.get('/api/stats/optimizer', (req, res) => res.json(optimizer(req.query)));
 app.get('/api/stats/portfolio', (req, res) => res.json(portfolio(req.query)));
 app.get('/api/stats/reportcard', (req, res) => res.json(reportCard(req.query)));
 app.get('/api/stats/tags', (req, res) => res.json(tagStats(req.query)));
+
+// --- Goals ---
+app.get('/api/goals', (req, res) => res.json(listGoals(req.query)));
+app.post('/api/goals', (req, res) => {
+  const out = createGoal(req.body || {});
+  if (out.error) return res.status(400).json(out);
+  res.status(201).json(out);
+});
+app.delete('/api/goals/:id', (req, res) => res.json(deleteGoal(req.params.id)));
 
 // ---------- Economic calendar / news ----------
 app.get('/api/news', (req, res) => res.json(getNews(req.query)));
