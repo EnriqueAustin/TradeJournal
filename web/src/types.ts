@@ -246,6 +246,18 @@ export interface ReportCard {
   key: ReportKeyNumbers | null;
 }
 
+export interface TagStatRow {
+  name: string;
+  count: number;
+  win_rate: number;
+  net_pnl: number;
+  avg_r: number | null;
+}
+export interface TagStats {
+  total_tagged: number;
+  by_category: Record<string, TagStatRow[]>;
+}
+
 export interface TradesResponse {
   rows: Trade[];
   total: number;
