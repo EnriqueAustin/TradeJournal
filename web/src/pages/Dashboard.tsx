@@ -11,7 +11,8 @@ import HourlyBars from '../components/HourlyBars';
 import AiReviewPanel from '../components/AiReviewPanel';
 import LivePositions from '../components/LivePositions';
 import { AsyncBoundary } from '../components/states';
-import type { PropStats } from '../types';
+import type { PropStats, EdgeScore } from '../types';
+import { Link } from 'react-router-dom';
 import {
   formatMoney,
   formatR,
@@ -106,6 +107,34 @@ function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
   );
 }
 
+// Compact Edge Score badge (full breakdown lives on Analytics → Report Card).
+function EdgeScoreChip({ score }: { score: EdgeScore }) {
+  const col =
+    score.total >= 70
+      ? 'text-emerald-400 border-emerald-800/60 bg-emerald-950/30'
+      : score.total >= 55
+        ? 'text-amber-400 border-amber-800/60 bg-amber-950/30'
+        : score.total >= 40
+          ? 'text-orange-400 border-orange-800/60 bg-orange-950/30'
+          : 'text-red-400 border-red-800/60 bg-red-950/30';
+  return (
+    <Link
+      to="/analytics"
+      title="Edge Score — see the full Report Card on Analytics"
+      className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 ${col} transition hover:brightness-125`}
+    >
+      <span className="num text-2xl font-bold leading-none">{score.total}</span>
+      <span className="flex flex-col leading-tight">
+        <span className="text-[10px] uppercase tracking-wide opacity-70">Edge Score</span>
+        <span className="text-xs font-semibold">
+          Grade {score.grade}
+          {!score.reliable && <span className="ml-1 opacity-60">· early</span>}
+        </span>
+      </span>
+    </Link>
+  );
+}
+
 export default function Dashboard() {
   const { filters, accounts } = useFilters();
   const [month, setMonth] = useState(currentMonth);
@@ -122,6 +151,7 @@ export default function Dashboard() {
   const key = filterKey(filters);
 
   const summary = useApi(() => api.getSummary(filters), [key]);
+  const reportCard = useApi(() => api.getReportCard(filters), [key]);
   const equity = useApi(() => api.getEquity(filters), [key]);
   const calendar = useApi(
     () => api.getCalendar(filters, month),
@@ -135,11 +165,14 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-100">Dashboard</h1>
-        <p className="text-sm text-slate-500">
-          Performance across the selected filters.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-100">Dashboard</h1>
+          <p className="text-sm text-slate-500">
+            Performance across the selected filters.
+          </p>
+        </div>
+        {reportCard.data?.score && <EdgeScoreChip score={reportCard.data.score} />}
       </div>
 
       {/* Live open positions (rendered only when EA snapshot present) */}
