@@ -229,6 +229,8 @@ export const api = {
     request<import('../types').ReportCard>(`/stats/reportcard${filterParams(f)}`),
   getTagStats: (f: Filters) =>
     request<import('../types').TagStats>(`/stats/tags${filterParams(f)}`),
+  getDiscipline: (f: Filters) =>
+    request<import('../types').DisciplineStats>(`/stats/discipline${filterParams(f)}`),
   getGoals: (account?: number | '') =>
     request<import('../types').Goal[]>(`/goals${account ? `?account=${account}` : ''}`),
   createGoal: (body: {

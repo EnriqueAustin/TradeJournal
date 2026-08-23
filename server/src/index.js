@@ -51,6 +51,7 @@ import {
   wickEdge,
   reportCard,
   tagStats,
+  discipline,
 } from './stats.js';
 
 migrate();
@@ -515,6 +516,27 @@ function tradesQuery(q) {
   if (q.outcome === 'win') clauses.push('net_pnl > 0');
   else if (q.outcome === 'loss') clauses.push('net_pnl < 0');
   else if (q.outcome === 'be') clauses.push('net_pnl = 0');
+  // "Needs attention" backfill queue. Comma-separated flags, OR-combined so the
+  // one filter surfaces every trade with a data gap worth fixing:
+  //   entry      → corrupt import (entry_price 0 / null) — breaks replay + R
+  //   stop       → no stop set — no R (MT5 drops the original risk stop; set it)
+  //   untagged   → no setup assigned and no tags
+  //   unreviewed → no post-trade review (followed_plan not set)
+  const needs = String(q.needs || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (needs.length) {
+    const NEEDS = {
+      entry: '(entry_price IS NULL OR entry_price = 0)',
+      stop: 'stop_price IS NULL',
+      untagged:
+        '(setup_id IS NULL AND NOT EXISTS (SELECT 1 FROM trade_tags tt WHERE tt.trade_id = trades.id))',
+      unreviewed: 'followed_plan IS NULL',
+    };
+    const ors = needs.map((n) => NEEDS[n]).filter(Boolean);
+    if (ors.length) clauses.push('(' + ors.join(' OR ') + ')');
+  }
   // Free-text search over instrument plus the trade's notes.
   const term = typeof q.q === 'string' ? q.q.trim() : '';
   if (term) {
@@ -785,6 +807,7 @@ const EDITABLE = new Set([
   'exit_price',
   'size',
   'preferred_tf',
+  'followed_plan',
 ]);
 
 app.patch('/api/trades/:id', (req, res) => {
@@ -1062,6 +1085,7 @@ app.get('/api/stats/optimizer', (req, res) => res.json(optimizer(req.query)));
 app.get('/api/stats/portfolio', (req, res) => res.json(portfolio(req.query)));
 app.get('/api/stats/reportcard', (req, res) => res.json(reportCard(req.query)));
 app.get('/api/stats/tags', (req, res) => res.json(tagStats(req.query)));
+app.get('/api/stats/discipline', (req, res) => res.json(discipline(req.query)));
 
 // --- Goals ---
 app.get('/api/goals', (req, res) => res.json(listGoals(req.query)));

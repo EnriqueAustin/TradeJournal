@@ -14,7 +14,7 @@ const tmpDb = path.join(
 process.env.JOURNAL_DB = tmpDb;
 
 const { db, migrate } = await import('./db.js');
-const { summary, equity, reportCard, tagStats, calendar, streaks } =
+const { summary, equity, reportCard, tagStats, calendar, streaks, discipline } =
   await import('./stats.js');
 
 migrate();
@@ -138,6 +138,28 @@ test('calendar and streaks agree with the daily totals', () => {
   assert.equal(s.total_net, 75);
   assert.equal(s.best_day, '2026-03-02');
   assert.equal(s.best_day_net, 60);
+});
+
+test('discipline tallies plan adherence, per-bucket P&L and grades', () => {
+  const idOf = (net) => db.prepare('SELECT id FROM trades WHERE net_pnl = ?').get(net).id;
+  // +100 & +50 followed the plan; -40 broke it. Leave the rest unreviewed.
+  db.prepare('UPDATE trades SET followed_plan = 1 WHERE id = ?').run(idOf(100));
+  db.prepare('UPDATE trades SET followed_plan = 1 WHERE id = ?').run(idOf(50));
+  db.prepare('UPDATE trades SET followed_plan = 0 WHERE id = ?').run(idOf(-40));
+  // Grade the +100 trade an A (grade lives in the tags table).
+  db.prepare("INSERT INTO tags (id, category, name) VALUES (3,'grade','A')").run();
+  db.prepare('INSERT INTO trade_tags (trade_id, tag_id) VALUES (?, 3)').run(idOf(100));
+
+  const d = discipline({ account: 1 });
+  assert.equal(d.total, 5, 'excludes the is_backtest row');
+  assert.equal(d.reviewed, 3);
+  assert.equal(d.followed, 2);
+  assert.equal(d.broken, 1);
+  assert.equal(d.followed_pct, 0.6667); // 2/3 rounded to 4dp
+  assert.equal(d.avg_net_followed, 75); // (100+50)/2
+  assert.equal(d.avg_net_broken, -40);
+  assert.equal(d.graded, 1);
+  assert.equal(d.grades.A, 1);
 });
 
 test('date filters are inclusive on both ends', () => {

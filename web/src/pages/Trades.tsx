@@ -5,7 +5,7 @@ import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
 import AddTradeModal from '../components/AddTradeModal';
-import type { Trade, TradeSort, SortDir, TradeOutcome } from '../types';
+import type { Trade, TradeSort, SortDir, TradeOutcome, TradeNeed } from '../types';
 import {
   formatMoney,
   formatR,
@@ -92,6 +92,26 @@ function Segmented<T extends string>({
   );
 }
 
+// The "needs attention" backfill filters. Each flags a data gap that keeps a
+// trade out of the analytics until it's filled in.
+const NEED_OPTIONS: { value: TradeNeed; label: string; title: string }[] = [
+  { value: 'entry', label: 'Bad entry', title: 'entry price is 0 / missing — breaks replay & R' },
+  { value: 'stop', label: 'No stop', title: 'no stop set — no R (set the original risk stop you used)' },
+  { value: 'untagged', label: 'Untagged', title: 'no setup assigned and no tags' },
+  { value: 'unreviewed', label: 'Unreviewed', title: 'not yet reviewed (followed plan?)' },
+];
+
+// Which gaps does this row have? Mirrors the server's `needs` clauses so the
+// row can flag itself without another round-trip.
+function tradeGaps(t: Trade): TradeNeed[] {
+  const g: TradeNeed[] = [];
+  if (t.entry_price == null || t.entry_price === 0) g.push('entry');
+  if (t.stop_price == null) g.push('stop');
+  if (t.setup_id == null && (!t.tags || t.tags.length === 0)) g.push('untagged');
+  if (t.followed_plan == null) g.push('unreviewed');
+  return g;
+}
+
 function DirectionBadge({ dir }: { dir: string }) {
   const long = dir === 'long';
   return (
@@ -116,8 +136,14 @@ export default function Trades() {
   const [search, setSearch] = useState('');
   const [direction, setDirection] = useState<'' | 'long' | 'short'>('');
   const [outcome, setOutcome] = useState<TradeOutcome>('');
+  const [needs, setNeeds] = useState<TradeNeed[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const debouncedSearch = useDebounced(search);
+
+  const toggleNeed = (n: TradeNeed) =>
+    setNeeds((cur) =>
+      cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n]
+    );
 
   const currency =
     accounts.find((a) => a.id === filters.account)?.currency ?? 'USD';
@@ -125,8 +151,8 @@ export default function Trades() {
     id == null ? null : setups.find((s) => s.id === id)?.name ?? null;
 
   const query = useMemo(
-    () => ({ sort, dir, q: debouncedSearch, direction, outcome }),
-    [sort, dir, debouncedSearch, direction, outcome]
+    () => ({ sort, dir, q: debouncedSearch, direction, outcome, needs: needs.join(',') }),
+    [sort, dir, debouncedSearch, direction, outcome, needs]
   );
   const queryKey = JSON.stringify(query);
 
@@ -153,7 +179,7 @@ export default function Trades() {
   );
 
   const filtersActive =
-    Boolean(search) || direction !== '' || outcome !== '';
+    Boolean(search) || direction !== '' || outcome !== '' || needs.length > 0;
 
   const rows: Trade[] = data?.rows ?? [];
   const total = data?.total ?? 0;
@@ -223,11 +249,38 @@ export default function Trades() {
               setSearch('');
               setDirection('');
               setOutcome('');
+              setNeeds([]);
             }}
           >
             Clear
           </button>
         )}
+      </div>
+
+      {/* Needs-attention backfill queue — one click to find the trades whose
+          missing data keeps them out of the stats. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs uppercase tracking-wide text-slate-500">
+          Needs attention
+        </span>
+        {NEED_OPTIONS.map((o) => {
+          const on = needs.includes(o.value);
+          return (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => toggleNeed(o.value)}
+              title={o.title}
+              className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                on
+                  ? 'border-amber-500 bg-amber-500/15 text-amber-300'
+                  : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="card overflow-hidden">
@@ -263,7 +316,25 @@ export default function Trades() {
                     className="cursor-pointer border-b border-slate-800/60 transition hover:bg-slate-800/40"
                   >
                     <td className="px-4 py-2.5 font-medium text-slate-200">
-                      {t.instrument}
+                      <span className="inline-flex items-center gap-1.5">
+                        {t.instrument}
+                        {(() => {
+                          const gaps = tradeGaps(t);
+                          return gaps.length ? (
+                            <span
+                              className="text-amber-400"
+                              title={`Needs attention: ${gaps
+                                .map(
+                                  (g) =>
+                                    NEED_OPTIONS.find((o) => o.value === g)?.label ?? g
+                                )
+                                .join(', ')}`}
+                            >
+                              ⚠
+                            </span>
+                          ) : null;
+                        })()}
+                      </span>
                     </td>
                     <td className="px-4 py-2.5">
                       <DirectionBadge dir={t.direction} />

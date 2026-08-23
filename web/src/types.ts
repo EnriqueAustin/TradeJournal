@@ -95,6 +95,8 @@ export interface Trade {
   setup_id: number | null;
   is_backtest?: number;
   preferred_tf?: string | null;
+  /** Post-trade review: null = unreviewed, 1 = followed plan, 0 = broke plan. */
+  followed_plan?: number | null;
   /** Attached by GET /api/trades so the list can render tags without an N+1. */
   tags?: Tag[];
   created_at: string;
@@ -260,6 +262,21 @@ export interface TagStats {
   by_category: Record<string, TagStatRow[]>;
 }
 
+/** Flags for the "needs attention" backfill queue on the Trades list. */
+export type TradeNeed = 'entry' | 'stop' | 'untagged' | 'unreviewed';
+
+export interface DisciplineStats {
+  total: number;
+  reviewed: number;
+  graded: number;
+  followed: number;
+  broken: number;
+  followed_pct: number | null;
+  avg_net_followed: number | null;
+  avg_net_broken: number | null;
+  grades: Record<string, number>;
+}
+
 export type GoalMetric = 'net_pnl' | 'win_rate' | 'trade_count' | 'avg_r' | 'profit_factor';
 export type GoalPeriod = 'month' | 'week' | 'all';
 export interface Goal {
@@ -295,6 +312,8 @@ export interface TradeQuery {
   q?: string;
   direction?: '' | 'long' | 'short';
   outcome?: TradeOutcome;
+  /** Comma-joined TradeNeed flags for the needs-attention backfill queue. */
+  needs?: string;
 }
 
 export interface TradesResponse {
