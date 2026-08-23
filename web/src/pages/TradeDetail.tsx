@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { useFilters } from '../store/FilterContext';
@@ -68,6 +68,24 @@ export default function TradeDetail() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareFrames, setShareFrames] = useState<ReplayFrame[]>([]);
   const [loadingShare, setLoadingShare] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const navigate = useNavigate();
+
+  // Deleting is irreversible and cascades to notes/tags/screenshots, so confirm
+  // first, then return to the list.
+  const onDelete = async () => {
+    if (!window.confirm('Delete this trade? Its notes, tags and screenshots go with it. This cannot be undone.')) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.deleteTrade(tradeId);
+      navigate('/trades');
+    } catch (e) {
+      window.alert(`Could not delete the trade: ${(e as Error)?.message ?? e}`);
+      setDeleting(false);
+    }
+  };
 
   const openShareModal = async () => {
     setLoadingShare(true);
@@ -104,6 +122,14 @@ export default function TradeDetail() {
           <Link to={`/replay?trade=${tradeId}`} className="btn">
             ▶ Replay
           </Link>
+          <button
+            onClick={onDelete}
+            disabled={deleting}
+            className="btn border border-red-500/40 text-red-400 hover:bg-red-600/20"
+            title="Delete this trade permanently"
+          >
+            {deleting ? 'Deleting…' : '🗑 Delete'}
+          </button>
         </div>
       </div>
       <AsyncBoundary

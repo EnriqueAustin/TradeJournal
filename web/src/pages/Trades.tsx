@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
+import AddTradeModal from '../components/AddTradeModal';
 import type { Trade, TradeSort, SortDir, TradeOutcome } from '../types';
 import {
   formatMoney,
@@ -115,6 +116,7 @@ export default function Trades() {
   const [search, setSearch] = useState('');
   const [direction, setDirection] = useState<'' | 'long' | 'short'>('');
   const [outcome, setOutcome] = useState<TradeOutcome>('');
+  const [showAdd, setShowAdd] = useState(false);
   const debouncedSearch = useDebounced(search);
 
   const currency =
@@ -166,15 +168,24 @@ export default function Trades() {
             {total} trade{total === 1 ? '' : 's'} matching filters.
           </p>
         </div>
-        <a
-          className="btn text-xs"
-          href={api.tradesExportUrl(filters, query)}
-          download
-          title="Download these trades as CSV (matches the current search, filters and sort)"
-        >
-          ⤓ Export CSV
-        </a>
+        <div className="flex items-center gap-2">
+          <button className="btn text-xs" onClick={() => setShowAdd(true)}>
+            + Add trade
+          </button>
+          <a
+            className="btn text-xs"
+            href={api.tradesExportUrl(filters, query)}
+            download
+            title="Download these trades as CSV (matches the current search, filters and sort)"
+          >
+            ⤓ Export CSV
+          </a>
+        </div>
       </div>
+
+      {showAdd && (
+        <AddTradeModal onClose={() => setShowAdd(false)} onCreated={reload} />
+      )}
 
       {/* Search + quick filters */}
       <div className="flex flex-wrap items-center gap-2">
