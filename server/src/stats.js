@@ -1210,9 +1210,9 @@ export function tagStats(q) {
     )
     .all(params);
 
-  const groups = new Map(); // `${category} ${name}` -> agg
+  const groups = new Map(); // `${category}|${name}` -> agg
   for (const r of rows) {
-    const k = `${r.category} ${r.name}`;
+    const k = `${r.category}|${r.name}`;
     let g = groups.get(k);
     if (!g) {
       g = { category: r.category, name: r.name, count: 0, wins: 0, net: 0, rSum: 0, rN: 0 };
