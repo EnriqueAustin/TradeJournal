@@ -34,7 +34,6 @@ import {
   brokerIsoToUtc,
 } from './util.js';
 import {
-  buildFilter,
   summary,
   equity,
   calendar,
@@ -463,8 +462,26 @@ app.delete('/api/setups/:id', (req, res) => {
 });
 
 // ---------- Trades ----------
-app.get('/api/trades', (req, res) => {
-  const q = req.query;
+// Sortable columns, whitelisted so `sort` can never inject SQL. Each maps to the
+// expression ORDER BY uses; 'realized' is the default (exit time, falling back
+// to entry time) and matches how the date filters resolve a trade's date.
+const TRADE_SORTS = {
+  realized: 'COALESCE(exit_time, entry_time)',
+  entry_time: 'entry_time',
+  exit_time: 'exit_time',
+  instrument: 'instrument',
+  direction: 'direction',
+  size: 'size',
+  net_pnl: 'net_pnl',
+  r_multiple: 'r_multiple',
+  session: 'session',
+  hold_time_sec: 'hold_time_sec',
+};
+
+// Shared WHERE/ORDER builder for the trade list and its CSV export, so both
+// honour exactly the same filters. Extends the base filters with free-text
+// search, direction and outcome (win/loss/break-even).
+function tradesQuery(q) {
   const clauses = ['COALESCE(is_backtest, 0) = 0'];
   const params = {};
   if (q.account) {
@@ -491,7 +508,35 @@ app.get('/api/trades', (req, res) => {
     clauses.push("date(COALESCE(exit_time, entry_time)) <= date(@to)");
     params.to = q.to;
   }
-  const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
+  if (q.direction === 'long' || q.direction === 'short') {
+    clauses.push('direction = @direction');
+    params.direction = q.direction;
+  }
+  if (q.outcome === 'win') clauses.push('net_pnl > 0');
+  else if (q.outcome === 'loss') clauses.push('net_pnl < 0');
+  else if (q.outcome === 'be') clauses.push('net_pnl = 0');
+  // Free-text search over instrument plus the trade's notes.
+  const term = typeof q.q === 'string' ? q.q.trim() : '';
+  if (term) {
+    clauses.push(
+      `(instrument LIKE @term COLLATE NOCASE
+        OR EXISTS (SELECT 1 FROM notes n
+                   WHERE n.trade_id = trades.id AND n.body LIKE @term COLLATE NOCASE))`
+    );
+    params.term = `%${term}%`;
+  }
+
+  const col = TRADE_SORTS[q.sort] || TRADE_SORTS.realized;
+  const dir = String(q.dir || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  // NULLs always sort last regardless of direction, so blank cells don't crowd
+  // out real values; id is the stable tie-breaker.
+  const orderBy = `ORDER BY (${col}) IS NULL, ${col} ${dir}, id ${dir}`;
+  return { where: 'WHERE ' + clauses.join(' AND '), params, orderBy };
+}
+
+app.get('/api/trades', (req, res) => {
+  const q = req.query;
+  const { where, params, orderBy } = tradesQuery(q);
   const total = db
     .prepare(`SELECT COUNT(*) AS c FROM trades ${where}`)
     .get(params).c;
@@ -499,11 +544,27 @@ app.get('/api/trades', (req, res) => {
   const offset = q.offset ? Math.max(0, Number(q.offset)) : 0;
   const rows = db
     .prepare(
-      `SELECT * FROM trades ${where}
-       ORDER BY COALESCE(exit_time, entry_time) DESC, id DESC
-       LIMIT @limit OFFSET @offset`
+      `SELECT * FROM trades ${where} ${orderBy} LIMIT @limit OFFSET @offset`
     )
     .all({ ...params, limit, offset });
+  // Attach tags so the list can show them without an N+1 round-trip per row.
+  if (rows.length) {
+    const ph = rows.map(() => '?').join(',');
+    const tagRows = db
+      .prepare(
+        `SELECT tt.trade_id, tg.id, tg.category, tg.name
+         FROM trade_tags tt JOIN tags tg ON tg.id = tt.tag_id
+         WHERE tt.trade_id IN (${ph})
+         ORDER BY tg.category, tg.name`
+      )
+      .all(...rows.map((r) => r.id));
+    const byTrade = new Map();
+    for (const t of tagRows) {
+      if (!byTrade.has(t.trade_id)) byTrade.set(t.trade_id, []);
+      byTrade.get(t.trade_id).push({ id: t.id, category: t.category, name: t.name });
+    }
+    for (const r of rows) r.tags = byTrade.get(r.id) || [];
+  }
   res.json({ rows, total });
 });
 
@@ -521,12 +582,11 @@ function csvCell(v) {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 app.get('/api/trades/export', (req, res) => {
-  const { where, params } = buildFilter(req.query);
+  // Same builder as the list, so the CSV matches exactly what's on screen —
+  // including search, direction, outcome and the chosen sort order.
+  const { where, params, orderBy } = tradesQuery(req.query);
   const rows = db
-    .prepare(
-      `SELECT ${EXPORT_COLS.join(', ')} FROM trades ${where}
-       ORDER BY COALESCE(exit_time, entry_time) ASC, id ASC`
-    )
+    .prepare(`SELECT ${EXPORT_COLS.join(', ')} FROM trades ${where} ${orderBy}`)
     .all(params);
   const lines = [EXPORT_COLS.join(',')];
   for (const r of rows) lines.push(EXPORT_COLS.map((c) => csvCell(r[c])).join(','));

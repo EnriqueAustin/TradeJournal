@@ -95,6 +95,8 @@ export interface Trade {
   setup_id: number | null;
   is_backtest?: number;
   preferred_tf?: string | null;
+  /** Attached by GET /api/trades so the list can render tags without an N+1. */
+  tags?: Tag[];
   created_at: string;
 }
 
@@ -270,6 +272,29 @@ export interface Goal {
   current: number | null;
   period_label: string;
   progress: number | null;
+}
+
+/** Sortable columns on the Trades list (mirrors TRADE_SORTS on the server). */
+export type TradeSort =
+  | 'realized'
+  | 'entry_time'
+  | 'exit_time'
+  | 'instrument'
+  | 'direction'
+  | 'size'
+  | 'net_pnl'
+  | 'r_multiple'
+  | 'session'
+  | 'hold_time_sec';
+export type SortDir = 'asc' | 'desc';
+export type TradeOutcome = '' | 'win' | 'loss' | 'be';
+/** List-only query options layered on top of the global Filters. */
+export interface TradeQuery {
+  sort?: TradeSort;
+  dir?: SortDir;
+  q?: string;
+  direction?: '' | 'long' | 'short';
+  outcome?: TradeOutcome;
 }
 
 export interface TradesResponse {
