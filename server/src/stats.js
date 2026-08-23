@@ -1247,6 +1247,63 @@ export function tagStats(q) {
   return { total_tagged: rows.length, by_category: byCategory };
 }
 
+// Post-trade discipline: how often the plan was followed, whether following it
+// actually pays, and the grade distribution. Feeds the Dashboard discipline card.
+export function discipline(q) {
+  const { where, params } = buildFilter(q);
+  const rows = db
+    .prepare(`SELECT followed_plan, net_pnl FROM trades ${where}`)
+    .all(params);
+
+  const total = rows.length;
+  let reviewed = 0,
+    followed = 0,
+    broken = 0,
+    followedNet = 0,
+    brokenNet = 0;
+  for (const r of rows) {
+    if (r.followed_plan == null) continue;
+    reviewed++;
+    if (r.followed_plan) {
+      followed++;
+      followedNet += r.net_pnl || 0;
+    } else {
+      broken++;
+      brokenNet += r.net_pnl || 0;
+    }
+  }
+
+  // Grade distribution from the 'grade' tag category.
+  const gradeRows = db
+    .prepare(
+      `SELECT tags.name AS name, COUNT(*) AS n
+       FROM trades
+       JOIN trade_tags ON trade_tags.trade_id = trades.id
+       JOIN tags ON tags.id = trade_tags.tag_id
+       ${where ? where + ' AND' : 'WHERE'} tags.category = 'grade'
+       GROUP BY tags.name`
+    )
+    .all(params);
+  const grades = {};
+  let graded = 0;
+  for (const g of gradeRows) {
+    grades[g.name] = g.n;
+    graded += g.n;
+  }
+
+  return {
+    total,
+    reviewed,
+    graded,
+    followed,
+    broken,
+    followed_pct: reviewed ? round(followed / reviewed, 4) : null,
+    avg_net_followed: followed ? round(followedNet / followed) : null,
+    avg_net_broken: broken ? round(brokenNet / broken) : null,
+    grades,
+  };
+}
+
 function round(n, dp = 2) {
   if (n === null || n === undefined || isNaN(n)) return n;
   const f = Math.pow(10, dp);

@@ -156,6 +156,106 @@ function EdgeScoreChip({ score }: { score: EdgeScore }) {
   );
 }
 
+// Discipline card — how often the plan was followed and whether following it
+// actually pays. Data comes from trades.followed_plan + the 'grade' tag; both
+// are set one-tap from the Post-trade Review on each trade.
+function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['filters'] }) {
+  const key = filterKey(filters);
+  const { data, loading, error, reload } = useApi(() => api.getDiscipline(filters), [key]);
+  const d = data;
+  const gradeOrder = ['A', 'B', 'C', 'D', 'F'];
+  return (
+    <SectionCard
+      title="Discipline"
+      right={
+        d && d.reviewed > 0 ? (
+          <span className="num text-xs text-slate-400">
+            {d.reviewed}/{d.total} reviewed
+          </span>
+        ) : undefined
+      }
+    >
+      <AsyncBoundary
+        loading={loading}
+        error={error}
+        onRetry={reload}
+        isEmpty={!d || d.reviewed === 0}
+        emptyMessage="No reviews yet — grade a trade and flag whether you followed your plan on its detail page."
+        loadingLabel="Loading discipline…"
+      >
+        {d && (
+          <div className="flex flex-wrap items-center gap-x-10 gap-y-4">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                Plan followed
+              </div>
+              <div
+                className={`num text-2xl font-bold ${
+                  (d.followed_pct ?? 0) >= 0.7
+                    ? 'text-emerald-400'
+                    : (d.followed_pct ?? 0) >= 0.4
+                      ? 'text-amber-400'
+                      : 'text-red-400'
+                }`}
+              >
+                {d.followed_pct == null ? '—' : formatPct(d.followed_pct)}
+              </div>
+              <div className="text-[11px] text-slate-500">
+                {d.followed} followed · {d.broken} broke
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                Avg P&L: followed vs broke
+              </div>
+              <div className="mt-1 flex items-center gap-3 text-sm">
+                <span className={signClass(d.avg_net_followed)}>
+                  {d.avg_net_followed == null ? '—' : formatMoney(d.avg_net_followed)}
+                </span>
+                <span className="text-slate-600">/</span>
+                <span className={signClass(d.avg_net_broken)}>
+                  {d.avg_net_broken == null ? '—' : formatMoney(d.avg_net_broken)}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500">per trade</div>
+            </div>
+            {d.graded > 0 && (
+              <div>
+                <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">
+                  Grades
+                </div>
+                <div className="flex items-end gap-1.5">
+                  {gradeOrder.map((g) => {
+                    const n = d.grades[g] ?? 0;
+                    return (
+                      <div key={g} className="flex flex-col items-center gap-1">
+                        <span className="num text-xs text-slate-300">{n || ''}</span>
+                        <span
+                          className={`flex h-6 w-6 items-center justify-center rounded text-xs font-semibold ${
+                            n === 0
+                              ? 'bg-slate-800 text-slate-600'
+                              : g === 'A' || g === 'B'
+                                ? 'bg-emerald-500/15 text-emerald-300'
+                                : g === 'C'
+                                  ? 'bg-amber-500/15 text-amber-300'
+                                  : 'bg-red-500/15 text-red-300'
+                          }`}
+                        >
+                          {g}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </AsyncBoundary>
+    </SectionCard>
+  );
+}
+
 export default function Dashboard() {
   const { filters, accounts } = useFilters();
   const [month, setMonth] = useState(currentMonth);
@@ -256,7 +356,10 @@ export default function Dashboard() {
       </AsyncBoundary>
 
       {/* Goals */}
-      <GoalsCard account={filters.account} currency={currency} />
+      <GoalsCard account={filters.account ?? ''} currency={currency} />
+
+      {/* Discipline — plan adherence + grades */}
+      <DisciplineCard filters={filters} />
 
       {/* Equity curve */}
       <SectionCard

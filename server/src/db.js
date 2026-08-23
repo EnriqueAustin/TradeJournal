@@ -267,6 +267,13 @@ export function migrate() {
   }
   db.exec('CREATE INDEX IF NOT EXISTS idx_trades_bt_session ON trades(bt_session_id)');
 
+  // Post-trade review: did the trade follow the plan? null = not yet reviewed,
+  // 1 = followed, 0 = broken. One clean per-trade flag (distinct from the
+  // per-note notes.rules_followed detail) so the Dashboard can trend discipline.
+  if (!tradeCols.some((c) => c.name === 'followed_plan')) {
+    db.exec('ALTER TABLE trades ADD COLUMN followed_plan INTEGER');
+  }
+
   // Per-execution P&L — lets the journal show each partial close's own result
   // (MT5 deals carry a profit/commission/swap per fill). Nullable + guarded.
   const execCols = db.prepare('PRAGMA table_info(executions)').all();

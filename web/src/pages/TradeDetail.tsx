@@ -168,6 +168,7 @@ function TradeBody({
   onOpenShare: () => void;
 }) {
   const { setups } = useFilters();
+  const [entry, setEntry] = useState(trade.entry_price?.toString() ?? '');
   const [stop, setStop] = useState(trade.stop_price?.toString() ?? '');
   const [target, setTarget] = useState(trade.target_price?.toString() ?? '');
   const [saving, setSaving] = useState(false);
@@ -178,9 +179,10 @@ function TradeBody({
   const [activeTab, setActiveTab] = useState<'details' | 'context'>('details');
 
   useEffect(() => {
+    setEntry(trade.entry_price?.toString() ?? '');
     setStop(trade.stop_price?.toString() ?? '');
     setTarget(trade.target_price?.toString() ?? '');
-  }, [trade.id, trade.stop_price, trade.target_price]);
+  }, [trade.id, trade.entry_price, trade.stop_price, trade.target_price]);
 
   const saveSetup = async (value: string) => {
     setSetupSaving(true);
@@ -203,6 +205,9 @@ function TradeBody({
     setSaveMsg(null);
     try {
       await api.patchTrade(trade.id, {
+        // Entry only sent when it's a real, non-zero correction — guards the
+        // 8 corrupt entry_price=0 imports without touching good rows.
+        ...(entry !== '' && Number(entry) > 0 ? { entry_price: Number(entry) } : {}),
         stop_price: stop === '' ? null : Number(stop),
         target_price: target === '' ? null : Number(target),
       });
@@ -302,6 +307,9 @@ function TradeBody({
         <ContextTab tradeId={trade.id} instrument={trade.instrument} entryPrice={trade.entry_price} />
       ) : (
       <>
+      {/* Post-trade review — grade + did-you-follow-the-plan */}
+      <ReviewPanel trade={trade} onChanged={onChanged} />
+
       {/* Chart with position indicator */}
       <TradeChartCard trade={trade} onChanged={onChanged} onOpenShare={onOpenShare} />
 
@@ -332,6 +340,19 @@ function TradeBody({
             </select>
           </div>
           <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="label" htmlFor="entry">
+                Entry Price
+              </label>
+              <input
+                id="entry"
+                type="number"
+                step="any"
+                className="input w-36"
+                value={entry}
+                onChange={(e) => setEntry(e.target.value)}
+              />
+            </div>
             <div>
               <label className="label" htmlFor="stop">
                 Stop Price
@@ -370,8 +391,18 @@ function TradeBody({
             )}
             {saveErr && <span className="text-sm text-red-400">{saveErr}</span>}
           </div>
+          {trade.stop_price == null && (
+            <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-300">
+              No stop imported. MT5 statements only keep the <em>final</em> stop —
+              if you trailed it to break-even or into profit, that's on the wrong
+              side of entry and gets dropped, so the original risk stop is lost.
+              Enter the stop you actually used at entry to unlock R.
+            </p>
+          )}
           <p className="mt-2 text-xs text-slate-500">
             R multiple recomputes from stop distance when the trade is refetched.
+            Fix a bad-import entry price here (e.g. Match-Trader rows that came in
+            at 0) to unlock replay and R — P&amp;L is left untouched.
           </p>
         </div>
 
@@ -1112,6 +1143,115 @@ function WickSetupPanel({
         {msg && <span className="text-sm text-emerald-400">{msg}</span>}
         {err && <span className="text-sm text-red-400">{err}</span>}
       </div>
+    </div>
+  );
+}
+
+const GRADES = ['A', 'B', 'C', 'D', 'F'] as const;
+const gradeColor = (g: string, on: boolean) => {
+  if (!on) return 'border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200';
+  if (g === 'A' || g === 'B') return 'border-emerald-500 bg-emerald-500/15 text-emerald-300';
+  if (g === 'C') return 'border-amber-500 bg-amber-500/15 text-amber-300';
+  return 'border-red-500 bg-red-500/15 text-red-300';
+};
+
+// One-tap post-trade review: grade (stored as a 'grade' tag so Report Card and
+// the Leak Finder keep working) + a followed-plan flag (trades.followed_plan,
+// which drives the Dashboard discipline card). No note body required.
+function ReviewPanel({
+  trade,
+  onChanged,
+}: {
+  trade: TTradeDetail;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const gradeTag = trade.tags.find((t) => t.category === 'grade') ?? null;
+  const grade = gradeTag?.name ?? null;
+  const followed = trade.followed_plan;
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await fn();
+      onChanged();
+    } catch (e: any) {
+      setErr(e?.message || 'Failed to save review');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setGrade = (g: string) =>
+    run(async () => {
+      // Grade is single-valued: drop any existing grade tag first.
+      if (gradeTag) await api.removeTag(trade.id, gradeTag.id);
+      if (g !== grade) await api.addTag(trade.id, 'grade', g);
+    });
+
+  const setFollowed = (v: 0 | 1 | null) =>
+    run(() => api.patchTrade(trade.id, { followed_plan: v }));
+
+  return (
+    <div className="card p-5">
+      <h2 className="mb-3 text-sm font-semibold text-slate-200">Post-trade Review</h2>
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+        <div>
+          <div className="label mb-1.5">Grade</div>
+          <div className="flex gap-1.5">
+            {GRADES.map((g) => (
+              <button
+                key={g}
+                type="button"
+                disabled={busy}
+                onClick={() => setGrade(g)}
+                className={`h-9 w-9 rounded-lg border text-sm font-semibold transition ${gradeColor(
+                  g,
+                  grade === g
+                )}`}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="label mb-1.5">Did you follow your plan?</div>
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setFollowed(followed === 1 ? null : 1)}
+              className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                followed === 1
+                  ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
+                  : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              ✓ Followed
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setFollowed(followed === 0 ? null : 0)}
+              className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                followed === 0
+                  ? 'border-red-500 bg-red-500/15 text-red-300'
+                  : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              ✗ Broke plan
+            </button>
+          </div>
+        </div>
+        {err && <span className="text-sm text-red-400">{err}</span>}
+      </div>
+      <p className="mt-3 text-xs text-slate-500">
+        Grade feeds the Report Card &amp; Leak Finder; the plan flag drives the
+        Dashboard discipline trend. Tap an active choice again to clear it.
+      </p>
     </div>
   );
 }
