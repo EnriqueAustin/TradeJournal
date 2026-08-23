@@ -135,6 +135,10 @@ export const api = {
       `/trades${filterParams(f, { limit, offset, ...query })}`
     ),
   getTrade: (id: number) => request<TradeDetail>(`/trades/${id}`),
+  createTrade: (body: Record<string, unknown>) =>
+    request<Trade>('/trades', { method: 'POST', body: JSON.stringify(body) }),
+  deleteTrade: (id: number) =>
+    request<void>(`/trades/${id}`, { method: 'DELETE' }),
   patchTrade: (id: number, body: Record<string, unknown>) =>
     request<TradeDetail>(`/trades/${id}`, {
       method: 'PATCH',

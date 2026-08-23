@@ -959,6 +959,91 @@ app.delete('/api/trades/:id/screenshots/:sid', (req, res) => {
   res.status(204).end();
 });
 
+// Manually log a trade. Import and the EA cover the normal paths, but a trade
+// taken off-platform (or a correction) previously had no way in. Derives the
+// session, hold time, net P&L and R-multiple the same way the importer does.
+app.post('/api/trades', (req, res) => {
+  const b = req.body || {};
+  const account_id = Number(b.account_id);
+  if (!account_id) return res.status(400).json({ error: 'account_id is required' });
+  if (!db.prepare('SELECT 1 FROM accounts WHERE id = ?').get(account_id)) {
+    return res.status(400).json({ error: 'unknown account' });
+  }
+  const instrument = normalizeInstrument(String(b.instrument || '').trim());
+  if (!instrument) return res.status(400).json({ error: 'instrument is required' });
+  const direction = b.direction === 'short' ? 'short' : 'long';
+  const entry_time = b.entry_time ? String(b.entry_time) : null;
+  if (!entry_time) return res.status(400).json({ error: 'entry_time is required' });
+  const exit_time = b.exit_time ? String(b.exit_time) : null;
+
+  const num = (v) => (v === '' || v == null || isNaN(Number(v)) ? null : Number(v));
+  const entry_price = num(b.entry_price);
+  const exit_price = num(b.exit_price);
+  const size = num(b.size) ?? 0;
+  const commission = num(b.commission) ?? 0;
+  const swap = num(b.swap) ?? 0;
+  const stop_price = num(b.stop_price);
+  const target_price = num(b.target_price);
+
+  // Gross may be given directly; otherwise derive it from the price move when
+  // we have both ends. net = gross - commission + swap (see CONTRACT note).
+  let gross_pnl = num(b.gross_pnl);
+  if (gross_pnl == null && entry_price != null && exit_price != null && size) {
+    const move = direction === 'long' ? exit_price - entry_price : entry_price - exit_price;
+    gross_pnl = move * size;
+  }
+  gross_pnl = gross_pnl ?? 0;
+  const net_pnl = num(b.net_pnl) ?? gross_pnl - commission + swap;
+
+  const hold_time_sec =
+    entry_time && exit_time
+      ? Math.max(0, Math.round((new Date(exit_time) - new Date(entry_time)) / 1000))
+      : null;
+
+  const r_multiple = computeRMultiple({
+    entry_price, exit_price, stop_price, size, gross_pnl, net_pnl,
+  });
+
+  try {
+    const id = insertTradeTx({
+      account_id, instrument, direction, entry_time, exit_time,
+      entry_price, exit_price, size, gross_pnl, commission, swap, net_pnl,
+      r_multiple, stop_price, target_price,
+      mae: num(b.mae), mfe: num(b.mfe),
+      hold_time_sec,
+      session: sessionFromTime(entry_time),
+      // 'api' is the closest value the trades.source CHECK constraint allows
+      // ('csv','html','ea','api'); widening it would need a table rebuild.
+      source: 'api',
+      ext_id: null,
+      setup_id: b.setup_id ? Number(b.setup_id) : null,
+      is_backtest: 0,
+      bt_session_id: null,
+    });
+    const row = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
+    res.status(201).json(row);
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+// Delete a trade. Notes/tags/executions/screenshot rows cascade via FK; the
+// screenshot files themselves are unlinked here (best-effort) so deleting a
+// trade doesn't orphan images on disk.
+app.delete('/api/trades/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const trade = db.prepare('SELECT id FROM trades WHERE id = ?').get(id);
+  if (!trade) return res.status(404).json({ error: 'trade not found' });
+  const shots = db.prepare('SELECT url FROM screenshots WHERE trade_id = ?').all(id);
+  db.prepare('DELETE FROM trades WHERE id = ?').run(id);
+  for (const s of shots) {
+    if (s.url && s.url.startsWith('/screenshots/')) {
+      fs.unlink(path.join(screenshotsDir, path.basename(s.url)), () => {});
+    }
+  }
+  res.status(204).end();
+});
+
 // ---------- Stats ----------
 app.get('/api/stats/summary', (req, res) => res.json(summary(req.query)));
 app.get('/api/stats/equity', (req, res) => res.json(equity(req.query)));
