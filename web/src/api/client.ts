@@ -125,8 +125,15 @@ export const api = {
     ),
 
   // Trades
-  getTrades: (f: Filters, limit: number, offset: number) =>
-    request<TradesResponse>(`/trades${filterParams(f, { limit, offset })}`),
+  getTrades: (
+    f: Filters,
+    limit: number,
+    offset: number,
+    query?: import('../types').TradeQuery
+  ) =>
+    request<TradesResponse>(
+      `/trades${filterParams(f, { limit, offset, ...query })}`
+    ),
   getTrade: (id: number) => request<TradeDetail>(`/trades/${id}`),
   patchTrade: (id: number, body: Record<string, unknown>) =>
     request<TradeDetail>(`/trades/${id}`, {
@@ -233,7 +240,9 @@ export const api = {
   deleteGoal: (id: number) =>
     request<{ deleted: number }>(`/goals/${id}`, { method: 'DELETE' }),
   // Direct URL for the CSV export (a browser download, not a JSON fetch).
-  tradesExportUrl: (f: Filters) => `${BASE}/trades/export${filterParams(f)}`,
+  // Takes the same list query so the CSV matches what's on screen.
+  tradesExportUrl: (f: Filters, query?: import('../types').TradeQuery) =>
+    `${BASE}/trades/export${filterParams(f, { ...query })}`,
   getOptimizer: (f: Filters, sl?: string, tp?: string) =>
     request<OptimizerStats>(
       `/stats/optimizer${filterParams(f, { sl, tp })}`
