@@ -7,7 +7,9 @@ import { sessionFromTime } from './util.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, '..', 'data');
 fs.mkdirSync(dataDir, { recursive: true });
-const dbPath = path.join(dataDir, 'journal.db');
+// JOURNAL_DB lets tests (and alternate deployments) point at another file
+// instead of the real journal; defaults to the normal data/journal.db.
+const dbPath = process.env.JOURNAL_DB || path.join(dataDir, 'journal.db');
 
 export const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
