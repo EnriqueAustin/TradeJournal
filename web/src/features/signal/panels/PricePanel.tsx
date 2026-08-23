@@ -242,10 +242,19 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
   const [showKZ, setShowKZ] = useState<boolean>(() => {
     try { return localStorage.getItem('sig-killzones') === '1'; } catch { return false; }
   });
+  // Freeze the chart view: pan/zoom stays put while live price keeps ticking in,
+  // instead of snapping back to a fit on every update.
+  const [freezeView, setFreezeView] = useState<boolean>(() => {
+    try { return localStorage.getItem('sig-freeze-view') === '1'; } catch { return false; }
+  });
 
   useEffect(() => {
     try { localStorage.setItem('sig-killzones', showKZ ? '1' : '0'); } catch { /* ignore */ }
   }, [showKZ]);
+
+  useEffect(() => {
+    try { localStorage.setItem('sig-freeze-view', freezeView ? '1' : '0'); } catch { /* ignore */ }
+  }, [freezeView]);
 
   // Persist which levels are hidden across sessions.
   useEffect(() => {
@@ -431,6 +440,18 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
             KZ
           </button>
           <button
+            className={`sig-tab${freezeView ? ' is-active' : ''}`}
+            onClick={() => setFreezeView((v) => !v)}
+            title={
+              freezeView
+                ? 'View frozen — pan/zoom freely; price still updates. Click to unlock & re-center.'
+                : 'Freeze view so panning/zooming stays put when price updates'
+            }
+            style={{ fontSize: '0.6rem', color: freezeView ? 'var(--sig-amber)' : undefined }}
+          >
+            {freezeView ? '🔒 VIEW' : '🔓 VIEW'}
+          </button>
+          <button
             className="sig-tab"
             onClick={() => setFullscreen((v) => !v)}
             title={fullscreen ? 'Exit full screen (Esc)' : 'Full screen'}
@@ -467,7 +488,7 @@ export default function PricePanel({ instrument, livePrice }: PricePanelProps) {
           {/* Remount per instrument so the price scale auto-fits the new symbol
               instead of staying pinned to the previous symbol's price range.
               height=0 → the chart fills the wrapper (autoSize) in fullscreen. */}
-          <CandleChart key={instrument} bars={bars} height={fullscreen ? 0 : 340} markers={chartMarkers} priceLines={priceLines} showKillZones={showKZ} />
+          <CandleChart key={instrument} bars={bars} height={fullscreen ? 0 : 340} markers={chartMarkers} priceLines={priceLines} showKillZones={showKZ} freezeView={freezeView} />
         </div>
       )}
       {!loading && !error && bars.length === 0 && (

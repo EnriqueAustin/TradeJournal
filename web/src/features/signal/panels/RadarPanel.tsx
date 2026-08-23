@@ -42,7 +42,7 @@ export default function RadarPanel({ instrument }: { instrument: string }) {
     return () => clearInterval(id);
   }, [reload]);
 
-  const alerts = useSetupAlerts(data, instrument);
+  const alerts = useSetupAlerts(data ?? undefined, instrument);
   const [showLog, setShowLog] = useState(false);
 
   const signals = data?.signals ?? [];
