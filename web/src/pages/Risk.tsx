@@ -287,9 +287,20 @@ function PropRulesCompliance({ p, currency }: { p: PropStats; currency: string }
           <RuleRow
             rule={`Consistency Rule (${p.consistency_pct}%)`}
             status={pctToStatus(p.consistency_used_pct)}
-            value={p.best_day_pct_of_total != null ? `${(p.best_day_pct_of_total * 100).toFixed(1)}% best day` : '—'}
+            value={
+              p.best_day_pct_of_total != null
+                ? `${(p.best_day_pct_of_total * 100).toFixed(1)}% best day`
+                : 'n/a'
+            }
             limit={`Best day max ${p.consistency_pct}% of total profit`}
-            note={`Best day: ${formatMoney(p.best_day_pnl, currency)} of ${formatMoney(p.total_pnl, currency)} total`}
+            note={
+              /* The rule caps one day's share of *profit*, so while the account
+                 is at a net loss there is no profit to concentrate and no
+                 percentage to show — say so rather than a bare dash. */
+              p.total_pnl > 0
+                ? `Best day: ${formatMoney(p.best_day_pnl, currency)} of ${formatMoney(p.total_pnl, currency)} total`
+                : `Not measurable until the account is net profitable (currently ${formatMoney(p.total_pnl, currency)}). Best day so far ${formatMoney(p.best_day_pnl, currency)}.`
+            }
           />
         )}
         {p.min_trading_days != null && p.min_trading_days > 0 && (
@@ -663,7 +674,7 @@ export default function Risk() {
                     label="Consistency"
                     value={
                       streaks.data.best_day_pct == null
-                        ? '—'
+                        ? 'n/a'
                         : formatPct(streaks.data.best_day_pct)
                     }
                     valueClass={
@@ -672,7 +683,11 @@ export default function Risk() {
                         ? 'text-amber-400'
                         : 'text-slate-100'
                     }
-                    sub="best day % of net"
+                    sub={
+                      streaks.data.best_day_pct == null
+                        ? 'needs net profit'
+                        : 'best day % of net'
+                    }
                   />
                 </div>
 
