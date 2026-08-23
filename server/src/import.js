@@ -256,7 +256,12 @@ function rowsToMatchTraderTrades(rows, accountId, source) {
     const swap = sorted.reduce((s, row) => s + row.swap, 0);
     const net_pnl = gross_pnl - commission + swap;
     const stop_price = firstPositive(sorted, 'stopLoss');
-    const target_price = firstPositive(sorted, 'takeProfit');
+    // Same T/P fallback as the deals path: when the statement has no take
+    // profit, stand in the position's final close price so charts and R:R have
+    // a target to work with.
+    const target_price =
+      firstPositive(sorted, 'takeProfit') ??
+      (num(last.closePrice) > 0 ? num(last.closePrice) : null);
     const hold_time_sec = Math.max(
       0,
       Math.round(
@@ -564,6 +569,14 @@ function buildTrade(accountId, deals, extId, source, positions) {
         ? target_price > entry_price
         : target_price < entry_price;
     if (!valid) target_price = null;
+  }
+  // Statements usually carry no T/P (MT5 only retains one still set at close),
+  // which leaves the trade with no target to draw or measure R:R against. Fall
+  // back to the price of the FINAL closing deal — where the position actually
+  // came off. This is a realized exit standing in for a target, not a planned
+  // one, so it is only used when the statement gave us nothing.
+  if (target_price == null && lastOut && num(lastOut.price) > 0) {
+    target_price = num(lastOut.price);
   }
   const r_multiple = computeRMultiple({
     entry_price,
