@@ -217,26 +217,21 @@ export default function Signal() {
               </div>
             </Panel>
             <RegimePanel />
-            {instrument === 'US100' && (
-              <>
-                <ContributionGrid />
-                <VolPanel instrument="US100" />
-                <BriefPanel instrument="US100" />
-              </>
-            )}
-            {instrument === 'XAUUSD' && (
-              <>
-                <RadarPanel instrument="XAUUSD" />
-                <StructurePanel instrument="XAUUSD" />
-                <TradePlannerPanel instrument="XAUUSD" />
-                <DriverScorecard />
-                <SweepPanel instrument="XAUUSD" />
-                <AdrPanel instrument="XAUUSD" />
-                <VolPanel instrument="XAUUSD" />
-                <KeyLevelsPanel instrument="XAUUSD" />
-                <BriefPanel instrument="XAUUSD" />
-              </>
-            )}
+            {/* Liquidity cockpit — session levels, sweeps, structure and sizing.
+                None of this is gold-specific: every endpoint takes an instrument
+                and US100 respects the same London/NY session liquidity, so both
+                traders get the full setup toolkit. */}
+            <RadarPanel instrument={instrument} />
+            <StructurePanel instrument={instrument} />
+            <TradePlannerPanel instrument={instrument} />
+            <SweepPanel instrument={instrument} />
+            <AdrPanel instrument={instrument} />
+            <KeyLevelsPanel instrument={instrument} />
+            <VolPanel instrument={instrument} />
+            {/* Instrument-specific context sits below the shared cockpit. */}
+            {instrument === 'US100' && <ContributionGrid />}
+            {instrument === 'XAUUSD' && <DriverScorecard />}
+            <BriefPanel instrument={instrument} />
           </>
         )}
 
