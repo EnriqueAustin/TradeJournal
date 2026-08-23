@@ -68,6 +68,7 @@ export default function CandleChart({
   priceLines,
   positionBox,
   lockRange = false,
+  freezeView = false,
   windowSize,
   height = 380,
   drawings,
@@ -89,6 +90,10 @@ export default function CandleChart({
   positionBox?: PositionBox | null;
   /** keep the x-axis fixed to the full range (replay) instead of fitting */
   lockRange?: boolean;
+  /** when true, never auto-fit/scroll the visible range on data updates so the
+   *  user can freely pan/zoom while live price keeps ticking in (the last candle
+   *  still updates, the view just stays put) */
+  freezeView?: boolean;
   /** rolling replay window: keep this many bars visible, newest near the right
    *  edge with a small forward margin (fixed zoom that scrolls as it plays) */
   windowSize?: number;
@@ -312,6 +317,10 @@ export default function CandleChart({
     }
     series.setData(deduped.slice(0, count));
 
+    // Frozen view: update the data (last candle keeps ticking) but leave the
+    // user's pan/zoom untouched — no fit, no scroll.
+    if (freezeView) return;
+
     if (windowSize && windowSize > 0 && count > 0) {
       // Rolling replay window: fixed zoom that scrolls so the newest revealed
       // bar sits a few bars from the right edge (room to see price develop).
@@ -324,7 +333,7 @@ export default function CandleChart({
     } else if (!lockRange) {
       chart.timeScale().fitContent();
     }
-  }, [bars, reveal, revealTime, lockRange, windowSize]);
+  }, [bars, reveal, revealTime, lockRange, windowSize, freezeView]);
 
   // Markers (filtered to the revealed window).
   useEffect(() => {
