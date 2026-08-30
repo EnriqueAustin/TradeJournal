@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CalendarDay } from '../types';
-import { formatMoney, formatR, currencySymbol } from '../utils/format';
+import { formatMoney, formatR } from '../utils/format';
 import DayTradesModal from './DayTradesModal';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -17,6 +17,11 @@ const GRID_5 = 'grid-cols-[repeat(5,minmax(0,1fr))_minmax(0,1.15fr)]';
 // Terminal palette (tailwind.config.js): emerald-400 #2ee56b / red-400 #ff5a5a.
 const POS_RGB = '46,229,107';
 const NEG_RGB = '255,90,90';
+
+// Extra breathing room before the totals column, on top of the grid gap — a
+// CSS grid `gap` is uniform, so the separation has to come from the column
+// itself. Applied to the header and every week block so the rule stays aligned.
+const WEEK_COL_GAP = 'ml-2.5';
 
 // Amber rule down the left edge of the week column, separating the day cells
 // from the totals. Longhand so it survives the shorthand `borderColor` that
@@ -51,18 +56,14 @@ function heat(pnl: number, maxAbs: number, strong = false) {
   };
 }
 
-// Compact money for the tight cells — cents never matter at a glance, and the
-// exact figure is still one hover away in the title.
-function compactMoney(v: number, currency: string): string {
-  const abs = Math.abs(v);
-  const sign = v < 0 ? '-' : '';
-  if (abs >= 10000) {
-    return `${sign}${currencySymbol(currency)}${(abs / 1000).toFixed(1)}k`;
-  }
-  // Keep the cents on sub-dollar amounts — dropping them renders a real -$0.40
-  // day as "-$0", which reads as a rendering fault rather than a small loss.
-  if (abs > 0 && abs < 1) return formatMoney(v, currency);
-  return formatMoney(v, currency).replace(/\.\d{2}$/, '');
+// Cells show the exact figure, cents and all, so a five-figure day steps down a
+// size rather than being abbreviated — the number stays readable and stays put
+// inside the cell. Class names are spelled out for Tailwind's scanner.
+function moneySize(s: string, strong = false): string {
+  const [lg, md, sm] = strong
+    ? ['text-xs', 'text-[11px]', 'text-[10px]']
+    : ['text-[11px]', 'text-[10px]', 'text-[9px]'];
+  return s.length <= 8 ? lg : s.length <= 10 ? md : sm;
 }
 
 function localTodayKey(): string {
@@ -246,7 +247,7 @@ export default function Calendar({
         ))}
         <div
           style={WEEK_DIVIDER}
-          className="text-center text-[11px] font-medium uppercase tracking-wide text-amber-500/80"
+          className={`${WEEK_COL_GAP} text-center text-[11px] font-medium uppercase tracking-wide text-amber-500/80`}
         >
           Week
         </div>
@@ -275,7 +276,7 @@ export default function Calendar({
         >
           {hiddenWeekend.days} weekend{' '}
           {hiddenWeekend.days === 1 ? 'day has' : 'days have'} trades (
-          <span className="num">{compactMoney(hiddenWeekend.net_pnl, currency)}</span> ·{' '}
+          <span className="num">{formatMoney(hiddenWeekend.net_pnl, currency)}</span> ·{' '}
           {hiddenWeekend.trade_count}t) — counted in the totals but hidden. Show
           weekends.
         </button>
@@ -298,7 +299,7 @@ export default function Calendar({
             <span title={`Best day: ${totals.best.day}`}>
               best{' '}
               <span className="num font-semibold text-emerald-400">
-                {compactMoney(totals.best.net_pnl, currency)}
+                {formatMoney(totals.best.net_pnl, currency)}
               </span>
             </span>
           )}
@@ -306,7 +307,7 @@ export default function Calendar({
             <span title={`Worst day: ${totals.worst.day}`}>
               worst{' '}
               <span className="num font-semibold text-red-400">
-                {compactMoney(totals.worst.net_pnl, currency)}
+                {formatMoney(totals.worst.net_pnl, currency)}
               </span>
             </span>
           )}
@@ -384,7 +385,7 @@ function WeekRow({
             : `${label} · no trades`
         }
         style={{ ...(active ? heat(stat.net_pnl, maxWeekAbs, true) : {}), ...WEEK_DIVIDER }}
-        className={`flex flex-col justify-center gap-0.5 rounded-lg border pl-2.5 pr-2 py-1.5 ${
+        className={`${WEEK_COL_GAP} flex flex-col justify-center gap-0.5 rounded-lg border pl-2.5 pr-2 py-1.5 ${
           !active
             ? 'border-slate-800/50 bg-slate-900/20'
             : // A week that nets exactly zero gets no heat style, so it needs an
@@ -400,11 +401,12 @@ function WeekRow({
         {active ? (
           <>
             <div
-              className={`num text-xs font-semibold leading-tight ${
-                stat.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'
-              }`}
+              className={`num font-semibold leading-tight ${moneySize(
+                formatMoney(stat.net_pnl, currency),
+                true
+              )} ${stat.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
             >
-              {compactMoney(stat.net_pnl, currency)}
+              {formatMoney(stat.net_pnl, currency)}
             </div>
             <div className="num text-[10px] leading-tight text-slate-500">
               {stat.days_traded}d · {stat.trade_count}t
@@ -476,11 +478,11 @@ function DayCell({
       {traded && (
         <div className="leading-tight">
           <div
-            className={`num text-[11px] font-semibold ${
-              c.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'
-            }`}
+            className={`num font-semibold ${moneySize(
+              formatMoney(c.net_pnl, currency)
+            )} ${c.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
           >
-            {compactMoney(c.net_pnl, currency)}
+            {formatMoney(c.net_pnl, currency)}
           </div>
           <div className="num text-[10px] text-slate-500">{c.trade_count}t</div>
         </div>
