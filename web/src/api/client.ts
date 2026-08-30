@@ -209,7 +209,8 @@ export const api = {
   getEquity: (f: Filters) => request<EquityPoint[]>(`/stats/equity${filterParams(f)}`),
   getCalendar: (f: Filters, month: string) =>
     request<CalendarDay[]>(`/stats/calendar${filterParams(f, { month })}`),
-  getSession: (f: Filters) => request<SessionStat[]>(`/stats/session${filterParams(f)}`),
+  getSession: (f: Filters, month?: string) =>
+    request<SessionStat[]>(`/stats/session${filterParams(f, { month })}`),
   getHourly: (f: Filters) => request<HourlyStat[]>(`/stats/hourly${filterParams(f)}`),
   getSetupStats: (f: Filters) =>
     request<SetupStat[]>(`/stats/setup${filterParams(f)}`),

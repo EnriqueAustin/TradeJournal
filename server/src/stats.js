@@ -41,6 +41,12 @@ export function buildFilter(q, opts = {}) {
     clauses.push("date(COALESCE(exit_time, entry_time)) <= date(@to)");
     params.to = q.to;
   }
+  // Scope to one calendar month (YYYY-MM) on the realized date. Shared here so
+  // any stat can be shown per-month, not just the calendar.
+  if (q.month) {
+    clauses.push("strftime('%Y-%m', COALESCE(exit_time, entry_time)) = @month");
+    params.month = q.month;
+  }
   const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
   return { where, params };
 }
@@ -122,15 +128,8 @@ export function equity(q, opts = {}) {
 }
 
 export function calendar(q) {
-  const filter = { ...q };
-  const { where, params } = buildFilter(filter);
-  // month filter (YYYY-MM) on realized date
-  let extra = where;
-  if (q.month) {
-    extra += (where ? ' AND ' : 'WHERE ') +
-      "strftime('%Y-%m', COALESCE(exit_time, entry_time)) = @month";
-    params.month = q.month;
-  }
+  // `month` is handled by buildFilter, shared with the other per-month stats.
+  const { where: extra, params } = buildFilter(q);
   const rows = db
     .prepare(
       `SELECT date(COALESCE(exit_time, entry_time)) AS day,
