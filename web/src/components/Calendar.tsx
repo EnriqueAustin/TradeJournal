@@ -36,9 +36,18 @@ function heat(pnl: number, maxAbs: number, strong = false) {
   // Ceilings stay low (0.25 day / 0.32 week): past ~0.35 the fill gets bright
   // enough that the slate secondary line on top of it stops being readable.
   const bg = (strong ? 0.12 : 0.08) + (strong ? 0.2 : 0.17) * mag;
+  const border = `rgba(${rgb},${(0.3 + 0.45 * mag).toFixed(3)})`;
   return {
     backgroundColor: `rgba(${rgb},${bg.toFixed(3)})`,
-    borderColor: `rgba(${rgb},${(0.3 + 0.45 * mag).toFixed(3)})`,
+    // Per-side longhands, never the `borderColor` shorthand. React diffs style
+    // objects property by property, so on a re-render the shorthand can be
+    // applied after the week column's borderLeftColor and silently wipe the
+    // amber rule — and when a week stops being shaded, dropping the shorthand
+    // resets all four sides, taking the rule with it. Longhands stay independent.
+    borderTopColor: border,
+    borderRightColor: border,
+    borderBottomColor: border,
+    borderLeftColor: border,
   };
 }
 
