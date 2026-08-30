@@ -113,6 +113,7 @@ function FrameChart({
           positionBox={positionBox}
           lockRange
           height={height}
+          dateAxis={frame.tf === 'D1'}
         />
       )}
     </div>

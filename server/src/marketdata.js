@@ -24,6 +24,17 @@ export const GRANULARITY_SECONDS = {
   H1: 3600, H2: 7200, H4: 14400, D1: 86400,
 };
 
+// OANDA names its daily/weekly/monthly candles with a bare letter (D/W/M), not
+// the D1-style names used internally — and internally "M1" already means one
+// *minute*, so the app keeps its own names and maps them only at the wire.
+// Sending "D1" straight through earns a 400 "Invalid value specified for
+// 'granularity'".
+const OANDA_GRANULARITY = { D1: 'D' };
+
+function oandaGranularity(tf) {
+  return OANDA_GRANULARITY[tf] ?? tf;
+}
+
 // OANDA caps a candles request at 5000 candles. Chunk span = 4500 candles' worth
 // of time (margin under the cap) so one chunk always fits, whatever the
 // granularity. For M1 this is ~3.1 days; for S5, ~6.25 hours.
@@ -104,7 +115,7 @@ export async function fetchOandaCandles(instrument, from, to, granularity = 'M1'
     const bars = await fetchChunk(
       host,
       symbol,
-      granularity,
+      oandaGranularity(granularity),
       new Date(start).toISOString(),
       new Date(chunkEnd).toISOString()
     );

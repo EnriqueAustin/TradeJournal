@@ -223,7 +223,7 @@ export default function BacktestStudio() {
   }, [series]);
 
   const tfs = useMemo(() => {
-    const set = new Set<string>(['M1', 'M5', 'M15', 'M30', 'H1']);
+    const set = new Set<string>(['M1', 'M5', 'M15', 'M30', 'H1', 'H2', 'H4', 'D1']);
     for (const s of series) set.add(s.tf);
     return [...set];
   }, [series]);
