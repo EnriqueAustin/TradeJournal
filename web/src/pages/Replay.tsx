@@ -22,13 +22,15 @@ const SPEEDS = [
 // only) up through the intraday confirmation TFs. The driver (timeline) uses the
 // finest that actually has bars for smooth stepping; the grid prefers the TFs the
 // strategy actually trades (see GRID_PRIORITY).
-const REQUEST_TFS = ['S5', 'M1', 'M5', 'M15', 'M30', 'H1', 'H2'];
+const REQUEST_TFS = ['S5', 'M1', 'M5', 'M15', 'M30', 'H1', 'H2', 'H4', 'D1'];
 const GRID_MAX = 4;
 // Grid preference: entries (15m/30m) first, then the near confirmations, then the
-// scalp-refine finer TFs. Whatever has bars, in this order, fills the grid.
-const GRID_PRIORITY = ['M15', 'M30', 'H1', 'H2', 'M5', 'M1', 'S5'];
+// higher-TF context (H4/D1), then the scalp-refine finer TFs. Whatever has bars,
+// in this order, fills the grid.
+const GRID_PRIORITY = ['M15', 'M30', 'H1', 'H2', 'H4', 'D1', 'M5', 'M1', 'S5'];
 const TF_SEC: Record<string, number> = {
   S5: 5, M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H2: 7200,
+  H4: 14400, D1: 86400,
 };
 
 export default function Replay() {

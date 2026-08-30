@@ -1159,6 +1159,13 @@ const FINE_TF = 'S5';
 const FINE_SYMBOLS = new Set(['XAUUSD']);
 const FINE_PAD_MS = 3 * 60 * 60 * 1000; // 3h either side
 
+// Higher-TF context candles, fetched over a wide window so replay's H4/D1 frames
+// have real bars either side of the trade rather than the handful the tight M1
+// window would aggregate to. Replay pads 20 bars each side; 45 calendar days
+// safely covers 20 trading days (D1) around any trade, and far more H4 bars.
+const CONTEXT_TFS = ['H4', 'D1'];
+const CONTEXT_PAD_MS = 45 * 24 * 60 * 60 * 1000;
+
 // Pull S5 bars around each gold trade into price_bars. Best-effort, gold-only.
 async function autoFetchFineBars(trades) {
   if (!oandaConfigured()) return null;
@@ -1196,6 +1203,50 @@ async function autoFetchFineBars(trades) {
       error = String(e.message || e);
     }
     out.push({ instrument: inst, tf: FINE_TF, fetched, upserted, ...(error ? { error } : {}) });
+  }
+  return out;
+}
+
+// Pull H4/D1 bars over a wide window around each trade into price_bars, for every
+// instrument OANDA can serve. Best-effort — a failure never blocks the M1 result.
+async function autoFetchContextBars(trades) {
+  if (!oandaConfigured()) return null;
+  const byInst = new Map();
+  for (const t of trades) {
+    const inst = normalizeInstrument(t.instrument);
+    if (!oandaSymbol(inst)) continue;
+    const times = [t.entry_time, t.exit_time]
+      .map((v) => (v ? new Date(v).getTime() : null))
+      .filter((v) => v != null && !Number.isNaN(v));
+    if (!times.length) continue;
+    if (!byInst.has(inst)) byInst.set(inst, []);
+    byInst.get(inst).push([Math.min(...times) - CONTEXT_PAD_MS, Math.max(...times) + CONTEXT_PAD_MS]);
+  }
+
+  const out = [];
+  for (const [inst, ivals] of byInst) {
+    ivals.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const iv of ivals) {
+      const last = merged[merged.length - 1];
+      if (last && iv[0] <= last[1]) last[1] = Math.max(last[1], iv[1]);
+      else merged.push([...iv]);
+    }
+    for (const tf of CONTEXT_TFS) {
+      let fetched = 0;
+      let upserted = 0;
+      let error = null;
+      try {
+        for (const [lo, hi] of merged) {
+          const bars = await fetchOandaCandles(inst, new Date(lo), new Date(hi), tf);
+          fetched += bars.length;
+          upserted += upsertBars(inst, tf, bars);
+        }
+      } catch (e) {
+        error = String(e.message || e);
+      }
+      out.push({ instrument: inst, tf, fetched, upserted, ...(error ? { error } : {}) });
+    }
   }
   return out;
 }
@@ -1244,6 +1295,13 @@ async function autoFetchBarsForTrades(trades) {
   try {
     const fine = await autoFetchFineBars(trades);
     if (fine?.length) out.push(...fine);
+  } catch { /* best-effort */ }
+
+  // And pull H4/D1 over a wide window so replay's higher-TF context has real
+  // bars. Best-effort — never let it fail the M1 result.
+  try {
+    const context = await autoFetchContextBars(trades);
+    if (context?.length) out.push(...context);
   } catch { /* best-effort */ }
 
   return out;

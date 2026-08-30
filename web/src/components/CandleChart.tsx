@@ -32,6 +32,17 @@ function tzTime(t: number, withDate: boolean): string {
   });
 }
 
+// Date-only label for daily candles. Their timestamps carry the broker's daily
+// alignment (OANDA stamps 21:00Z / 17:00 New York), so the intraday formatter
+// would label a daily axis "21:00, 21:00, 21:00" instead of the dates.
+function tzDate(t: number): string {
+  return new Date(t * 1000).toLocaleString('en-GB', {
+    timeZone: DISPLAY_TZ,
+    day: '2-digit',
+    month: 'short',
+  });
+}
+
 export interface PriceLineSpec {
   price: number;
   color: string;
@@ -77,6 +88,7 @@ export default function CandleChart({
   onClickPrice,
   onContextPrice,
   showKillZones = false,
+  dateAxis = false,
 }: {
   bars: Bar[];
   /** number of leading bars to show (for progressive replay); default all */
@@ -111,6 +123,8 @@ export default function CandleChart({
   onContextPrice?: (price: number, pos: { x: number; y: number }) => void;
   /** shade the London/NY kill-zone windows behind the candles */
   showKillZones?: boolean;
+  /** label the x-axis with dates instead of times (daily and coarser candles) */
+  dateAxis?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -152,12 +166,13 @@ export default function CandleChart({
       rightPriceScale: { borderColor: 'rgba(51,65,85,0.6)' },
       timeScale: {
         borderColor: 'rgba(51,65,85,0.6)',
-        timeVisible: true,
+        timeVisible: !dateAxis,
         secondsVisible: false,
-        tickMarkFormatter: (t: number) => tzTime(t, false),
+        tickMarkFormatter: (t: number) =>
+          dateAxis ? tzDate(t) : tzTime(t, false),
       },
       localization: {
-        timeFormatter: (t: number) => tzTime(t, true),
+        timeFormatter: (t: number) => (dateAxis ? tzDate(t) : tzTime(t, true)),
       },
       crosshair: {
         vertLine: {
@@ -278,6 +293,23 @@ export default function CandleChart({
     // height is intentionally fixed for the lifetime of the chart
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The chart is built once, so re-apply the axis mode if a caller flips it on
+  // an already-mounted chart (switching a frame's timeframe in place).
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.applyOptions({
+      timeScale: {
+        timeVisible: !dateAxis,
+        tickMarkFormatter: (t: number) =>
+          dateAxis ? tzDate(t) : tzTime(t, false),
+      },
+      localization: {
+        timeFormatter: (t: number) => (dateAxis ? tzDate(t) : tzTime(t, true)),
+      },
+    });
+  }, [dateAxis]);
 
   // Data (+ progressive reveal).
   useEffect(() => {
