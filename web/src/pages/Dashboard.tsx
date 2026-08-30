@@ -261,6 +261,18 @@ export default function Dashboard() {
   const [month, setMonth] = useState(currentMonth);
   const [unit, setUnit] = useState<'money' | 'r'>('money');
 
+  // "2026-08" → "August 2026", for cards that follow the month picker but don't
+  // own one.
+  const monthLabel = useMemo(() => {
+    const [y, m] = month.split('-').map(Number);
+    if (!y || !m) return month;
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleString(undefined, {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+  }, [month]);
+
   const currency = useMemo(
     () => accounts.find((a) => a.id === filters.account)?.currency ?? 'USD',
     [accounts, filters.account]
@@ -279,7 +291,9 @@ export default function Dashboard() {
     () => api.getCalendar(filters, month),
     [key, month]
   );
-  const session = useApi(() => api.getSession(filters), [key]);
+  // Scoped to the same month as the calendar beside it, so the two cards always
+  // describe the same period.
+  const session = useApi(() => api.getSession(filters, month), [key, month]);
   const hourly = useApi(() => api.getHourly(filters), [key]);
   const prop = useApi(() => (isProp ? api.getProp(filters) : Promise.resolve(null)), [key, isProp]);
 
@@ -405,13 +419,20 @@ export default function Dashboard() {
           </AsyncBoundary>
         </SectionCard>
 
-        <SectionCard title="Session Heatmap">
+        <SectionCard
+          title="Session Heatmap"
+          right={
+            <span className="text-xs text-slate-500" title="Follows the Monthly P&L month">
+              {monthLabel}
+            </span>
+          }
+        >
           <AsyncBoundary
             loading={session.loading}
             error={session.error}
             onRetry={session.reload}
             isEmpty={!session.data || session.data.length === 0}
-            emptyMessage="No session data in range."
+            emptyMessage={`No session data for ${monthLabel}.`}
             loadingLabel="Loading sessions…"
           >
             {session.data && (
