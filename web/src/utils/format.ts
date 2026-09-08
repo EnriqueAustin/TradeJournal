@@ -95,6 +95,56 @@ export function formatDate(iso: string | null | undefined): string {
   });
 }
 
+// Offset (minutes) of a zone at a given UTC instant, such that
+// local-wall-clock = UTC + offset. Uses Intl to read the zone's own clock.
+function tzOffsetMinutes(tz: string, utcMs: number): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const p: Record<string, number> = {};
+  for (const part of dtf.formatToParts(new Date(utcMs))) {
+    if (part.type !== 'literal') p[part.type] = Number(part.value);
+  }
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour === 24 ? 0 : p.hour, p.minute, p.second);
+  return (asUtc - utcMs) / 60000;
+}
+
+// Convert a datetime-local value ("YYYY-MM-DDTHH:mm", zoneless wall clock the
+// user reads on-screen) into a true UTC ISO string, interpreting the wall time
+// in DISPLAY_TZ. This is what the rest of the app stores and derives sessions
+// from — appending a bare "Z" (as the old code did) mislabels the wall clock as
+// UTC and lands the trade hours off, into the wrong session.
+export function wallTimeToUtcIso(local: string, tz: string = DISPLAY_TZ): string | null {
+  if (!local) return null;
+  const [datePart, timePart = '00:00'] = local.split('T');
+  const [y, mo, d] = datePart.split('-').map(Number);
+  const [h, mi] = timePart.split(':').map(Number);
+  if ([y, mo, d, h, mi].some((n) => Number.isNaN(n))) return null;
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  const offset = tzOffsetMinutes(tz, guess);
+  return new Date(guess - offset * 60000).toISOString();
+}
+
+// Short zone abbreviation (e.g. "SAST") for labelling time inputs.
+export function tzAbbrev(tz: string = DISPLAY_TZ): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      timeZoneName: 'short',
+    }).formatToParts(new Date());
+    return parts.find((p) => p.type === 'timeZoneName')?.value ?? tz;
+  } catch {
+    return tz;
+  }
+}
+
 export function formatDuration(sec: number | null | undefined): string {
   if (sec === null || sec === undefined || Number.isNaN(sec)) return '—';
   const r = Math.round(sec);

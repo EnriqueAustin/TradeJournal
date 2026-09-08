@@ -31,6 +31,10 @@ export interface Account {
   prop_max_inactivity_days: number | null;
   broker_tz: string | null;
   times_realigned: number;
+  /** R fallback for stopless trades: percent of starting balance risked per trade. */
+  default_risk_pct: number | null;
+  /** Fixed dollar risk per trade; overrides default_risk_pct when set. */
+  default_risk_amount: number | null;
   created_at: string;
 }
 
@@ -67,6 +71,8 @@ export interface NewAccount {
   prop_safety_buffer_pct?: number | null;
   prop_max_inactivity_days?: number | null;
   broker_tz?: string | null;
+  default_risk_pct?: number | null;
+  default_risk_amount?: number | null;
 }
 
 export interface Trade {
@@ -84,6 +90,8 @@ export interface Trade {
   swap: number;
   net_pnl: number;
   r_multiple: number | null;
+  /** 1 when r_multiple was derived from the account's modeled risk (no real stop). */
+  r_derived?: number;
   stop_price: number | null;
   target_price: number | null;
   mae: number | null;

@@ -175,6 +175,11 @@ export function sessionFromTime(iso) {
 // the realized trade itself, so we never need a per-symbol multiplier table.
 // Falls back to |entry-stop|*size (assumes $1/point/lot) only when no realized
 // move is available (e.g. an open trade). Returns null when risk is undefined.
+//
+// `risk_cash` is a last-resort fallback: the account's default dollar risk, used
+// when no stop was recorded (the common case for broker-statement imports). R
+// derived this way is real net P&L over a *modeled* risk, so callers flag it as
+// derived (see rMultipleInfo) to keep it distinct from a stop-based R.
 export function computeRMultiple({
   entry_price,
   exit_price,
@@ -182,20 +187,55 @@ export function computeRMultiple({
   size,
   gross_pnl,
   net_pnl,
+  risk_cash,
 }) {
-  if (stop_price == null || entry_price == null || net_pnl == null) return null;
-  const stopDist = Math.abs(entry_price - stop_price);
-  if (!stopDist) return null;
-  let riskCash = null;
-  const move = exit_price != null ? Math.abs(exit_price - entry_price) : 0;
-  if (move > 0 && gross_pnl != null && gross_pnl !== 0) {
-    // |gross_pnl| / move = cash per price-point (already includes size × multiplier).
-    riskCash = stopDist * (Math.abs(gross_pnl) / move);
-  } else if (size) {
-    riskCash = stopDist * Math.abs(size);
+  if (net_pnl == null) return null;
+  if (stop_price != null && entry_price != null) {
+    const stopDist = Math.abs(entry_price - stop_price);
+    if (stopDist) {
+      let riskCash = null;
+      const move = exit_price != null ? Math.abs(exit_price - entry_price) : 0;
+      if (move > 0 && gross_pnl != null && gross_pnl !== 0) {
+        // |gross_pnl| / move = cash per price-point (already includes size × multiplier).
+        riskCash = stopDist * (Math.abs(gross_pnl) / move);
+      } else if (size) {
+        riskCash = stopDist * Math.abs(size);
+      }
+      if (riskCash) return net_pnl / riskCash;
+    }
   }
-  if (!riskCash) return null;
-  return net_pnl / riskCash;
+  // No usable stop — fall back to the account's modeled dollar risk.
+  if (risk_cash != null && risk_cash > 0) return net_pnl / risk_cash;
+  return null;
+}
+
+// Like computeRMultiple, but also reports whether the R was derived from the
+// fallback risk model (no real stop). `{ r, derived }`, r null when undefined.
+export function rMultipleInfo(args) {
+  const r = computeRMultiple(args);
+  if (r == null) return { r: null, derived: false };
+  const hasStop =
+    args.stop_price != null &&
+    args.entry_price != null &&
+    Math.abs(args.entry_price - args.stop_price) > 0;
+  return { r, derived: !hasStop };
+}
+
+// Resolve an account's modeled per-trade dollar risk, used as the R fallback
+// when a trade has no recorded stop. A fixed `default_risk_amount` wins if set;
+// otherwise `default_risk_pct` percent of the account's starting balance.
+// starting_balance is a deterministic base (running equity would make a trade's
+// R depend on replay order); returns null when the account models no risk.
+export function defaultRiskCash(account) {
+  if (!account) return null;
+  const amt = Number(account.default_risk_amount);
+  if (Number.isFinite(amt) && amt > 0) return amt;
+  const pct = Number(account.default_risk_pct);
+  const bal = Number(account.starting_balance);
+  if (Number.isFinite(pct) && pct > 0 && Number.isFinite(bal) && bal > 0) {
+    return (pct / 100) * bal;
+  }
+  return null;
 }
 
 // Normalize instrument symbols to canonical names.

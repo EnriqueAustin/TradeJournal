@@ -365,6 +365,14 @@ export default function Trades() {
                       }`}
                     >
                       {formatR(t.r_multiple)}
+                      {t.r_derived ? (
+                        <span
+                          className="ml-0.5 text-slate-500"
+                          title="Derived from the account's default risk — no stop was recorded"
+                        >
+                          ~
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-4 py-2.5 text-slate-400">
                       {sessionLabel(t.session)}

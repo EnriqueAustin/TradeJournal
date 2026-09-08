@@ -67,6 +67,17 @@ function BrokerTimePanel({
     }
   };
 
+  const setRiskPct = async (id: number, raw: string) => {
+    const v = raw.trim() === '' ? null : Number(raw);
+    if (v != null && (Number.isNaN(v) || v < 0)) return setMsg('Risk % must be ≥ 0');
+    try {
+      await api.updateAccount(id, { default_risk_pct: v });
+      onChanged();
+    } catch (e: any) {
+      setMsg(e?.message || 'Failed to set default risk');
+    }
+  };
+
   const check = async (id: number) => {
     setChecks((c) => ({ ...c, [id]: 'loading' }));
     try {
@@ -159,6 +170,20 @@ function BrokerTimePanel({
                   </option>
                 ))}
               </select>
+            </label>
+            <label
+              className="flex items-center gap-1.5 text-xs text-slate-500"
+              title="Fallback risk used to derive R for trades with no recorded stop"
+            >
+              Default risk %
+              <input
+                className="input w-16 py-1 text-xs"
+                type="number"
+                min="0"
+                step="0.1"
+                defaultValue={a.default_risk_pct ?? ''}
+                onBlur={(e) => setRiskPct(a.id, e.target.value)}
+              />
             </label>
             <button className="btn px-2 py-1 text-xs" onClick={() => check(a.id)}>
               Check alignment

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
+import { wallTimeToUtcIso, tzAbbrev } from '../utils/format';
 
 // Defined at module scope: a component declared inside the modal body would be
 // a new type every render, remounting the input and dropping focus per keystroke.
@@ -55,9 +56,11 @@ export default function AddTradeModal({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // datetime-local gives "YYYY-MM-DDTHH:mm" with no zone; treat it as UTC so it
-  // lines up with how trades are stored and how sessions are derived.
-  const toIso = (v: string) => (v ? new Date(`${v}:00Z`).toISOString() : null);
+  // datetime-local gives "YYYY-MM-DDTHH:mm" with no zone. Interpret it in the
+  // app's display zone (what the user reads everywhere else) and convert to true
+  // UTC for storage — appending a bare "Z" would mislabel the wall clock as UTC
+  // and push the trade into the wrong session.
+  const toIso = (v: string) => wallTimeToUtcIso(v);
 
   const submit = async () => {
     setErr(null);
@@ -135,7 +138,7 @@ export default function AddTradeModal({
           </div>
 
           <div>
-            <label className="label">Entry time (UTC)</label>
+            <label className="label">Entry time ({tzAbbrev()})</label>
             <input
               className="input w-full"
               type="datetime-local"
@@ -144,7 +147,7 @@ export default function AddTradeModal({
             />
           </div>
           <div>
-            <label className="label">Exit time (UTC)</label>
+            <label className="label">Exit time ({tzAbbrev()})</label>
             <input
               className="input w-full"
               type="datetime-local"

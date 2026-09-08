@@ -31,6 +31,8 @@ import {
   normalizeInstrument,
   parseBarTime,
   computeRMultiple,
+  rMultipleInfo,
+  defaultRiskCash,
   brokerIsoToUtc,
 } from './util.js';
 import {
@@ -89,20 +91,42 @@ const screenshotUpload = multer({
 });
 
 // ---------- helpers ----------
+// Resolve R for a trade about to be inserted. A stop-based R (already computed
+// upstream) is kept as-is; otherwise fall back to the account's modeled risk and
+// flag the result as derived. Returns { r_multiple, r_derived }.
+const accountRiskStmt = db.prepare('SELECT * FROM accounts WHERE id = ?');
+function resolveInsertR(t) {
+  if (t.r_multiple != null) return { r_multiple: t.r_multiple, r_derived: 0 };
+  if (t.stop_price != null || t.net_pnl == null) return { r_multiple: t.r_multiple ?? null, r_derived: 0 };
+  const account = accountRiskStmt.get(t.account_id);
+  const { r, derived } = rMultipleInfo({
+    entry_price: t.entry_price,
+    exit_price: t.exit_price,
+    stop_price: t.stop_price ?? null,
+    size: t.size,
+    gross_pnl: t.gross_pnl,
+    net_pnl: t.net_pnl,
+    risk_cash: defaultRiskCash(account),
+  });
+  return { r_multiple: r, r_derived: derived ? 1 : 0 };
+}
+
 function insertTradeTx(t) {
+  const { r_multiple, r_derived } = resolveInsertR(t);
   const stmt = db.prepare(`
     INSERT INTO trades
       (account_id, instrument, direction, entry_time, exit_time, entry_price,
-       exit_price, size, gross_pnl, commission, swap, net_pnl, r_multiple,
+       exit_price, size, gross_pnl, commission, swap, net_pnl, r_multiple, r_derived,
        stop_price, target_price, mae, mfe, hold_time_sec, session, source, ext_id,
        setup_id, is_backtest, bt_session_id)
     VALUES
       (@account_id, @instrument, @direction, @entry_time, @exit_time, @entry_price,
-       @exit_price, @size, @gross_pnl, @commission, @swap, @net_pnl, @r_multiple,
+       @exit_price, @size, @gross_pnl, @commission, @swap, @net_pnl, @r_multiple, @r_derived,
        @stop_price, @target_price, @mae, @mfe, @hold_time_sec, @session, @source, @ext_id,
        @setup_id, @is_backtest, @bt_session_id)
   `);
   const info = stmt.run({
+    r_derived,
     account_id: t.account_id,
     instrument: t.instrument,
     direction: t.direction,
@@ -115,7 +139,7 @@ function insertTradeTx(t) {
     commission: t.commission,
     swap: t.swap,
     net_pnl: t.net_pnl,
-    r_multiple: t.r_multiple ?? null,
+    r_multiple: r_multiple ?? null,
     stop_price: t.stop_price ?? null,
     target_price: t.target_price ?? null,
     mae: t.mae ?? null,
@@ -255,6 +279,8 @@ app.patch('/api/accounts/:id', (req, res) => {
     'prop_safety_buffer_pct',
     'prop_max_inactivity_days',
     'broker_tz',
+    'default_risk_pct',
+    'default_risk_amount',
   ];
   const sets = [];
   const params = { id };
@@ -831,13 +857,15 @@ app.patch('/api/trades/:id', (req, res) => {
   if (sets.length) {
     db.prepare(`UPDATE trades SET ${sets.join(', ')} WHERE id = @id`).run(params);
   }
-  // recompute r_multiple if stop_price present (uses realized $/point, so it's
-  // correct across instruments with different contract multipliers)
+  // Recompute r_multiple after an edit. A real stop gives a stop-based R (uses
+  // realized $/point, so it's correct across instruments); otherwise fall back to
+  // the account's modeled risk and flag it derived, so correcting a stop later
+  // upgrades a derived R into a real one and vice-versa.
   const updated = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
-  if (updated.stop_price != null && updated.entry_price != null) {
-    const r = computeRMultiple(updated);
-    db.prepare('UPDATE trades SET r_multiple = ? WHERE id = ?').run(r, id);
-  }
+  const account = accountRiskStmt.get(updated.account_id);
+  const { r, derived } = rMultipleInfo({ ...updated, risk_cash: defaultRiskCash(account) });
+  db.prepare('UPDATE trades SET r_multiple = ?, r_derived = ? WHERE id = ?')
+    .run(r, derived ? 1 : 0, id);
   res.json(db.prepare('SELECT * FROM trades WHERE id = ?').get(id));
 });
 

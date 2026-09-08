@@ -257,6 +257,14 @@ function TradeBody({
             </div>
             <div className={`num text-sm ${signClass(trade.r_multiple)}`}>
               {formatR(trade.r_multiple)}
+              {trade.r_derived ? (
+                <span
+                  className="ml-1 text-slate-500"
+                  title="Derived from the account's default risk — no stop was recorded"
+                >
+                  ~
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
