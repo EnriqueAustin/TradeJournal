@@ -60,7 +60,7 @@ export default function AiReviewPanel() {
                 className={
                   aiConfig?.provider === 'ollama'
                     ? 'text-emerald-400'
-                    : 'text-indigo-400'
+                    : 'text-cyan-400'
                 }
               >
                 ●
@@ -120,7 +120,7 @@ export default function AiReviewPanel() {
                     key={i}
                     className="flex gap-2 text-sm text-slate-300"
                   >
-                    <span className="text-indigo-400">◆</span>
+                    <span className="text-cyan-400">◆</span>
                     <span>{p}</span>
                   </li>
                 ))}

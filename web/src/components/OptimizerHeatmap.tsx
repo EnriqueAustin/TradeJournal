@@ -48,7 +48,7 @@ export default function OptimizerHeatmap({ data }: { data: OptimizerStats }) {
         </div>
         <div className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2.5">
           <div className="text-[11px] uppercase text-slate-500">Best (SL / TP)</div>
-          <div className="num mt-1 text-lg font-semibold text-indigo-300">
+          <div className="num mt-1 text-lg font-semibold text-cyan-300">
             {data.best ? `${data.best.sl_r}R / ${data.best.tp_r}R` : '—'}
           </div>
           <div className="num text-xs text-slate-500">
@@ -105,7 +105,7 @@ export default function OptimizerHeatmap({ data }: { data: OptimizerStats }) {
                       key={tp}
                       style={bg(c.total_r)}
                       className={`num px-2 py-2 text-center ${
-                        isBest ? 'ring-2 ring-indigo-400' : ''
+                        isBest ? 'ring-2 ring-cyan-400' : ''
                       }`}
                       title={`${c.wins}W / ${c.losses}L · win-rate ${formatPct(c.win_rate)} · avg ${formatNumber(c.avg_r, 2)}R`}
                     >

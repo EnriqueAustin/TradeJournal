@@ -204,7 +204,7 @@ function BrokerTimePanel({
           </div>
         ))}
       </div>
-      {msg && <p className="mt-3 text-sm text-indigo-300">{msg}</p>}
+      {msg && <p className="mt-3 text-sm text-cyan-300">{msg}</p>}
     </div>
   );
 }
@@ -574,7 +574,7 @@ export default function Accounts() {
                     </span>
                   )}
                   {selectedPreset.phases.length === 0 && (
-                    <span className="rounded bg-indigo-900/60 px-1.5 py-0.5 text-indigo-300">
+                    <span className="rounded bg-cyan-900/60 px-1.5 py-0.5 text-cyan-300">
                       Instant Funded
                     </span>
                   )}

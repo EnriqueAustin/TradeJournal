@@ -286,7 +286,7 @@ function Result({
     <div
       className={`rounded-lg border p-3 ${
         highlight
-          ? 'border-indigo-700/60 bg-indigo-950/30'
+          ? 'border-cyan-700/60 bg-cyan-950/30'
           : 'border-slate-800 bg-slate-900/40'
       }`}
     >
@@ -295,7 +295,7 @@ function Result({
       </div>
       <div
         className={`num mt-1 text-lg font-semibold ${
-          valueClass ?? (highlight ? 'text-indigo-200' : 'text-slate-100')
+          valueClass ?? (highlight ? 'text-cyan-200' : 'text-slate-100')
         }`}
       >
         {value}

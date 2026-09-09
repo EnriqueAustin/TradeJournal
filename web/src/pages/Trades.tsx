@@ -71,7 +71,7 @@ function SortHeader({
         title={`Sort by ${label}`}
       >
         {label}
-        <span className={active ? 'text-indigo-400' : 'text-slate-700'}>
+        <span className={active ? 'text-cyan-400' : 'text-slate-700'}>
           {active ? (dir === 'asc' ? '▲' : '▼') : '↕'}
         </span>
       </button>
@@ -98,7 +98,7 @@ function Segmented<T extends string>({
           onClick={() => onChange(o.value)}
           className={`px-2.5 py-1 text-xs font-medium transition ${
             value === o.value
-              ? 'bg-indigo-600 text-white'
+              ? 'bg-cyan-600 text-white'
               : 'bg-slate-900/40 text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -598,7 +598,7 @@ export default function Trades() {
                     </td>
                     <td className="px-4 py-2.5 text-slate-400">
                       {setupName(t.setup_id) ? (
-                        <span className="rounded bg-indigo-600/15 px-1.5 py-0.5 text-[11px] font-medium text-indigo-300">
+                        <span className="rounded bg-cyan-600/15 px-1.5 py-0.5 text-[11px] font-medium text-cyan-300">
                           {setupName(t.setup_id)}
                         </span>
                       ) : (

@@ -228,7 +228,7 @@ export default function Calendar({
         >
           <input
             type="checkbox"
-            className="h-3 w-3 accent-indigo-500"
+            className="h-3 w-3 accent-cyan-500"
             checked={weekdaysOnly}
             onChange={(e) => setWeekdaysOnly(e.target.checked)}
           />
@@ -464,14 +464,14 @@ function DayCell({
       style={traded ? heat(c.net_pnl, maxAbs) : undefined}
       className={`flex aspect-square flex-col justify-between rounded-lg border p-1.5 ${
         traded
-          ? 'cursor-pointer transition hover:ring-2 hover:ring-indigo-500/60 focus:outline-none focus:ring-2 focus:ring-indigo-500'
+          ? 'cursor-pointer transition hover:ring-2 hover:ring-cyan-500/60 focus:outline-none focus:ring-2 focus:ring-cyan-500'
           : 'border-slate-800/50 bg-slate-900/30'
       } ${traded && c.net_pnl === 0 ? 'border-slate-700/50 bg-slate-800/40' : ''} ${
-        isToday ? 'ring-1 ring-indigo-500/70' : ''
+        isToday ? 'ring-1 ring-cyan-500/70' : ''
       }`}
     >
       <div
-        className={`text-[11px] ${isToday ? 'font-semibold text-indigo-300' : 'text-slate-400'}`}
+        className={`text-[11px] ${isToday ? 'font-semibold text-cyan-300' : 'text-slate-400'}`}
       >
         {Number(c.day.slice(-2))}
       </div>

@@ -66,8 +66,8 @@ function GuardMeter({
 }) {
   const width = used_pct == null ? 0 : Math.min(100, Math.max(0, used_pct * 100));
   const danger = meterColor(used_pct);
-  const bar = invert ? 'bg-indigo-500' : danger.bar;
-  const pctText = invert ? 'text-indigo-300' : danger.text;
+  const bar = invert ? 'bg-cyan-500' : danger.bar;
+  const pctText = invert ? 'text-cyan-300' : danger.text;
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
@@ -489,7 +489,7 @@ export default function Risk() {
               {(p.phase > 0 || p.min_trading_days || p.profit_split || p.news_window_min || p.weekend_hold != null || p.consistency_pct) && (
                 <div className="flex flex-wrap gap-1.5 text-xs">
                   {p.phase > 0 && (
-                    <span className="rounded bg-indigo-900/50 px-2 py-0.5 text-indigo-300">
+                    <span className="rounded bg-cyan-900/50 px-2 py-0.5 text-cyan-300">
                       Phase {p.phase}
                     </span>
                   )}
