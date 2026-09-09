@@ -20,6 +20,8 @@ import type {
   Tag,
   Note,
   JournalDay,
+  MissedTrade,
+  MissedStats,
   Filters,
   Setup,
   NewSetup,
@@ -616,6 +618,20 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ account_id: account ?? undefined, body }),
     }),
+  getMissed: (params: { account?: number | null; day?: string; from?: string; to?: string }) => {
+    const p = new URLSearchParams();
+    if (params.account != null) p.set('account', String(params.account));
+    if (params.day) p.set('day', params.day);
+    if (params.from) p.set('from', params.from);
+    if (params.to) p.set('to', params.to);
+    const qs = p.toString();
+    return request<MissedTrade[]>(`/missed${qs ? `?${qs}` : ''}`);
+  },
+  createMissed: (body: Partial<MissedTrade> & { account_id?: number | null }) =>
+    request<MissedTrade>('/missed', { method: 'POST', body: JSON.stringify(body) }),
+  deleteMissed: (id: number) => request<void>(`/missed/${id}`, { method: 'DELETE' }),
+  getMissedStats: (f: Filters) =>
+    request<MissedStats>(`/stats/missed${filterParams(f)}`),
   autoTag: (body: {
     trade_ids?: number[];
     account_id?: number | null;

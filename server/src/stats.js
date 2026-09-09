@@ -322,6 +322,50 @@ export function holdtime(q) {
   };
 }
 
+// Missed-trade aggregates — the cost of hesitation. Honours account + date
+// range (account omitted = all accounts). cost_r = R left on the table by
+// skipped winners; net_r = net R across every missed setup.
+export function missedStats(q) {
+  const clauses = [];
+  const params = {};
+  if (q.account) {
+    clauses.push('account_id = @account');
+    params.account = Number(q.account);
+  }
+  if (q.from) {
+    clauses.push('day >= @from');
+    params.from = q.from;
+  }
+  if (q.to) {
+    clauses.push('day <= @to');
+    params.to = q.to;
+  }
+  const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
+  const rows = db.prepare(`SELECT result_r FROM missed_trades ${where}`).all(params);
+  let count = rows.length;
+  let costR = 0;
+  let netR = 0;
+  let scored = 0;
+  let winners = 0;
+  for (const r of rows) {
+    if (r.result_r == null) continue;
+    scored++;
+    netR += r.result_r;
+    if (r.result_r > 0) {
+      costR += r.result_r;
+      winners++;
+    }
+  }
+  return {
+    count,
+    scored,
+    winners,
+    cost_r: round(costR, 4),
+    net_r: round(netR, 4),
+    avg_r: scored ? round(netR / scored, 4) : null,
+  };
+}
+
 // Entry/exit efficiency for one trade, from its MAE/MFE (positive price
 // distances) and realized move. Returns { entry, exit } in [0,1], or nulls when
 // the inputs don't support it. For a wick-fill scalper this is the single most

@@ -44,6 +44,7 @@ import {
   setupStats,
   holdtime,
   excursion,
+  missedStats,
   propStats,
   adherence,
   streaks,
@@ -1056,6 +1057,72 @@ app.put('/api/journal/:day', (req, res) => {
     .json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
 });
 
+// ---------- Missed trades ----------
+// The setup you saw and skipped. Logged from the day journal; priced on
+// Analytics as the "cost of hesitation".
+app.get('/api/missed', (req, res) => {
+  const clauses = [];
+  const params = {};
+  if (req.query.account) {
+    clauses.push('account_id = @account');
+    params.account = Number(req.query.account);
+  }
+  if (req.query.day) {
+    clauses.push('day = @day');
+    params.day = req.query.day;
+  } else {
+    if (req.query.from) {
+      clauses.push('day >= @from');
+      params.from = req.query.from;
+    }
+    if (req.query.to) {
+      clauses.push('day <= @to');
+      params.to = req.query.to;
+    }
+  }
+  const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
+  res.json(
+    db.prepare(`SELECT * FROM missed_trades ${where} ORDER BY day DESC, id DESC`).all(params)
+  );
+});
+
+app.post('/api/missed', (req, res) => {
+  const b = req.body || {};
+  const accountId = b.account_id != null ? Number(b.account_id) : resolveAccountId(b);
+  if (accountId != null && !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+  const day = b.day || new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
+    return res.status(400).json({ error: 'day must be YYYY-MM-DD' });
+  const dir = b.direction === 'long' || b.direction === 'short' ? b.direction : null;
+  const info = db
+    .prepare(
+      `INSERT INTO missed_trades
+         (account_id, day, instrument, direction, swept_level, strat_session, result_r, reason, note)
+       VALUES (@account_id, @day, @instrument, @direction, @swept_level, @strat_session, @result_r, @reason, @note)`
+    )
+    .run({
+      account_id: accountId ?? null,
+      day,
+      instrument: b.instrument ?? null,
+      direction: dir,
+      swept_level: b.swept_level ?? null,
+      strat_session: b.strat_session ?? null,
+      result_r: b.result_r == null || b.result_r === '' ? null : Number(b.result_r),
+      reason: b.reason ?? null,
+      note: b.note ?? null,
+    });
+  res
+    .status(201)
+    .json(db.prepare('SELECT * FROM missed_trades WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.delete('/api/missed/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM missed_trades WHERE id = ?').run(Number(req.params.id));
+  if (!info.changes) return res.status(404).json({ error: 'missed trade not found' });
+  res.status(204).end();
+});
+
 // ---------- Daily Plans ----------
 function resolveAccountId(qOrBody) {
   if (qOrBody.account_id) return Number(qOrBody.account_id);
@@ -1283,6 +1350,7 @@ app.get('/api/stats/hourly', (req, res) => res.json(hourly(req.query)));
 app.get('/api/stats/setup', (req, res) => res.json(setupStats(req.query)));
 app.get('/api/stats/holdtime', (req, res) => res.json(holdtime(req.query)));
 app.get('/api/stats/excursion', (req, res) => res.json(excursion(req.query)));
+app.get('/api/stats/missed', (req, res) => res.json(missedStats(req.query)));
 app.get('/api/stats/prop', (req, res) => res.json(propStats(req.query)));
 app.get('/api/stats/adherence', (req, res) => res.json(adherence(req.query)));
 app.get('/api/stats/streaks', (req, res) => res.json(streaks(req.query)));

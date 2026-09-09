@@ -224,6 +224,25 @@ export function migrate() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Missed trades: the setup you saw and skipped. For a strategy built on
+    -- waiting for a specific sweep, what you *didn't* take carries as much signal
+    -- as what you did. Shares the wick vocabulary (swept_level/strat_session) and
+    -- records what it would have returned in R, so Analytics can price hesitation.
+    CREATE TABLE IF NOT EXISTS missed_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+      day TEXT NOT NULL,            -- YYYY-MM-DD the setup appeared
+      instrument TEXT,
+      direction TEXT CHECK(direction IN ('long','short')),
+      swept_level TEXT,             -- same enum as trade_wick.swept_level
+      strat_session TEXT,           -- asia|london|ny|off
+      result_r REAL,                -- what it would have returned in R (signed)
+      reason TEXT,                  -- why it was skipped (hesitation, filter, etc.)
+      note TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_missed_account_day ON missed_trades(account_id, day);
+
     -- Performance goals: a target for one metric over the current period.
     -- account_id NULL = applies across all accounts (portfolio-wide).
     CREATE TABLE IF NOT EXISTS goals (

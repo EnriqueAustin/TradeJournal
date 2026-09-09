@@ -14,7 +14,7 @@ const tmpDb = path.join(
 process.env.JOURNAL_DB = tmpDb;
 
 const { db, migrate } = await import('./db.js');
-const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency } =
+const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency, missedStats } =
   await import('./stats.js');
 
 migrate();
@@ -124,6 +124,24 @@ test('excursion returns efficiency buckets and runs with the wick join', () => {
   assert.ok('efficiency' in e && 'efficiency_by_session' in e && 'efficiency_by_wick' in e);
   assert.equal(e.efficiency.entry_eff, null);
   assert.ok(Array.isArray(e.efficiency_by_session));
+});
+
+test('missedStats prices the cost of hesitation', () => {
+  db.prepare(
+    `INSERT INTO missed_trades (account_id, day, instrument, direction, result_r)
+     VALUES (1,'2026-03-02','XAUUSD','long',2.0),
+            (1,'2026-03-03','US100','short',1.5),
+            (1,'2026-03-04','XAUUSD','long',-1.0),
+            (1,'2026-03-05','US100','long',NULL)`
+  ).run();
+  const m = missedStats({ account: 1 });
+  assert.equal(m.count, 4);
+  assert.equal(m.scored, 3, 'the null-R row is counted but not scored');
+  assert.equal(m.winners, 2);
+  assert.equal(m.cost_r, 3.5, 'R left on the table by skipped winners = 2 + 1.5');
+  assert.equal(m.net_r, 2.5, 'net across scored missed = 2 + 1.5 - 1');
+  // Date range narrows it.
+  assert.equal(missedStats({ account: 1, from: '2026-03-03', to: '2026-03-04' }).count, 2);
 });
 
 test('equity accumulates net P&L and R in chronological order', () => {

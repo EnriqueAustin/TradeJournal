@@ -6,7 +6,7 @@ import { AsyncBoundary } from '../components/states';
 import HoldTimeBars from '../components/HoldTimeBars';
 import OptimizerHeatmap from '../components/OptimizerHeatmap';
 import ReportCard from '../components/ReportCard';
-import { formatNumber, formatPct, formatDuration, formatMoney, signClass, sessionLabel } from '../utils/format';
+import { formatNumber, formatPct, formatDuration, formatMoney, formatR, signClass, sessionLabel } from '../utils/format';
 import type { ExcursionStats, WickEdgeStats, WickEdgeRow, TagStats, TagStatRow, EfficiencyRow } from '../types';
 
 // Human labels for swept-liquidity keys shown in the efficiency breakdown.
@@ -331,6 +331,7 @@ export default function Analytics() {
   const excursion = useApi(() => api.getExcursion(filters), [key]);
   const wickEdge = useApi(() => api.getWickEdge(filters), [key]);
   const tagStats = useApi(() => api.getTagStats(filters), [key]);
+  const missed = useApi(() => api.getMissedStats(filters), [key]);
   const [slGrid, setSlGrid] = useState('0.5,0.75,1,1.25,1.5,2');
   const [tpGrid, setTpGrid] = useState('1,1.5,2,2.5,3,4');
   const optimizer = useApi(
@@ -401,6 +402,45 @@ export default function Analytics() {
           loadingLabel="Loading excursion…"
         >
           {excursion.data && <ExcursionPanel e={excursion.data} />}
+        </AsyncBoundary>
+      </SectionCard>
+
+      <SectionCard title="Cost of Hesitation — Missed Trades">
+        <AsyncBoundary
+          loading={missed.loading}
+          error={missed.error}
+          onRetry={missed.reload}
+          isEmpty={!missed.data || missed.data.count === 0}
+          emptyMessage="No missed trades logged for these filters. Log them from the day journal."
+          loadingLabel="Loading missed trades…"
+        >
+          {missed.data && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Metric
+                label="Cost of hesitation"
+                value={formatR(missed.data.cost_r)}
+                valueClass="text-amber-300"
+                sub="R left on the table by skipped winners"
+              />
+              <Metric
+                label="Net missed R"
+                value={formatR(missed.data.net_r)}
+                valueClass={missed.data.net_r >= 0 ? 'text-emerald-400' : 'text-red-400'}
+                sub="across every scored miss"
+              />
+              <Metric
+                label="Missed setups"
+                value={String(missed.data.count)}
+                valueClass="text-slate-200"
+                sub={`${missed.data.winners} would have won`}
+              />
+              <Metric
+                label="Avg R / miss"
+                value={missed.data.avg_r == null ? '—' : formatR(missed.data.avg_r)}
+                valueClass="text-slate-200"
+              />
+            </div>
+          )}
         </AsyncBoundary>
       </SectionCard>
 

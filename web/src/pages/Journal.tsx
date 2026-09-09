@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import DailyPlanCard from '../components/DailyPlanCard';
+import MissedTradesCard from '../components/MissedTradesCard';
 import type { JournalDay } from '../types';
 import {
   formatMoney,
@@ -219,6 +220,9 @@ export default function Journal() {
           </div>
         )}
       </div>
+
+      {/* Missed trades — setups seen and skipped */}
+      <MissedTradesCard account={account} day={day} />
 
       {/* End-of-day recap */}
       <div className="card p-5">

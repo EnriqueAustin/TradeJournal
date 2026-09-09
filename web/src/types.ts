@@ -153,6 +153,29 @@ export interface Note {
   updated_at?: string | null;
 }
 
+export interface MissedTrade {
+  id: number;
+  account_id: number | null;
+  day: string;
+  instrument: string | null;
+  direction: Direction | null;
+  swept_level: string | null;
+  strat_session: string | null;
+  result_r: number | null;
+  reason: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface MissedStats {
+  count: number;
+  scored: number;
+  winners: number;
+  cost_r: number;
+  net_r: number;
+  avg_r: number | null;
+}
+
 /** One trading day for one account: plan → trades → realised stats → recap. */
 export interface JournalDay {
   day: string;
