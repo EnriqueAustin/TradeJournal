@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
@@ -11,6 +11,7 @@ import {
   formatR,
   formatDateTime,
   formatNumber,
+  formatDuration,
   sessionLabel,
 } from '../utils/format';
 
@@ -413,6 +414,7 @@ export default function Trades() {
                   <SortHeader col="direction" label="Dir" sort={sort} dir={dir} onSort={onSort} />
                   <SortHeader col="entry_time" label="Entry" sort={sort} dir={dir} onSort={onSort} />
                   <SortHeader col="exit_time" label="Exit" sort={sort} dir={dir} onSort={onSort} />
+                  <SortHeader col="hold_time_sec" label="Hold" sort={sort} dir={dir} onSort={onSort} align="right" />
                   <SortHeader col="size" label="Size" sort={sort} dir={dir} onSort={onSort} align="right" />
                   <SortHeader col="net_pnl" label="Net P&L" sort={sort} dir={dir} onSort={onSort} align="right" />
                   <SortHeader col="r_multiple" label="R" sort={sort} dir={dir} onSort={onSort} align="right" />
@@ -441,7 +443,13 @@ export default function Trades() {
                     </td>
                     <td className="px-4 py-2.5 font-medium text-slate-200">
                       <span className="inline-flex items-center gap-1.5">
-                        {t.instrument}
+                        <Link
+                          to={`/trades/${t.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:text-cyan-400 focus:text-cyan-400 focus:outline-none focus:underline"
+                        >
+                          {t.instrument}
+                        </Link>
                         {(() => {
                           const gaps = tradeGaps(t);
                           return gaps.length ? (
@@ -468,6 +476,9 @@ export default function Trades() {
                     </td>
                     <td className="num px-4 py-2.5 text-slate-400">
                       {formatDateTime(t.exit_time)}
+                    </td>
+                    <td className="num px-4 py-2.5 text-right text-slate-400">
+                      {formatDuration(t.hold_time_sec)}
                     </td>
                     <td className="num px-4 py-2.5 text-right text-slate-300">
                       {formatNumber(t.size, 2)}
