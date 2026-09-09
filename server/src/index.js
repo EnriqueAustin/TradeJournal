@@ -1202,6 +1202,45 @@ app.delete('/api/trades/:id', (req, res) => {
   res.status(204).end();
 });
 
+// Bulk edit / delete over the trades list — so assigning a setup to 200
+// imported trades isn't 200 page loads. Accepts a set of ids plus either a
+// `set` patch (setup_id / followed_plan) or `delete: true`.
+app.post('/api/trades/bulk', (req, res) => {
+  const b = req.body || {};
+  const ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(Number.isInteger) : [];
+  if (!ids.length) return res.status(400).json({ error: 'ids is required' });
+  const ph = ids.map(() => '?').join(',');
+
+  if (b.delete) {
+    const shots = db
+      .prepare(`SELECT url FROM screenshots WHERE trade_id IN (${ph})`)
+      .all(...ids);
+    const info = db.prepare(`DELETE FROM trades WHERE id IN (${ph})`).run(...ids);
+    removeScreenshotFiles(shots);
+    return res.json({ deleted: info.changes });
+  }
+
+  const set = b.set || {};
+  const sets = [];
+  const vals = [];
+  const BULK_EDITABLE = ['setup_id', 'followed_plan'];
+  for (const k of BULK_EDITABLE) {
+    if (k in set) {
+      sets.push(`${k} = ?`);
+      vals.push(set[k] == null ? null : Number(set[k]));
+    }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'nothing to set' });
+  if ('setup_id' in set && set.setup_id != null) {
+    if (!db.prepare('SELECT 1 FROM setups WHERE id = ?').get(Number(set.setup_id)))
+      return res.status(400).json({ error: 'unknown setup_id' });
+  }
+  const info = db
+    .prepare(`UPDATE trades SET ${sets.join(', ')} WHERE id IN (${ph})`)
+    .run(...vals, ...ids);
+  res.json({ updated: info.changes });
+});
+
 // ---------- Stats ----------
 app.get('/api/stats/summary', (req, res) => res.json(summary(req.query)));
 app.get('/api/stats/equity', (req, res) => res.json(equity(req.query)));

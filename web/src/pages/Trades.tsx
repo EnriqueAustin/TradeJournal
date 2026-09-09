@@ -138,6 +138,8 @@ export default function Trades() {
   const [outcome, setOutcome] = useState<TradeOutcome>('');
   const [needs, setNeeds] = useState<TradeNeed[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const debouncedSearch = useDebounced(search);
 
   const toggleNeed = (n: TradeNeed) =>
@@ -162,6 +164,12 @@ export default function Trades() {
     setPage(0);
   }, [filtersKey, queryKey]);
 
+  // Drop any selection when the visible set changes (page, filters, query), so
+  // a bulk action can never hit a row the user can no longer see.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [filtersKey, queryKey, page]);
+
   // Clicking a header toggles direction when it's already the sort column,
   // otherwise switches column and starts descending (largest/newest first).
   const onSort = (c: TradeSort) => {
@@ -184,6 +192,41 @@ export default function Trades() {
   const rows: Trade[] = data?.rows ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const allOnPageSelected = rows.length > 0 && rows.every((t) => selected.has(t.id));
+  const toggleOne = (id: number) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleAllOnPage = () =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (rows.every((t) => next.has(t.id))) rows.forEach((t) => next.delete(t.id));
+      else rows.forEach((t) => next.add(t.id));
+      return next;
+    });
+
+  const runBulk = async (
+    body: Parameters<typeof api.bulkTrades>[0],
+    confirmMsg?: string
+  ) => {
+    if (selected.size === 0) return;
+    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    setBulkBusy(true);
+    try {
+      await api.bulkTrades(body);
+      setSelected(new Set());
+      reload();
+    } catch (e) {
+      window.alert((e as Error)?.message ?? 'Bulk action failed');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+  const ids = () => [...selected];
 
   return (
     <div className="flex flex-col gap-4">
@@ -292,10 +335,80 @@ export default function Trades() {
           emptyMessage="No trades match the current filters. Import a report to get started."
           loadingLabel="Loading trades…"
         >
+          {selected.size > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-cyan-800/50 bg-cyan-950/20 px-3 py-2 text-sm">
+              <span className="font-medium text-cyan-300">{selected.size} selected</span>
+              <span className="text-slate-600">·</span>
+              <label className="flex items-center gap-1.5 text-slate-400">
+                Setup
+                <select
+                  className="input py-1 text-xs"
+                  value=""
+                  disabled={bulkBusy}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    runBulk({ ids: ids(), set: { setup_id: v === '' ? null : Number(v) } });
+                  }}
+                >
+                  <option value="" disabled>
+                    Assign…
+                  </option>
+                  <option value="">— Clear setup —</option>
+                  {setups.map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="btn px-2 py-1 text-xs"
+                disabled={bulkBusy}
+                onClick={() => runBulk({ ids: ids(), set: { followed_plan: 1 } })}
+              >
+                Mark followed
+              </button>
+              <button
+                className="btn px-2 py-1 text-xs"
+                disabled={bulkBusy}
+                onClick={() => runBulk({ ids: ids(), set: { followed_plan: 0 } })}
+              >
+                Mark broke
+              </button>
+              <button
+                className="btn px-2 py-1 text-xs text-red-400"
+                disabled={bulkBusy}
+                onClick={() =>
+                  runBulk(
+                    { ids: ids(), delete: true },
+                    `Delete ${selected.size} trade(s)? Their notes, tags and screenshots go with them. This cannot be undone.`
+                  )
+                }
+              >
+                Delete
+              </button>
+              <button
+                className="btn ml-auto px-2 py-1 text-xs"
+                disabled={bulkBusy}
+                onClick={() => setSelected(new Set())}
+              >
+                Clear
+              </button>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[880px] text-sm">
               <thead>
                 <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-800"
+                      checked={allOnPageSelected}
+                      onChange={toggleAllOnPage}
+                      aria-label="Select all on page"
+                    />
+                  </th>
                   <SortHeader col="instrument" label="Instrument" sort={sort} dir={dir} onSort={onSort} />
                   <SortHeader col="direction" label="Dir" sort={sort} dir={dir} onSort={onSort} />
                   <SortHeader col="entry_time" label="Entry" sort={sort} dir={dir} onSort={onSort} />
@@ -313,8 +426,19 @@ export default function Trades() {
                   <tr
                     key={t.id}
                     onClick={() => navigate(`/trades/${t.id}`)}
-                    className="cursor-pointer border-b border-slate-800/60 transition hover:bg-slate-800/40"
+                    className={`cursor-pointer border-b border-slate-800/60 transition hover:bg-slate-800/40 ${
+                      selected.has(t.id) ? 'bg-slate-800/50' : ''
+                    }`}
                   >
+                    <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-800"
+                        checked={selected.has(t.id)}
+                        onChange={() => toggleOne(t.id)}
+                        aria-label={`Select trade ${t.id}`}
+                      />
+                    </td>
                     <td className="px-4 py-2.5 font-medium text-slate-200">
                       <span className="inline-flex items-center gap-1.5">
                         {t.instrument}
