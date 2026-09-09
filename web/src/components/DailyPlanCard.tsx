@@ -22,11 +22,17 @@ function parseChecklist(json: string | null): ChecklistItem[] {
 export default function DailyPlanCard({
   account,
   currency,
+  day: controlledDay,
+  hideDatePicker = false,
 }: {
   account: number | null;
   currency: string;
+  /** When provided, the card follows this day instead of its own picker. */
+  day?: string;
+  hideDatePicker?: boolean;
 }) {
-  const [day, setDay] = useState<string>(today);
+  const [internalDay, setDay] = useState<string>(today);
+  const day = controlledDay ?? internalDay;
   const [plan, setPlan] = useState<DailyPlan | null>(null);
   const [bias, setBias] = useState('');
   const [levels, setLevels] = useState('');
@@ -105,12 +111,14 @@ export default function DailyPlanCard({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h2 className="text-sm font-semibold text-slate-200">Daily Plan</h2>
-          <input
-            type="date"
-            className="input py-1"
-            value={day}
-            onChange={(e) => setDay(e.target.value || today())}
-          />
+          {!hideDatePicker && (
+            <input
+              type="date"
+              className="input py-1"
+              value={day}
+              onChange={(e) => setDay(e.target.value || today())}
+            />
+          )}
           {pct != null && (
             <span
               className={`rounded px-2 py-0.5 text-xs font-medium ${

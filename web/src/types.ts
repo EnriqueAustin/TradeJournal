@@ -146,9 +146,33 @@ export interface Note {
   id: number;
   trade_id: number | null;
   day: string | null;
+  account_id?: number | null;
   body: string;
-  rules_followed: 0 | 1;
+  rules_followed: 0 | 1 | null;
   created_at: string;
+  updated_at?: string | null;
+}
+
+/** One trading day for one account: plan → trades → realised stats → recap. */
+export interface JournalDay {
+  day: string;
+  account_id: number;
+  stats: StatsSummary;
+  trades: Array<{
+    id: number;
+    instrument: string;
+    direction: Direction;
+    entry_time: string;
+    exit_time: string;
+    net_pnl: number;
+    r_multiple: number | null;
+    r_derived?: number;
+    session: Session;
+    followed_plan: number | null;
+    setup_id: number | null;
+  }>;
+  plan: DailyPlan | null;
+  recap: Note | null;
 }
 
 export interface Screenshot {

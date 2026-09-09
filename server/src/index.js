@@ -916,6 +916,105 @@ app.post('/api/trades/:id/notes', (req, res) => {
     .json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
 });
 
+// Edit a note's body / rules_followed. A note is an editable document — a typo
+// or a first reaction you'd now write differently shouldn't be permanent.
+app.patch('/api/notes/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(id);
+  if (!note) return res.status(404).json({ error: 'note not found' });
+  const b = req.body || {};
+  const sets = [];
+  const params = { id };
+  if ('body' in b) {
+    sets.push('body = @body');
+    params.body = b.body;
+  }
+  if ('rules_followed' in b) {
+    sets.push('rules_followed = @rules_followed');
+    params.rules_followed = b.rules_followed == null ? null : b.rules_followed ? 1 : 0;
+  }
+  if (!sets.length) return res.status(400).json({ error: 'nothing to update' });
+  sets.push("updated_at = datetime('now')");
+  db.prepare(`UPDATE notes SET ${sets.join(', ')} WHERE id = @id`).run(params);
+  res.json(db.prepare('SELECT * FROM notes WHERE id = ?').get(id));
+});
+
+app.delete('/api/notes/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const info = db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+  if (!info.changes) return res.status(404).json({ error: 'note not found' });
+  res.status(204).end();
+});
+
+// ---------- Day Journal ----------
+// One page's worth of a trading day, for one account: the pre-market plan, the
+// trades it produced, the realised stats, and the end-of-day recap. Closes the
+// plan → trade → recap loop the journal was missing. The recap is a note with
+// trade_id NULL, one per (account, day), stored on the previously-dead
+// notes.day column.
+app.get('/api/journal/:day', (req, res) => {
+  const day = req.params.day;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
+    return res.status(400).json({ error: 'day must be YYYY-MM-DD' });
+  const accountId = resolveAccountId(req.query);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+
+  const q = { account: accountId, from: day, to: day };
+  const stats = summary(q);
+  const trades = db
+    .prepare(
+      `SELECT id, instrument, direction, entry_time, exit_time, net_pnl, r_multiple,
+              r_derived, session, followed_plan, setup_id
+       FROM trades
+       WHERE account_id = ? AND COALESCE(is_backtest, 0) = 0
+         AND date(COALESCE(exit_time, entry_time)) = date(?)
+       ORDER BY COALESCE(entry_time, exit_time)`
+    )
+    .all(accountId, day);
+  const plan = db
+    .prepare('SELECT * FROM daily_plans WHERE account_id = ? AND day = ?')
+    .get(accountId, day) || null;
+  const recap = db
+    .prepare(
+      'SELECT * FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+    )
+    .get(accountId, day) || null;
+
+  res.json({ day, account_id: accountId, stats, trades, plan, recap });
+});
+
+// Upsert the day's recap note (one per account+day).
+app.put('/api/journal/:day', (req, res) => {
+  const day = req.params.day;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
+    return res.status(400).json({ error: 'day must be YYYY-MM-DD' });
+  const b = req.body || {};
+  const accountId = resolveAccountId(b);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+  const body = b.body ?? '';
+
+  const existing = db
+    .prepare(
+      'SELECT id FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+    )
+    .get(accountId, day);
+  if (existing) {
+    db.prepare("UPDATE notes SET body = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(body, existing.id);
+    return res.json(db.prepare('SELECT * FROM notes WHERE id = ?').get(existing.id));
+  }
+  const info = db
+    .prepare(
+      "INSERT INTO notes (account_id, day, body, updated_at) VALUES (?, ?, ?, datetime('now'))"
+    )
+    .run(accountId, day, body);
+  res
+    .status(201)
+    .json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
+});
+
 // ---------- Daily Plans ----------
 function resolveAccountId(qOrBody) {
   if (qOrBody.account_id) return Number(qOrBody.account_id);

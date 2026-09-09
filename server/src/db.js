@@ -280,6 +280,18 @@ export function migrate() {
     db.exec('ALTER TABLE trades ADD COLUMN r_derived INTEGER NOT NULL DEFAULT 0');
   }
 
+  // Day-scoped journal recaps live in `notes` with trade_id NULL and a day set;
+  // account_id scopes the recap to one account's trading day (trade notes leave
+  // it null and derive the account from the trade). Nullable + guarded.
+  const noteCols = db.prepare('PRAGMA table_info(notes)').all();
+  if (!noteCols.some((c) => c.name === 'account_id')) {
+    db.exec('ALTER TABLE notes ADD COLUMN account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE');
+  }
+  if (!noteCols.some((c) => c.name === 'updated_at')) {
+    db.exec('ALTER TABLE notes ADD COLUMN updated_at TEXT');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_notes_day ON notes(account_id, day) WHERE day IS NOT NULL');
+
   // Per-execution P&L — lets the journal show each partial close's own result
   // (MT5 deals carry a profit/commission/swap per fill). Nullable + guarded.
   const execCols = db.prepare('PRAGMA table_info(executions)').all();

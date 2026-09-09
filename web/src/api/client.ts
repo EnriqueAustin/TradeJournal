@@ -18,6 +18,7 @@ import type {
   ImportResult,
   Tag,
   Note,
+  JournalDay,
   Filters,
   Setup,
   NewSetup,
@@ -164,6 +165,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ body, rules_followed }),
     }),
+  updateNote: (id: number, body: Partial<Pick<Note, 'body' | 'rules_followed'>>) =>
+    request<Note>(`/notes/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteNote: (id: number) => request<void>(`/notes/${id}`, { method: 'DELETE' }),
   uploadScreenshot: async (id: number, file: File): Promise<Screenshot> => {
     const fd = new FormData();
     fd.append('file', file);
@@ -585,6 +589,17 @@ export const api = {
     notes?: string | null;
     checklist_json?: string | null;
   }) => request<DailyPlan>('/plans', { method: 'PUT', body: JSON.stringify(body) }),
+  getJournalDay: (account: number | null, day: string) => {
+    const p = new URLSearchParams();
+    if (account != null) p.set('account', String(account));
+    const qs = p.toString();
+    return request<JournalDay>(`/journal/${day}${qs ? `?${qs}` : ''}`);
+  },
+  saveJournalRecap: (account: number | null, day: string, body: string) =>
+    request<Note>(`/journal/${day}`, {
+      method: 'PUT',
+      body: JSON.stringify({ account_id: account ?? undefined, body }),
+    }),
   autoTag: (body: {
     trade_ids?: number[];
     account_id?: number | null;
