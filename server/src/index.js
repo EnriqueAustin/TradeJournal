@@ -1167,6 +1167,78 @@ app.put('/api/trades/:id/fields/:defId', (req, res) => {
   res.json({ def_id: defId, value_num: valueNum, value_text: valueText });
 });
 
+// ---------- Weekly review report ----------
+// Everything the printable weekly review needs, in one call: the week's stats,
+// its best/worst trades, and each day's net + recap. `date` is any day in the
+// week; the week is Monday–Sunday.
+app.get('/api/report/week/:date', (req, res) => {
+  const date = req.params.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  const accountId = resolveAccountId(req.query);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+
+  const base = new Date(`${date}T00:00:00Z`);
+  const dow = (base.getUTCDay() + 6) % 7; // Mon = 0
+  const monday = new Date(base);
+  monday.setUTCDate(base.getUTCDate() - dow);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const from = iso(monday);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  const to = iso(sunday);
+
+  const q = { account: accountId, from, to };
+  const stats = summary(q);
+
+  const weekTrades = db
+    .prepare(
+      `SELECT id, instrument, direction, entry_time, exit_time, net_pnl, r_multiple, r_derived, session
+       FROM trades
+       WHERE account_id = ? AND COALESCE(is_backtest,0) = 0
+         AND date(COALESCE(exit_time, entry_time)) BETWEEN date(?) AND date(?)
+       ORDER BY net_pnl DESC`
+    )
+    .all(accountId, from, to);
+  const best = weekTrades.slice(0, 3);
+  const worst = weekTrades.filter((t) => t.net_pnl < 0).slice(-3).reverse();
+
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setUTCDate(monday.getUTCDate() + i);
+    const day = iso(d);
+    const dayAgg = db
+      .prepare(
+        `SELECT COALESCE(SUM(net_pnl),0) AS net, COUNT(*) AS count, COALESCE(SUM(r_multiple),0) AS r
+         FROM trades
+         WHERE account_id = ? AND COALESCE(is_backtest,0) = 0
+           AND date(COALESCE(exit_time, entry_time)) = date(?)`
+      )
+      .get(accountId, day);
+    const recap = db
+      .prepare(
+        'SELECT body FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+      )
+      .get(accountId, day);
+    const plan = db
+      .prepare('SELECT bias FROM daily_plans WHERE account_id = ? AND day = ?')
+      .get(accountId, day);
+    days.push({
+      day,
+      net_pnl: dayAgg.net,
+      trade_count: dayAgg.count,
+      r: dayAgg.r,
+      recap: recap?.body ?? null,
+      bias: plan?.bias ?? null,
+    });
+  }
+
+  const account = db.prepare('SELECT id, name, currency FROM accounts WHERE id = ?').get(accountId);
+  res.json({ from, to, account, stats, best, worst, days });
+});
+
 // ---------- Missed trades ----------
 // The setup you saw and skipped. Logged from the day journal; priced on
 // Analytics as the "cost of hesitation".

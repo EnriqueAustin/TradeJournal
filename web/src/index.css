@@ -144,3 +144,18 @@ body {
     letter-spacing: 0.1em;
   }
 }
+
+/* Print — the weekly review is the only screen meant for paper. Drop the app
+   chrome and flip to black-on-white so it reads on a printed page or PDF. */
+@media print {
+  aside { display: none !important; }
+  body { background: #fff !important; }
+  main { color: #111 !important; }
+  main .card,
+  main [class*='border-slate'] { border-color: #ccc !important; background: #fff !important; }
+  main .text-slate-100,
+  main .text-slate-200,
+  main .text-slate-300,
+  main .text-slate-400,
+  main .text-slate-500 { color: #111 !important; }
+}

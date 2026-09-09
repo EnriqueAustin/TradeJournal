@@ -14,6 +14,7 @@ import BacktestStudio from './pages/BacktestStudio';
 import Portfolio from './pages/Portfolio';
 import CalendarPage from './pages/Calendar';
 import Journal from './pages/Journal';
+import WeekReport from './pages/WeekReport';
 import Signal from './features/signal/pages/Signal';
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="journal" element={<Journal />} />
+        <Route path="report/week/:date" element={<WeekReport />} />
         <Route path="trades" element={<Trades />} />
         <Route path="trades/:id" element={<TradeDetail />} />
         <Route path="playbook" element={<Playbook />} />

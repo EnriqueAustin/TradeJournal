@@ -188,6 +188,35 @@ export interface MissedTrade {
   created_at: string;
 }
 
+export interface WeekReportTrade {
+  id: number;
+  instrument: string;
+  direction: Direction;
+  entry_time: string;
+  exit_time: string;
+  net_pnl: number;
+  r_multiple: number | null;
+  r_derived?: number;
+  session: Session;
+}
+
+export interface WeekReport {
+  from: string;
+  to: string;
+  account: { id: number; name: string; currency: string };
+  stats: StatsSummary;
+  best: WeekReportTrade[];
+  worst: WeekReportTrade[];
+  days: Array<{
+    day: string;
+    net_pnl: number;
+    trade_count: number;
+    r: number;
+    recap: string | null;
+    bias: string | null;
+  }>;
+}
+
 export interface FieldDef {
   id: number;
   account_id: number | null;

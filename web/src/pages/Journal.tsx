@@ -142,6 +142,9 @@ export default function Journal() {
           <button className="btn px-2 py-1 text-xs" onClick={() => setDay(today())} disabled={isToday}>
             Today
           </button>
+          <Link className="btn px-2 py-1 text-xs" to={`/report/week/${day}`}>
+            Week review →
+          </Link>
         </div>
       </div>
 

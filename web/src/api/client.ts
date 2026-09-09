@@ -20,6 +20,7 @@ import type {
   Tag,
   Note,
   JournalDay,
+  WeekReport,
   MissedTrade,
   MissedStats,
   FieldDef,
@@ -644,6 +645,12 @@ export const api = {
     }),
   getFieldStats: (f: Filters, defId: number) =>
     request<FieldStats>(`/stats/field${filterParams(f, { def: defId })}`),
+  getWeekReport: (account: number | null, date: string) => {
+    const p = new URLSearchParams();
+    if (account != null) p.set('account', String(account));
+    const qs = p.toString();
+    return request<WeekReport>(`/report/week/${date}${qs ? `?${qs}` : ''}`);
+  },
   getMissed: (params: { account?: number | null; day?: string; from?: string; to?: string }) => {
     const p = new URLSearchParams();
     if (params.account != null) p.set('account', String(params.account));
