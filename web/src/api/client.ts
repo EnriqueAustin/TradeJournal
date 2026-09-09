@@ -96,6 +96,8 @@ export function filterParams(
   if (f.setup && f.setup !== 'All') p.set('setup', f.setup);
   if (f.from) p.set('from', f.from);
   if (f.to) p.set('to', f.to);
+  if (f.rMin !== '') p.set('r_min', f.rMin);
+  if (f.rMax !== '') p.set('r_max', f.rMax);
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v !== undefined && v !== null && v !== '') p.set(k, String(v));

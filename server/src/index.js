@@ -535,6 +535,14 @@ function tradesQuery(q) {
     clauses.push("date(COALESCE(exit_time, entry_time)) <= date(@to)");
     params.to = q.to;
   }
+  if (q.r_min !== undefined && q.r_min !== '') {
+    clauses.push('r_multiple IS NOT NULL AND r_multiple >= @r_min');
+    params.r_min = Number(q.r_min);
+  }
+  if (q.r_max !== undefined && q.r_max !== '') {
+    clauses.push('r_multiple IS NOT NULL AND r_multiple <= @r_max');
+    params.r_max = Number(q.r_max);
+  }
   if (q.direction === 'long' || q.direction === 'short') {
     clauses.push('direction = @direction');
     params.direction = q.direction;

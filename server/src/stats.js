@@ -41,6 +41,16 @@ export function buildFilter(q, opts = {}) {
     clauses.push("date(COALESCE(exit_time, entry_time)) <= date(@to)");
     params.to = q.to;
   }
+  // R-multiple range. Trades with a null R are excluded when either bound is
+  // set (you can't range-filter what has no R).
+  if (q.r_min !== undefined && q.r_min !== '' && q.r_min !== null) {
+    clauses.push('r_multiple IS NOT NULL AND r_multiple >= @r_min');
+    params.r_min = Number(q.r_min);
+  }
+  if (q.r_max !== undefined && q.r_max !== '' && q.r_max !== null) {
+    clauses.push('r_multiple IS NOT NULL AND r_multiple <= @r_max');
+    params.r_max = Number(q.r_max);
+  }
   // Scope to one calendar month (YYYY-MM) on the realized date. Shared here so
   // any stat can be shown per-month, not just the calendar.
   if (q.month) {

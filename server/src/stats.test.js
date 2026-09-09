@@ -75,6 +75,22 @@ test('summary of an empty set does not divide by zero', () => {
   assert.equal(s.profit_factor, null, 'no losses means PF is undefined, not Infinity');
 });
 
+test('R-range filter bounds r_multiple inclusively', () => {
+  // R values are 2, -1, 1, -1.5, 0.5. r_min=1 keeps {2, 1} = net 150.
+  const hi = summary({ account: 1, r_min: 1 });
+  assert.equal(hi.trade_count, 2);
+  assert.equal(hi.net_pnl, 150);
+  // r_max=0 keeps {-1, -1.5} = net -100 (the losers).
+  const lo = summary({ account: 1, r_max: 0 });
+  assert.equal(lo.trade_count, 2);
+  assert.equal(lo.net_pnl, -100);
+  // A band -1..1 keeps {-1, 1, 0.5} = 3 trades.
+  const band = summary({ account: 1, r_min: -1, r_max: 1 });
+  assert.equal(band.trade_count, 3);
+  // An empty string bound is ignored (no filtering).
+  assert.equal(summary({ account: 1, r_min: '', r_max: '' }).trade_count, 5);
+});
+
 test('equity accumulates net P&L and R in chronological order', () => {
   const e = equity({ account: 1 });
   assert.equal(e.length, 5);

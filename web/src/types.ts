@@ -797,6 +797,8 @@ export interface Filters {
   setup: string; // 'All' | setup id (as string)
   from: string; // YYYY-MM-DD or ''
   to: string;
+  rMin: string; // R-multiple lower bound, or ''
+  rMax: string; // R-multiple upper bound, or ''
 }
 
 // ============================================================================

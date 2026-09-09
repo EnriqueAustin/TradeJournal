@@ -28,10 +28,13 @@ const defaultFilters: Filters = {
   setup: 'All',
   from: '',
   to: '',
+  rMin: '',
+  rMax: '',
 };
 
 const FilterContext = createContext<FilterContextValue | undefined>(undefined);
 const ACCOUNT_STORAGE_KEY = 'trade-journal:selected-account';
+const FILTERS_STORAGE_KEY = 'trade-journal:filters';
 
 function getStoredAccount(): number | null {
   if (typeof window === 'undefined') return null;
@@ -41,11 +44,32 @@ function getStoredAccount(): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+// Rehydrate the non-account filter state (account has its own key). Guarded so
+// a private window / cleared storage / an older shape falls back to defaults.
+function getStoredFilters(): Filters {
+  const base = { ...defaultFilters, account: getStoredAccount() };
+  if (typeof window === 'undefined') return base;
+  try {
+    const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+    if (!raw) return base;
+    const saved = JSON.parse(raw) as Partial<Filters>;
+    return {
+      ...base,
+      instrument: saved.instrument ?? base.instrument,
+      session: saved.session ?? base.session,
+      setup: saved.setup ?? base.setup,
+      from: saved.from ?? base.from,
+      to: saved.to ?? base.to,
+      rMin: saved.rMin ?? base.rMin,
+      rMax: saved.rMax ?? base.rMax,
+    };
+  } catch {
+    return base;
+  }
+}
+
 export function FilterProvider({ children }: { children: ReactNode }) {
-  const [filters, setFiltersState] = useState<Filters>(() => ({
-    ...defaultFilters,
-    account: getStoredAccount(),
-  }));
+  const [filters, setFiltersState] = useState<Filters>(getStoredFilters);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [accountsError, setAccountsError] = useState<string | null>(null);
@@ -87,6 +111,16 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     }
     window.localStorage.setItem(ACCOUNT_STORAGE_KEY, String(filters.account));
   }, [filters.account]);
+
+  // Persist the rest of the filter state so filters survive a reload/session.
+  useEffect(() => {
+    try {
+      const { account: _account, ...rest } = filters;
+      window.localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(rest));
+    } catch {
+      /* storage may be unavailable (private window); ignore */
+    }
+  }, [filters]);
 
   useEffect(() => {
     let cancelled = false;
