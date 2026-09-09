@@ -14,7 +14,7 @@ const tmpDb = path.join(
 process.env.JOURNAL_DB = tmpDb;
 
 const { db, migrate } = await import('./db.js');
-const { summary, equity, reportCard, tagStats, calendar, streaks, discipline } =
+const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency } =
   await import('./stats.js');
 
 migrate();
@@ -89,6 +89,41 @@ test('R-range filter bounds r_multiple inclusively', () => {
   assert.equal(band.trade_count, 3);
   // An empty string bound is ignored (no filtering).
   assert.equal(summary({ account: 1, r_min: '', r_max: '' }).trade_count, 5);
+});
+
+test('tradeEfficiency: exit = move/MFE, entry = MFE/(MFE+MAE)', () => {
+  const long = tradeEfficiency({
+    direction: 'long', entry_price: 100, exit_price: 110, mfe: 20, mae: 5,
+  });
+  assert.equal(long.exit, 0.5); // 10 / 20
+  assert.equal(long.entry, 0.8); // 20 / 25
+
+  const short = tradeEfficiency({
+    direction: 'short', entry_price: 100, exit_price: 90, mfe: 15, mae: 5,
+  });
+  assert.ok(Math.abs(short.exit - 0.6667) < 1e-3); // 10 / 15
+  assert.equal(short.entry, 0.75); // 15 / 20
+});
+
+test('tradeEfficiency clamps to [0,1] and handles missing data', () => {
+  // Exited below a long entry — gave everything back; exit eff floors at 0.
+  const loss = tradeEfficiency({
+    direction: 'long', entry_price: 100, exit_price: 95, mfe: 10, mae: 8,
+  });
+  assert.equal(loss.exit, 0);
+  // No MFE => exit eff undefined; MAE alone can't give entry eff either.
+  assert.deepEqual(tradeEfficiency({ direction: 'long', entry_price: 100, exit_price: 110, mfe: null, mae: 5 }), {
+    entry: null,
+    exit: null,
+  });
+});
+
+test('excursion returns efficiency buckets and runs with the wick join', () => {
+  const e = excursion({ account: 1 });
+  // The seeded rows carry no MAE/MFE, so efficiency is null but the shape holds.
+  assert.ok('efficiency' in e && 'efficiency_by_session' in e && 'efficiency_by_wick' in e);
+  assert.equal(e.efficiency.entry_eff, null);
+  assert.ok(Array.isArray(e.efficiency_by_session));
 });
 
 test('equity accumulates net P&L and R in chronological order', () => {

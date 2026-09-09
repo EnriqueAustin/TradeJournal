@@ -322,13 +322,44 @@ export function holdtime(q) {
   };
 }
 
-// MAE/MFE excursion aggregates.
+// Entry/exit efficiency for one trade, from its MAE/MFE (positive price
+// distances) and realized move. Returns { entry, exit } in [0,1], or nulls when
+// the inputs don't support it. For a wick-fill scalper this is the single most
+// actionable pair of numbers — how much of the available move the entry avoided
+// giving up, and how much of the favorable extent the exit actually banked.
+//   exit efficiency  = realized favorable move ÷ MFE   (1 = sold the high)
+//   entry efficiency = MFE ÷ (MFE + MAE)               (1 = no heat taken)
+export function tradeEfficiency(t) {
+  const clamp = (v) => (v == null ? null : Math.max(0, Math.min(1, v)));
+  let exitEff = null;
+  if (t.mfe != null && t.mfe > 0 && t.entry_price != null && t.exit_price != null) {
+    const move =
+      t.direction === 'short'
+        ? t.entry_price - t.exit_price
+        : t.exit_price - t.entry_price;
+    exitEff = clamp(move / t.mfe);
+  }
+  let entryEff = null;
+  if (t.mae != null && t.mfe != null) {
+    const range = t.mfe + t.mae;
+    if (range > 0) entryEff = clamp(t.mfe / range);
+  }
+  return { entry: entryEff, exit: exitEff };
+}
+
+// MAE/MFE excursion aggregates, plus entry/exit efficiency broken down by
+// session and by swept liquidity level.
 export function excursion(q) {
   const { where, params } = buildFilter(q);
+  // The join adds trade_wick (w); none of buildFilter's columns exist on w, so
+  // the unqualified WHERE stays unambiguous and resolves to trades (t).
   const rows = db
     .prepare(
-      `SELECT net_pnl, r_multiple, mae, mfe, entry_price, stop_price, size
-       FROM trades ${where}`
+      `SELECT t.net_pnl, t.r_multiple, t.mae, t.mfe, t.entry_price, t.exit_price,
+              t.stop_price, t.size, t.direction, t.session, w.swept_level
+       FROM trades t
+       LEFT JOIN trade_wick w ON w.trade_id = t.id
+       ${where}`
     )
     .all(params);
 
@@ -342,6 +373,22 @@ export function excursion(q) {
     lossMfeCount = 0;
   let hitMfe1R = 0,
     hitMfe1RThenLost = 0;
+
+  // Efficiency accumulators, overall and grouped.
+  const acc = () => ({ eSum: 0, eN: 0, xSum: 0, xN: 0 });
+  const overall = acc();
+  const bySession = new Map();
+  const byWick = new Map();
+  const addEff = (bucket, eff) => {
+    if (eff.entry != null) {
+      bucket.eSum += eff.entry;
+      bucket.eN++;
+    }
+    if (eff.exit != null) {
+      bucket.xSum += eff.exit;
+      bucket.xN++;
+    }
+  };
 
   for (const t of rows) {
     const isWin = (t.net_pnl || 0) > 0;
@@ -371,7 +418,29 @@ export function excursion(q) {
         if ((t.net_pnl || 0) <= 0) hitMfe1RThenLost++;
       }
     }
+
+    const eff = tradeEfficiency(t);
+    if (eff.entry != null || eff.exit != null) {
+      addEff(overall, eff);
+      const sKey = t.session || 'off';
+      if (!bySession.has(sKey)) bySession.set(sKey, acc());
+      addEff(bySession.get(sKey), eff);
+      if (t.swept_level) {
+        if (!byWick.has(t.swept_level)) byWick.set(t.swept_level, acc());
+        addEff(byWick.get(t.swept_level), eff);
+      }
+    }
   }
+
+  const summarize = (b) => ({
+    entry_eff: b.eN ? round(b.eSum / b.eN, 4) : null,
+    exit_eff: b.xN ? round(b.xSum / b.xN, 4) : null,
+    sample: Math.max(b.eN, b.xN),
+  });
+  const groupOut = (m) =>
+    [...m.entries()]
+      .map(([key, b]) => ({ key, ...summarize(b) }))
+      .sort((a, b) => (b.sample || 0) - (a.sample || 0));
 
   return {
     avg_mae_winners: winMaeCount ? round(winMaeSum / winMaeCount, 4) : null,
@@ -383,6 +452,9 @@ export function excursion(q) {
     hit_1r_mfe: hitMfe1R,
     hit_1r_mfe_then_lost: hitMfe1RThenLost,
     hit_1r_mfe_then_lost_pct: hitMfe1R ? round(hitMfe1RThenLost / hitMfe1R, 4) : null,
+    efficiency: summarize(overall),
+    efficiency_by_session: groupOut(bySession),
+    efficiency_by_wick: groupOut(byWick),
   };
 }
 

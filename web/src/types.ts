@@ -439,6 +439,19 @@ export interface ExcursionStats {
   hit_1r_mfe: number;
   hit_1r_mfe_then_lost: number;
   hit_1r_mfe_then_lost_pct: number | null;
+  efficiency: EfficiencyBucket;
+  efficiency_by_session: EfficiencyRow[];
+  efficiency_by_wick: EfficiencyRow[];
+}
+
+export interface EfficiencyBucket {
+  entry_eff: number | null;
+  exit_eff: number | null;
+  sample: number;
+}
+
+export interface EfficiencyRow extends EfficiencyBucket {
+  key: string;
 }
 
 export interface PropStats {
