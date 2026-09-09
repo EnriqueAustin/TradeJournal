@@ -31,6 +31,10 @@ export interface Account {
   prop_max_inactivity_days: number | null;
   broker_tz: string | null;
   times_realigned: number;
+  /** R fallback for stopless trades: percent of starting balance risked per trade. */
+  default_risk_pct: number | null;
+  /** Fixed dollar risk per trade; overrides default_risk_pct when set. */
+  default_risk_amount: number | null;
   created_at: string;
 }
 
@@ -67,6 +71,8 @@ export interface NewAccount {
   prop_safety_buffer_pct?: number | null;
   prop_max_inactivity_days?: number | null;
   broker_tz?: string | null;
+  default_risk_pct?: number | null;
+  default_risk_amount?: number | null;
 }
 
 export interface Trade {
@@ -84,6 +90,8 @@ export interface Trade {
   swap: number;
   net_pnl: number;
   r_multiple: number | null;
+  /** 1 when r_multiple was derived from the account's modeled risk (no real stop). */
+  r_derived?: number;
   stop_price: number | null;
   target_price: number | null;
   mae: number | null;
@@ -138,9 +146,33 @@ export interface Note {
   id: number;
   trade_id: number | null;
   day: string | null;
+  account_id?: number | null;
   body: string;
-  rules_followed: 0 | 1;
+  rules_followed: 0 | 1 | null;
   created_at: string;
+  updated_at?: string | null;
+}
+
+/** One trading day for one account: plan → trades → realised stats → recap. */
+export interface JournalDay {
+  day: string;
+  account_id: number;
+  stats: StatsSummary;
+  trades: Array<{
+    id: number;
+    instrument: string;
+    direction: Direction;
+    entry_time: string;
+    exit_time: string;
+    net_pnl: number;
+    r_multiple: number | null;
+    r_derived?: number;
+    session: Session;
+    followed_plan: number | null;
+    setup_id: number | null;
+  }>;
+  plan: DailyPlan | null;
+  recap: Note | null;
 }
 
 export interface Screenshot {
@@ -407,6 +439,19 @@ export interface ExcursionStats {
   hit_1r_mfe: number;
   hit_1r_mfe_then_lost: number;
   hit_1r_mfe_then_lost_pct: number | null;
+  efficiency: EfficiencyBucket;
+  efficiency_by_session: EfficiencyRow[];
+  efficiency_by_wick: EfficiencyRow[];
+}
+
+export interface EfficiencyBucket {
+  entry_eff: number | null;
+  exit_eff: number | null;
+  sample: number;
+}
+
+export interface EfficiencyRow extends EfficiencyBucket {
+  key: string;
 }
 
 export interface PropStats {
@@ -765,6 +810,8 @@ export interface Filters {
   setup: string; // 'All' | setup id (as string)
   from: string; // YYYY-MM-DD or ''
   to: string;
+  rMin: string; // R-multiple lower bound, or ''
+  rMax: string; // R-multiple upper bound, or ''
 }
 
 // ============================================================================

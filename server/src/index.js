@@ -31,6 +31,8 @@ import {
   normalizeInstrument,
   parseBarTime,
   computeRMultiple,
+  rMultipleInfo,
+  defaultRiskCash,
   brokerIsoToUtc,
 } from './util.js';
 import {
@@ -89,20 +91,42 @@ const screenshotUpload = multer({
 });
 
 // ---------- helpers ----------
+// Resolve R for a trade about to be inserted. A stop-based R (already computed
+// upstream) is kept as-is; otherwise fall back to the account's modeled risk and
+// flag the result as derived. Returns { r_multiple, r_derived }.
+const accountRiskStmt = db.prepare('SELECT * FROM accounts WHERE id = ?');
+function resolveInsertR(t) {
+  if (t.r_multiple != null) return { r_multiple: t.r_multiple, r_derived: 0 };
+  if (t.stop_price != null || t.net_pnl == null) return { r_multiple: t.r_multiple ?? null, r_derived: 0 };
+  const account = accountRiskStmt.get(t.account_id);
+  const { r, derived } = rMultipleInfo({
+    entry_price: t.entry_price,
+    exit_price: t.exit_price,
+    stop_price: t.stop_price ?? null,
+    size: t.size,
+    gross_pnl: t.gross_pnl,
+    net_pnl: t.net_pnl,
+    risk_cash: defaultRiskCash(account),
+  });
+  return { r_multiple: r, r_derived: derived ? 1 : 0 };
+}
+
 function insertTradeTx(t) {
+  const { r_multiple, r_derived } = resolveInsertR(t);
   const stmt = db.prepare(`
     INSERT INTO trades
       (account_id, instrument, direction, entry_time, exit_time, entry_price,
-       exit_price, size, gross_pnl, commission, swap, net_pnl, r_multiple,
+       exit_price, size, gross_pnl, commission, swap, net_pnl, r_multiple, r_derived,
        stop_price, target_price, mae, mfe, hold_time_sec, session, source, ext_id,
        setup_id, is_backtest, bt_session_id)
     VALUES
       (@account_id, @instrument, @direction, @entry_time, @exit_time, @entry_price,
-       @exit_price, @size, @gross_pnl, @commission, @swap, @net_pnl, @r_multiple,
+       @exit_price, @size, @gross_pnl, @commission, @swap, @net_pnl, @r_multiple, @r_derived,
        @stop_price, @target_price, @mae, @mfe, @hold_time_sec, @session, @source, @ext_id,
        @setup_id, @is_backtest, @bt_session_id)
   `);
   const info = stmt.run({
+    r_derived,
     account_id: t.account_id,
     instrument: t.instrument,
     direction: t.direction,
@@ -115,7 +139,7 @@ function insertTradeTx(t) {
     commission: t.commission,
     swap: t.swap,
     net_pnl: t.net_pnl,
-    r_multiple: t.r_multiple ?? null,
+    r_multiple: r_multiple ?? null,
     stop_price: t.stop_price ?? null,
     target_price: t.target_price ?? null,
     mae: t.mae ?? null,
@@ -255,6 +279,8 @@ app.patch('/api/accounts/:id', (req, res) => {
     'prop_safety_buffer_pct',
     'prop_max_inactivity_days',
     'broker_tz',
+    'default_risk_pct',
+    'default_risk_amount',
   ];
   const sets = [];
   const params = { id };
@@ -508,6 +534,14 @@ function tradesQuery(q) {
   if (q.to) {
     clauses.push("date(COALESCE(exit_time, entry_time)) <= date(@to)");
     params.to = q.to;
+  }
+  if (q.r_min !== undefined && q.r_min !== '') {
+    clauses.push('r_multiple IS NOT NULL AND r_multiple >= @r_min');
+    params.r_min = Number(q.r_min);
+  }
+  if (q.r_max !== undefined && q.r_max !== '') {
+    clauses.push('r_multiple IS NOT NULL AND r_multiple <= @r_max');
+    params.r_max = Number(q.r_max);
   }
   if (q.direction === 'long' || q.direction === 'short') {
     clauses.push('direction = @direction');
@@ -831,13 +865,15 @@ app.patch('/api/trades/:id', (req, res) => {
   if (sets.length) {
     db.prepare(`UPDATE trades SET ${sets.join(', ')} WHERE id = @id`).run(params);
   }
-  // recompute r_multiple if stop_price present (uses realized $/point, so it's
-  // correct across instruments with different contract multipliers)
+  // Recompute r_multiple after an edit. A real stop gives a stop-based R (uses
+  // realized $/point, so it's correct across instruments); otherwise fall back to
+  // the account's modeled risk and flag it derived, so correcting a stop later
+  // upgrades a derived R into a real one and vice-versa.
   const updated = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
-  if (updated.stop_price != null && updated.entry_price != null) {
-    const r = computeRMultiple(updated);
-    db.prepare('UPDATE trades SET r_multiple = ? WHERE id = ?').run(r, id);
-  }
+  const account = accountRiskStmt.get(updated.account_id);
+  const { r, derived } = rMultipleInfo({ ...updated, risk_cash: defaultRiskCash(account) });
+  db.prepare('UPDATE trades SET r_multiple = ?, r_derived = ? WHERE id = ?')
+    .run(r, derived ? 1 : 0, id);
   res.json(db.prepare('SELECT * FROM trades WHERE id = ?').get(id));
 });
 
@@ -883,6 +919,105 @@ app.post('/api/trades/:id/notes', (req, res) => {
       'INSERT INTO notes (trade_id, body, rules_followed) VALUES (?, ?, ?)'
     )
     .run(id, body, rules_followed === undefined ? null : rules_followed ? 1 : 0);
+  res
+    .status(201)
+    .json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
+});
+
+// Edit a note's body / rules_followed. A note is an editable document — a typo
+// or a first reaction you'd now write differently shouldn't be permanent.
+app.patch('/api/notes/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(id);
+  if (!note) return res.status(404).json({ error: 'note not found' });
+  const b = req.body || {};
+  const sets = [];
+  const params = { id };
+  if ('body' in b) {
+    sets.push('body = @body');
+    params.body = b.body;
+  }
+  if ('rules_followed' in b) {
+    sets.push('rules_followed = @rules_followed');
+    params.rules_followed = b.rules_followed == null ? null : b.rules_followed ? 1 : 0;
+  }
+  if (!sets.length) return res.status(400).json({ error: 'nothing to update' });
+  sets.push("updated_at = datetime('now')");
+  db.prepare(`UPDATE notes SET ${sets.join(', ')} WHERE id = @id`).run(params);
+  res.json(db.prepare('SELECT * FROM notes WHERE id = ?').get(id));
+});
+
+app.delete('/api/notes/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const info = db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+  if (!info.changes) return res.status(404).json({ error: 'note not found' });
+  res.status(204).end();
+});
+
+// ---------- Day Journal ----------
+// One page's worth of a trading day, for one account: the pre-market plan, the
+// trades it produced, the realised stats, and the end-of-day recap. Closes the
+// plan → trade → recap loop the journal was missing. The recap is a note with
+// trade_id NULL, one per (account, day), stored on the previously-dead
+// notes.day column.
+app.get('/api/journal/:day', (req, res) => {
+  const day = req.params.day;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
+    return res.status(400).json({ error: 'day must be YYYY-MM-DD' });
+  const accountId = resolveAccountId(req.query);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+
+  const q = { account: accountId, from: day, to: day };
+  const stats = summary(q);
+  const trades = db
+    .prepare(
+      `SELECT id, instrument, direction, entry_time, exit_time, net_pnl, r_multiple,
+              r_derived, session, followed_plan, setup_id
+       FROM trades
+       WHERE account_id = ? AND COALESCE(is_backtest, 0) = 0
+         AND date(COALESCE(exit_time, entry_time)) = date(?)
+       ORDER BY COALESCE(entry_time, exit_time)`
+    )
+    .all(accountId, day);
+  const plan = db
+    .prepare('SELECT * FROM daily_plans WHERE account_id = ? AND day = ?')
+    .get(accountId, day) || null;
+  const recap = db
+    .prepare(
+      'SELECT * FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+    )
+    .get(accountId, day) || null;
+
+  res.json({ day, account_id: accountId, stats, trades, plan, recap });
+});
+
+// Upsert the day's recap note (one per account+day).
+app.put('/api/journal/:day', (req, res) => {
+  const day = req.params.day;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
+    return res.status(400).json({ error: 'day must be YYYY-MM-DD' });
+  const b = req.body || {};
+  const accountId = resolveAccountId(b);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+  const body = b.body ?? '';
+
+  const existing = db
+    .prepare(
+      'SELECT id FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+    )
+    .get(accountId, day);
+  if (existing) {
+    db.prepare("UPDATE notes SET body = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(body, existing.id);
+    return res.json(db.prepare('SELECT * FROM notes WHERE id = ?').get(existing.id));
+  }
+  const info = db
+    .prepare(
+      "INSERT INTO notes (account_id, day, body, updated_at) VALUES (?, ?, ?, datetime('now'))"
+    )
+    .run(accountId, day, body);
   res
     .status(201)
     .json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
@@ -1065,6 +1200,45 @@ app.delete('/api/trades/:id', (req, res) => {
     }
   }
   res.status(204).end();
+});
+
+// Bulk edit / delete over the trades list — so assigning a setup to 200
+// imported trades isn't 200 page loads. Accepts a set of ids plus either a
+// `set` patch (setup_id / followed_plan) or `delete: true`.
+app.post('/api/trades/bulk', (req, res) => {
+  const b = req.body || {};
+  const ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(Number.isInteger) : [];
+  if (!ids.length) return res.status(400).json({ error: 'ids is required' });
+  const ph = ids.map(() => '?').join(',');
+
+  if (b.delete) {
+    const shots = db
+      .prepare(`SELECT url FROM screenshots WHERE trade_id IN (${ph})`)
+      .all(...ids);
+    const info = db.prepare(`DELETE FROM trades WHERE id IN (${ph})`).run(...ids);
+    removeScreenshotFiles(shots);
+    return res.json({ deleted: info.changes });
+  }
+
+  const set = b.set || {};
+  const sets = [];
+  const vals = [];
+  const BULK_EDITABLE = ['setup_id', 'followed_plan'];
+  for (const k of BULK_EDITABLE) {
+    if (k in set) {
+      sets.push(`${k} = ?`);
+      vals.push(set[k] == null ? null : Number(set[k]));
+    }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'nothing to set' });
+  if ('setup_id' in set && set.setup_id != null) {
+    if (!db.prepare('SELECT 1 FROM setups WHERE id = ?').get(Number(set.setup_id)))
+      return res.status(400).json({ error: 'unknown setup_id' });
+  }
+  const info = db
+    .prepare(`UPDATE trades SET ${sets.join(', ')} WHERE id IN (${ph})`)
+    .run(...vals, ...ids);
+  res.json({ updated: info.changes });
 });
 
 // ---------- Stats ----------

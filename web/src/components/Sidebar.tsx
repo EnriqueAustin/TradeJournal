@@ -7,6 +7,7 @@ const groups: { heading: string; links: Link[] }[] = [
     heading: 'Journal',
     links: [
       { to: '/', label: 'Dashboard', icon: '▦', end: true },
+      { to: '/journal', label: 'Journal', icon: '❒' },
       { to: '/trades', label: 'Trades', icon: '≣' },
       { to: '/playbook', label: 'Playbook', icon: '◎' },
       { to: '/analytics', label: 'Analytics', icon: '◔' },
@@ -17,7 +18,7 @@ const groups: { heading: string; links: Link[] }[] = [
     heading: 'Research',
     links: [
       { to: '/research', label: 'Signal', icon: '◉' },
-      { to: '/calendar', label: 'Calendar', icon: '▤' },
+      { to: '/calendar', label: 'Econ Calendar', icon: '▤' },
       { to: '/portfolio', label: 'Portfolio', icon: '⌘' },
     ],
   },

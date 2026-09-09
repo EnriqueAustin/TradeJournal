@@ -130,6 +130,8 @@ export interface TradesDrilldownModalProps {
   currency?: string;
   // When set, renders a timeline of entry times within this session window.
   timelineSession?: string;
+  // Optional node rendered in the header (e.g. a link to the day journal).
+  headerAction?: React.ReactNode;
   onClose: () => void;
 }
 
@@ -139,6 +141,7 @@ export default function TradesDrilldownModal({
   filters,
   currency = 'USD',
   timelineSession,
+  headerAction,
   onClose,
 }: TradesDrilldownModalProps) {
   const { setups } = useFilters();
@@ -226,13 +229,16 @@ export default function TradesDrilldownModal({
               )}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-            aria-label="Close"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            {headerAction}
+            <button
+              onClick={onClose}
+              className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <AsyncBoundary

@@ -18,6 +18,7 @@ import type {
   ImportResult,
   Tag,
   Note,
+  JournalDay,
   Filters,
   Setup,
   NewSetup,
@@ -95,6 +96,8 @@ export function filterParams(
   if (f.setup && f.setup !== 'All') p.set('setup', f.setup);
   if (f.from) p.set('from', f.from);
   if (f.to) p.set('to', f.to);
+  if (f.rMin !== '') p.set('r_min', f.rMin);
+  if (f.rMax !== '') p.set('r_max', f.rMax);
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v !== undefined && v !== null && v !== '') p.set(k, String(v));
@@ -137,6 +140,15 @@ export const api = {
   getTrade: (id: number) => request<TradeDetail>(`/trades/${id}`),
   createTrade: (body: Record<string, unknown>) =>
     request<Trade>('/trades', { method: 'POST', body: JSON.stringify(body) }),
+  bulkTrades: (body: {
+    ids: number[];
+    set?: { setup_id?: number | null; followed_plan?: number | null };
+    delete?: boolean;
+  }) =>
+    request<{ updated?: number; deleted?: number }>('/trades/bulk', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   deleteTrade: (id: number) =>
     request<void>(`/trades/${id}`, { method: 'DELETE' }),
   patchTrade: (id: number, body: Record<string, unknown>) =>
@@ -164,6 +176,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ body, rules_followed }),
     }),
+  updateNote: (id: number, body: Partial<Pick<Note, 'body' | 'rules_followed'>>) =>
+    request<Note>(`/notes/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteNote: (id: number) => request<void>(`/notes/${id}`, { method: 'DELETE' }),
   uploadScreenshot: async (id: number, file: File): Promise<Screenshot> => {
     const fd = new FormData();
     fd.append('file', file);
@@ -585,6 +600,17 @@ export const api = {
     notes?: string | null;
     checklist_json?: string | null;
   }) => request<DailyPlan>('/plans', { method: 'PUT', body: JSON.stringify(body) }),
+  getJournalDay: (account: number | null, day: string) => {
+    const p = new URLSearchParams();
+    if (account != null) p.set('account', String(account));
+    const qs = p.toString();
+    return request<JournalDay>(`/journal/${day}${qs ? `?${qs}` : ''}`);
+  },
+  saveJournalRecap: (account: number | null, day: string, body: string) =>
+    request<Note>(`/journal/${day}`, {
+      method: 'PUT',
+      body: JSON.stringify({ account_id: account ?? undefined, body }),
+    }),
   autoTag: (body: {
     trade_ids?: number[];
     account_id?: number | null;

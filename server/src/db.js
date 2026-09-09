@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { sessionFromTime } from './util.js';
+import { sessionFromTime, computeRMultiple, defaultRiskCash } from './util.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, '..', 'data');
@@ -274,6 +274,24 @@ export function migrate() {
     db.exec('ALTER TABLE trades ADD COLUMN followed_plan INTEGER');
   }
 
+  // R fallback: 1 when r_multiple was derived from the account's modeled risk
+  // (no recorded stop) rather than a real stop distance, so the UI can flag it.
+  if (!tradeCols.some((c) => c.name === 'r_derived')) {
+    db.exec('ALTER TABLE trades ADD COLUMN r_derived INTEGER NOT NULL DEFAULT 0');
+  }
+
+  // Day-scoped journal recaps live in `notes` with trade_id NULL and a day set;
+  // account_id scopes the recap to one account's trading day (trade notes leave
+  // it null and derive the account from the trade). Nullable + guarded.
+  const noteCols = db.prepare('PRAGMA table_info(notes)').all();
+  if (!noteCols.some((c) => c.name === 'account_id')) {
+    db.exec('ALTER TABLE notes ADD COLUMN account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE');
+  }
+  if (!noteCols.some((c) => c.name === 'updated_at')) {
+    db.exec('ALTER TABLE notes ADD COLUMN updated_at TEXT');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_notes_day ON notes(account_id, day) WHERE day IS NOT NULL');
+
   // Per-execution P&L — lets the journal show each partial close's own result
   // (MT5 deals carry a profit/commission/swap per fill). Nullable + guarded.
   const execCols = db.prepare('PRAGMA table_info(executions)').all();
@@ -292,6 +310,16 @@ export function migrate() {
   }
   if (!acctCols.some((c) => c.name === 'times_realigned')) {
     db.exec('ALTER TABLE accounts ADD COLUMN times_realigned INTEGER NOT NULL DEFAULT 0');
+  }
+
+  // Default per-trade risk model — the R fallback when a trade has no stop.
+  // default_risk_pct seeds at 1% of balance so R analytics populate out of the
+  // box; a fixed default_risk_amount (dollars) overrides it when set.
+  if (!acctCols.some((c) => c.name === 'default_risk_pct')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN default_risk_pct REAL DEFAULT 1.0');
+  }
+  if (!acctCols.some((c) => c.name === 'default_risk_amount')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN default_risk_amount REAL');
   }
 
   // Prop-firm preset metadata on accounts.
@@ -326,6 +354,34 @@ export function migrate() {
     });
     backfill(rows);
     db.pragma('user_version = 1');
+  }
+
+  // One-shot backfill: derive r_multiple for stopless trades from each account's
+  // modeled default risk, so R analytics are populated for imported history that
+  // never carried a stop. Only touches trades with a null R and no stop; real
+  // stop-based R values are left untouched. Guarded by user_version.
+  if (db.pragma('user_version', { simple: true }) < 2) {
+    const accounts = db.prepare('SELECT * FROM accounts').all();
+    const riskByAccount = new Map(accounts.map((a) => [a.id, defaultRiskCash(a)]));
+    const rows = db
+      .prepare(
+        `SELECT id, account_id, entry_price, exit_price, stop_price, size,
+                gross_pnl, net_pnl
+         FROM trades
+         WHERE r_multiple IS NULL AND stop_price IS NULL AND net_pnl IS NOT NULL`
+      )
+      .all();
+    const upd = db.prepare('UPDATE trades SET r_multiple = ?, r_derived = 1 WHERE id = ?');
+    const backfillR = db.transaction((list) => {
+      for (const r of list) {
+        const risk = riskByAccount.get(r.account_id);
+        if (risk == null) continue;
+        const rm = computeRMultiple({ ...r, risk_cash: risk });
+        if (rm != null) upd.run(rm, r.id);
+      }
+    });
+    backfillR(rows);
+    db.pragma('user_version = 2');
   }
 
   // Seed default account if none exists

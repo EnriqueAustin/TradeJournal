@@ -6,8 +6,52 @@ import { AsyncBoundary } from '../components/states';
 import HoldTimeBars from '../components/HoldTimeBars';
 import OptimizerHeatmap from '../components/OptimizerHeatmap';
 import ReportCard from '../components/ReportCard';
-import { formatNumber, formatPct, formatDuration, formatMoney, signClass } from '../utils/format';
-import type { ExcursionStats, WickEdgeStats, WickEdgeRow, TagStats, TagStatRow } from '../types';
+import { formatNumber, formatPct, formatDuration, formatMoney, signClass, sessionLabel } from '../utils/format';
+import type { ExcursionStats, WickEdgeStats, WickEdgeRow, TagStats, TagStatRow, EfficiencyRow } from '../types';
+
+// Human labels for swept-liquidity keys shown in the efficiency breakdown.
+const WICK_LEVEL_LABELS: Record<string, string> = {
+  asian_high: 'Asian High', asian_low: 'Asian Low',
+  london_high: 'London High', london_low: 'London Low',
+  pdh: 'Prev Day High', pdl: 'Prev Day Low', ny_open: 'NY Open',
+  equal_highs: 'Equal Highs', equal_lows: 'Equal Lows', other: 'Other',
+};
+
+function EfficiencyTable({ title, rows }: { title: string; rows: EfficiencyRow[] }) {
+  const label = (k: string) =>
+    WICK_LEVEL_LABELS[k] ?? sessionLabel(k) ?? k;
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+      <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        {title}
+      </div>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-slate-500">
+            <th className="pb-1 font-medium"> </th>
+            <th className="pb-1 text-right font-medium">Entry</th>
+            <th className="pb-1 text-right font-medium">Exit</th>
+            <th className="pb-1 text-right font-medium">n</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key} className="border-t border-slate-800/60">
+              <td className="py-1 text-slate-300">{label(r.key)}</td>
+              <td className="num py-1 text-right text-cyan-400">
+                {r.entry_eff == null ? '—' : formatPct(r.entry_eff)}
+              </td>
+              <td className="num py-1 text-right text-cyan-400">
+                {r.exit_eff == null ? '—' : formatPct(r.exit_eff)}
+              </td>
+              <td className="num py-1 text-right text-slate-500">{r.sample}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 // Human labels + display order for the tag categories in the leak finder.
 const TAG_CAT_LABELS: Record<string, string> = {
@@ -221,6 +265,35 @@ function ExcursionPanel({ e }: { e: ExcursionStats }) {
           valueClass="text-amber-400"
           sub="give-back on losers"
         />
+      </div>
+      <div>
+        <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+          Entry / exit efficiency
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Metric
+            label="Entry efficiency"
+            value={e.efficiency.entry_eff == null ? '—' : formatPct(e.efficiency.entry_eff)}
+            valueClass="text-cyan-400"
+            sub="how little heat the entry took"
+          />
+          <Metric
+            label="Exit efficiency"
+            value={e.efficiency.exit_eff == null ? '—' : formatPct(e.efficiency.exit_eff)}
+            valueClass="text-cyan-400"
+            sub="how much of the move you banked"
+          />
+        </div>
+        {(e.efficiency_by_wick.length > 0 || e.efficiency_by_session.length > 0) && (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {e.efficiency_by_wick.length > 0 && (
+              <EfficiencyTable title="By liquidity swept" rows={e.efficiency_by_wick} />
+            )}
+            {e.efficiency_by_session.length > 0 && (
+              <EfficiencyTable title="By session" rows={e.efficiency_by_session} />
+            )}
+          </div>
+        )}
       </div>
       <div className="rounded-lg border border-amber-900/40 bg-amber-950/20 px-3 py-3">
         <div className="text-[11px] font-medium uppercase tracking-wide text-amber-500/80">
