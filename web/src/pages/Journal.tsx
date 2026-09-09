@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import DailyPlanCard from '../components/DailyPlanCard';
+import MissedTradesCard from '../components/MissedTradesCard';
 import type { JournalDay } from '../types';
 import {
   formatMoney,
@@ -141,6 +142,9 @@ export default function Journal() {
           <button className="btn px-2 py-1 text-xs" onClick={() => setDay(today())} disabled={isToday}>
             Today
           </button>
+          <Link className="btn px-2 py-1 text-xs" to={`/report/week/${day}`}>
+            Week review →
+          </Link>
         </div>
       </div>
 
@@ -219,6 +223,9 @@ export default function Journal() {
           </div>
         )}
       </div>
+
+      {/* Missed trades — setups seen and skipped */}
+      <MissedTradesCard account={account} day={day} />
 
       {/* End-of-day recap */}
       <div className="card p-5">

@@ -94,7 +94,7 @@ export default function SessionHeatmap({
                       }
                       className={`rounded-lg border border-slate-800/60 px-2 py-2 text-center ${
                         clickable
-                          ? 'cursor-pointer transition hover:ring-2 hover:ring-indigo-500/60 focus:outline-none focus:ring-2 focus:ring-indigo-500'
+                          ? 'cursor-pointer transition hover:ring-2 hover:ring-cyan-500/60 focus:outline-none focus:ring-2 focus:ring-cyan-500'
                           : ''
                       }`}
                       style={cellStyle(cell?.net_pnl ?? 0, max)}

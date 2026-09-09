@@ -224,6 +224,46 @@ export function migrate() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Custom per-trade variables — a numeric or enum value you want to correlate
+    -- with outcome (spread at entry, ADR used, conviction 1-5). field_defs holds
+    -- the typed definitions (account_id NULL = global); trade_fields holds one
+    -- value per (trade, def). Surfaced in the Leak Finder alongside tags.
+    CREATE TABLE IF NOT EXISTS field_defs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('number','enum')),
+      options_json TEXT,            -- JSON array of allowed strings, for enum
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS trade_fields (
+      trade_id INTEGER NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
+      def_id INTEGER NOT NULL REFERENCES field_defs(id) ON DELETE CASCADE,
+      value_num REAL,
+      value_text TEXT,
+      PRIMARY KEY (trade_id, def_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_trade_fields_def ON trade_fields(def_id);
+
+    -- Missed trades: the setup you saw and skipped. For a strategy built on
+    -- waiting for a specific sweep, what you *didn't* take carries as much signal
+    -- as what you did. Shares the wick vocabulary (swept_level/strat_session) and
+    -- records what it would have returned in R, so Analytics can price hesitation.
+    CREATE TABLE IF NOT EXISTS missed_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+      day TEXT NOT NULL,            -- YYYY-MM-DD the setup appeared
+      instrument TEXT,
+      direction TEXT CHECK(direction IN ('long','short')),
+      swept_level TEXT,             -- same enum as trade_wick.swept_level
+      strat_session TEXT,           -- asia|london|ny|off
+      result_r REAL,                -- what it would have returned in R (signed)
+      reason TEXT,                  -- why it was skipped (hesitation, filter, etc.)
+      note TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_missed_account_day ON missed_trades(account_id, day);
+
     -- Performance goals: a target for one metric over the current period.
     -- account_id NULL = applies across all accounts (portfolio-wide).
     CREATE TABLE IF NOT EXISTS goals (
@@ -242,6 +282,24 @@ export function migrate() {
   if (!newsCols.some((c) => c.name === 'url')) {
     db.exec('ALTER TABLE news_events ADD COLUMN url TEXT');
   }
+
+  // Structured setup criteria: a JSON array of checkable rule strings (distinct
+  // from the free-text `rules` blob), so "did I follow this setup" becomes a
+  // per-criterion record instead of one yes/no flag.
+  const setupCols = db.prepare('PRAGMA table_info(setups)').all();
+  if (!setupCols.some((c) => c.name === 'criteria_json')) {
+    db.exec('ALTER TABLE setups ADD COLUMN criteria_json TEXT');
+  }
+  // Per-trade criterion scoring, keyed by criterion text (a snapshot, so editing
+  // a setup's criteria later doesn't rewrite history).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS trade_criteria (
+      trade_id INTEGER NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
+      criterion TEXT NOT NULL,
+      met INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (trade_id, criterion)
+    );
+  `);
 
   // Phase 1: add trades.setup_id (guarded so re-running the migration is safe).
   const tradeCols = db.prepare('PRAGMA table_info(trades)').all();

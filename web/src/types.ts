@@ -115,6 +115,8 @@ export interface Setup {
   name: string;
   instrument: string | null;
   rules: string | null;
+  /** JSON array of checkable criterion strings. */
+  criteria_json: string | null;
   created_at: string;
 }
 
@@ -122,6 +124,25 @@ export interface NewSetup {
   name: string;
   instrument?: string | null;
   rules?: string | null;
+  criteria?: string[];
+  criteria_json?: string | null;
+}
+
+export interface TradeCriterion {
+  criterion: string;
+  met: number;
+}
+
+export interface CriteriaStats {
+  setup: { id: number; name: string };
+  trade_count: number;
+  criteria: Array<{
+    criterion: string;
+    scored: number;
+    met_pct: number | null;
+    met: { count: number; net_pnl: number; avg_r: number | null };
+    not_met: { count: number; net_pnl: number; avg_r: number | null };
+  }>;
 }
 
 export interface Execution {
@@ -151,6 +172,90 @@ export interface Note {
   rules_followed: 0 | 1 | null;
   created_at: string;
   updated_at?: string | null;
+}
+
+export interface MissedTrade {
+  id: number;
+  account_id: number | null;
+  day: string;
+  instrument: string | null;
+  direction: Direction | null;
+  swept_level: string | null;
+  strat_session: string | null;
+  result_r: number | null;
+  reason: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface WeekReportTrade {
+  id: number;
+  instrument: string;
+  direction: Direction;
+  entry_time: string;
+  exit_time: string;
+  net_pnl: number;
+  r_multiple: number | null;
+  r_derived?: number;
+  session: Session;
+}
+
+export interface WeekReport {
+  from: string;
+  to: string;
+  account: { id: number; name: string; currency: string };
+  stats: StatsSummary;
+  best: WeekReportTrade[];
+  worst: WeekReportTrade[];
+  days: Array<{
+    day: string;
+    net_pnl: number;
+    trade_count: number;
+    r: number;
+    recap: string | null;
+    bias: string | null;
+  }>;
+}
+
+export interface FieldDef {
+  id: number;
+  account_id: number | null;
+  name: string;
+  type: 'number' | 'enum';
+  options_json: string | null;
+  created_at?: string;
+}
+
+export interface TradeFieldValue {
+  def_id: number;
+  value_num: number | null;
+  value_text: string | null;
+  name: string;
+  type: 'number' | 'enum';
+  options_json: string | null;
+}
+
+export interface FieldStatsBucket {
+  label: string;
+  count: number;
+  net_pnl: number;
+  avg_r: number | null;
+  win_rate: number | null;
+}
+
+export interface FieldStats {
+  def: { id: number; name: string; type: 'number' | 'enum' };
+  sample: number;
+  buckets: FieldStatsBucket[];
+}
+
+export interface MissedStats {
+  count: number;
+  scored: number;
+  winners: number;
+  cost_r: number;
+  net_r: number;
+  avg_r: number | null;
 }
 
 /** One trading day for one account: plan → trades → realised stats → recap. */
@@ -212,6 +317,7 @@ export interface TradeDetail extends Trade {
   notes: Note[];
   screenshots: Screenshot[];
   wick?: WickTag | null;
+  criteria?: TradeCriterion[];
 }
 
 export interface WickEdgeRow {
@@ -351,6 +457,18 @@ export interface TradeQuery {
 export interface TradesResponse {
   rows: Trade[];
   total: number;
+}
+
+export interface TradeTotals {
+  count: number;
+  net_pnl: number;
+  wins: number;
+  losses: number;
+  win_rate: number | null;
+  total_r: number | null;
+  avg_r: number | null;
+  commission: number;
+  hold_time_sec: number;
 }
 
 export interface StatsSummary {

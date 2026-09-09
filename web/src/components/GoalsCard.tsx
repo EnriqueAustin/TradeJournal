@@ -36,7 +36,7 @@ function GoalRow({
 }) {
   const pct = g.progress == null ? 0 : Math.max(0, Math.min(1, g.progress));
   const reached = g.progress != null && g.progress >= 1;
-  const barColor = reached ? 'bg-emerald-500' : pct >= 0.6 ? 'bg-indigo-500' : 'bg-slate-500';
+  const barColor = reached ? 'bg-emerald-500' : pct >= 0.6 ? 'bg-cyan-500' : 'bg-slate-500';
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2.5">
       <div className="mb-1 flex items-center justify-between gap-2">

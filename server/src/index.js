@@ -44,6 +44,9 @@ import {
   setupStats,
   holdtime,
   excursion,
+  missedStats,
+  fieldStats,
+  criteriaStats,
   propStats,
   adherence,
   streaks,
@@ -441,13 +444,14 @@ app.post('/api/setups', (req, res) => {
     return res.status(400).json({ error: 'name is required' });
   const info = db
     .prepare(
-      `INSERT INTO setups (name, instrument, rules)
-       VALUES (@name, @instrument, @rules)`
+      `INSERT INTO setups (name, instrument, rules, criteria_json)
+       VALUES (@name, @instrument, @rules, @criteria_json)`
     )
     .run({
       name: String(b.name).trim(),
       instrument: b.instrument ? normalizeInstrument(b.instrument) : null,
       rules: b.rules ?? null,
+      criteria_json: Array.isArray(b.criteria) ? JSON.stringify(b.criteria) : b.criteria_json ?? null,
     });
   res
     .status(201)
@@ -459,7 +463,9 @@ app.patch('/api/setups/:id', (req, res) => {
   const setup = db.prepare('SELECT * FROM setups WHERE id = ?').get(id);
   if (!setup) return res.status(404).json({ error: 'setup not found' });
   const b = req.body || {};
-  const EDIT = ['name', 'instrument', 'rules'];
+  const EDIT = ['name', 'instrument', 'rules', 'criteria_json'];
+  // Accept a criteria array as sugar for criteria_json.
+  if (Array.isArray(b.criteria)) b.criteria_json = JSON.stringify(b.criteria);
   const sets = [];
   const params = { id };
   for (const k of EDIT) {
@@ -624,6 +630,39 @@ app.get('/api/trades', (req, res) => {
   res.json({ rows, total });
 });
 
+// Totals over the WHOLE filtered set (all pages), so the list can show a footer
+// summary without exporting. Uses the same tradesQuery builder as the list, so
+// search / direction / outcome / needs / R-range all apply. Defined before
+// /api/trades/:id so "totals" isn't captured as an :id.
+app.get('/api/trades/totals', (req, res) => {
+  const { where, params } = tradesQuery(req.query);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count,
+              COALESCE(SUM(net_pnl), 0) AS net_pnl,
+              SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN net_pnl < 0 THEN 1 ELSE 0 END) AS losses,
+              SUM(r_multiple) AS total_r,
+              AVG(r_multiple) AS avg_r,
+              COALESCE(SUM(commission), 0) AS commission,
+              COALESCE(SUM(hold_time_sec), 0) AS hold_time_sec
+       FROM trades ${where}`
+    )
+    .get(params);
+  const decided = (row.wins || 0) + (row.losses || 0);
+  res.json({
+    count: row.count,
+    net_pnl: row.net_pnl,
+    wins: row.wins || 0,
+    losses: row.losses || 0,
+    win_rate: decided ? row.wins / decided : null,
+    total_r: row.total_r,
+    avg_r: row.avg_r,
+    commission: row.commission,
+    hold_time_sec: row.hold_time_sec,
+  });
+});
+
 // CSV export of the filtered trade set (honours the same account/instrument/
 // session/setup/date filters). Defined before /api/trades/:id so "export" isn't
 // captured as an :id. Rivals all offer report export; we had none.
@@ -674,7 +713,28 @@ app.get('/api/trades/:id', (req, res) => {
     .prepare('SELECT * FROM screenshots WHERE trade_id = ?')
     .all(id);
   const wick = db.prepare('SELECT * FROM trade_wick WHERE trade_id = ?').get(id) ?? null;
-  res.json({ ...trade, executions, tags, notes, screenshots, wick });
+  const criteria = db
+    .prepare('SELECT criterion, met FROM trade_criteria WHERE trade_id = ?')
+    .all(id);
+  res.json({ ...trade, executions, tags, notes, screenshots, wick, criteria });
+});
+
+// PUT /api/trades/:id/criteria — set whether one setup criterion was met on
+// this trade (keyed by criterion text). Powers the per-criterion adherence.
+app.put('/api/trades/:id/criteria', (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
+    return res.status(404).json({ error: 'trade not found' });
+  const b = req.body || {};
+  if (!b.criterion || !String(b.criterion).trim())
+    return res.status(400).json({ error: 'criterion is required' });
+  db.prepare(
+    `INSERT INTO trade_criteria (trade_id, criterion, met) VALUES (?, ?, ?)
+     ON CONFLICT(trade_id, criterion) DO UPDATE SET met = excluded.met`
+  ).run(id, String(b.criterion), b.met ? 1 : 0);
+  res.json(
+    db.prepare('SELECT criterion, met FROM trade_criteria WHERE trade_id = ?').all(id)
+  );
 });
 
 // Allowed values for the structured wick-setup fields.
@@ -1023,6 +1083,228 @@ app.put('/api/journal/:day', (req, res) => {
     .json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
 });
 
+// ---------- Custom field definitions + per-trade values ----------
+app.get('/api/field-defs', (req, res) => {
+  // Defs for the account plus global (account_id NULL) defs.
+  const acct = req.query.account ? Number(req.query.account) : null;
+  const rows = acct
+    ? db
+        .prepare(
+          'SELECT * FROM field_defs WHERE account_id = ? OR account_id IS NULL ORDER BY name'
+        )
+        .all(acct)
+    : db.prepare('SELECT * FROM field_defs ORDER BY name').all();
+  res.json(rows);
+});
+
+app.post('/api/field-defs', (req, res) => {
+  const b = req.body || {};
+  if (!b.name || !b.name.trim()) return res.status(400).json({ error: 'name is required' });
+  if (b.type !== 'number' && b.type !== 'enum')
+    return res.status(400).json({ error: "type must be 'number' or 'enum'" });
+  const acct = b.account_id != null ? Number(b.account_id) : null;
+  if (acct != null && !accountExists(acct))
+    return res.status(400).json({ error: 'unknown account' });
+  const options =
+    b.type === 'enum' && Array.isArray(b.options) ? JSON.stringify(b.options) : null;
+  const info = db
+    .prepare(
+      'INSERT INTO field_defs (account_id, name, type, options_json) VALUES (?, ?, ?, ?)'
+    )
+    .run(acct, b.name.trim(), b.type, options);
+  res.status(201).json(db.prepare('SELECT * FROM field_defs WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.delete('/api/field-defs/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM field_defs WHERE id = ?').run(Number(req.params.id));
+  if (!info.changes) return res.status(404).json({ error: 'field def not found' });
+  res.status(204).end();
+});
+
+// Per-trade values, joined to their definitions.
+app.get('/api/trades/:id/fields', (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
+    return res.status(404).json({ error: 'trade not found' });
+  res.json(
+    db
+      .prepare(
+        `SELECT tf.def_id, tf.value_num, tf.value_text, d.name, d.type, d.options_json
+         FROM trade_fields tf JOIN field_defs d ON d.id = tf.def_id
+         WHERE tf.trade_id = ? ORDER BY d.name`
+      )
+      .all(id)
+  );
+});
+
+app.put('/api/trades/:id/fields/:defId', (req, res) => {
+  const id = Number(req.params.id);
+  const defId = Number(req.params.defId);
+  const def = db.prepare('SELECT * FROM field_defs WHERE id = ?').get(defId);
+  if (!def) return res.status(404).json({ error: 'field def not found' });
+  if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
+    return res.status(404).json({ error: 'trade not found' });
+  const raw = (req.body || {}).value;
+  // An empty value clears the field.
+  if (raw == null || raw === '') {
+    db.prepare('DELETE FROM trade_fields WHERE trade_id = ? AND def_id = ?').run(id, defId);
+    return res.status(204).end();
+  }
+  let valueNum = null;
+  let valueText = null;
+  if (def.type === 'number') {
+    const n = Number(raw);
+    if (Number.isNaN(n)) return res.status(400).json({ error: 'value must be a number' });
+    valueNum = n;
+  } else {
+    valueText = String(raw);
+  }
+  db.prepare(
+    `INSERT INTO trade_fields (trade_id, def_id, value_num, value_text)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(trade_id, def_id) DO UPDATE SET value_num = excluded.value_num, value_text = excluded.value_text`
+  ).run(id, defId, valueNum, valueText);
+  res.json({ def_id: defId, value_num: valueNum, value_text: valueText });
+});
+
+// ---------- Weekly review report ----------
+// Everything the printable weekly review needs, in one call: the week's stats,
+// its best/worst trades, and each day's net + recap. `date` is any day in the
+// week; the week is Monday–Sunday.
+app.get('/api/report/week/:date', (req, res) => {
+  const date = req.params.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  const accountId = resolveAccountId(req.query);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+
+  const base = new Date(`${date}T00:00:00Z`);
+  const dow = (base.getUTCDay() + 6) % 7; // Mon = 0
+  const monday = new Date(base);
+  monday.setUTCDate(base.getUTCDate() - dow);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const from = iso(monday);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  const to = iso(sunday);
+
+  const q = { account: accountId, from, to };
+  const stats = summary(q);
+
+  const weekTrades = db
+    .prepare(
+      `SELECT id, instrument, direction, entry_time, exit_time, net_pnl, r_multiple, r_derived, session
+       FROM trades
+       WHERE account_id = ? AND COALESCE(is_backtest,0) = 0
+         AND date(COALESCE(exit_time, entry_time)) BETWEEN date(?) AND date(?)
+       ORDER BY net_pnl DESC`
+    )
+    .all(accountId, from, to);
+  const best = weekTrades.slice(0, 3);
+  const worst = weekTrades.filter((t) => t.net_pnl < 0).slice(-3).reverse();
+
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setUTCDate(monday.getUTCDate() + i);
+    const day = iso(d);
+    const dayAgg = db
+      .prepare(
+        `SELECT COALESCE(SUM(net_pnl),0) AS net, COUNT(*) AS count, COALESCE(SUM(r_multiple),0) AS r
+         FROM trades
+         WHERE account_id = ? AND COALESCE(is_backtest,0) = 0
+           AND date(COALESCE(exit_time, entry_time)) = date(?)`
+      )
+      .get(accountId, day);
+    const recap = db
+      .prepare(
+        'SELECT body FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+      )
+      .get(accountId, day);
+    const plan = db
+      .prepare('SELECT bias FROM daily_plans WHERE account_id = ? AND day = ?')
+      .get(accountId, day);
+    days.push({
+      day,
+      net_pnl: dayAgg.net,
+      trade_count: dayAgg.count,
+      r: dayAgg.r,
+      recap: recap?.body ?? null,
+      bias: plan?.bias ?? null,
+    });
+  }
+
+  const account = db.prepare('SELECT id, name, currency FROM accounts WHERE id = ?').get(accountId);
+  res.json({ from, to, account, stats, best, worst, days });
+});
+
+// ---------- Missed trades ----------
+// The setup you saw and skipped. Logged from the day journal; priced on
+// Analytics as the "cost of hesitation".
+app.get('/api/missed', (req, res) => {
+  const clauses = [];
+  const params = {};
+  if (req.query.account) {
+    clauses.push('account_id = @account');
+    params.account = Number(req.query.account);
+  }
+  if (req.query.day) {
+    clauses.push('day = @day');
+    params.day = req.query.day;
+  } else {
+    if (req.query.from) {
+      clauses.push('day >= @from');
+      params.from = req.query.from;
+    }
+    if (req.query.to) {
+      clauses.push('day <= @to');
+      params.to = req.query.to;
+    }
+  }
+  const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
+  res.json(
+    db.prepare(`SELECT * FROM missed_trades ${where} ORDER BY day DESC, id DESC`).all(params)
+  );
+});
+
+app.post('/api/missed', (req, res) => {
+  const b = req.body || {};
+  const accountId = b.account_id != null ? Number(b.account_id) : resolveAccountId(b);
+  if (accountId != null && !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+  const day = b.day || new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
+    return res.status(400).json({ error: 'day must be YYYY-MM-DD' });
+  const dir = b.direction === 'long' || b.direction === 'short' ? b.direction : null;
+  const info = db
+    .prepare(
+      `INSERT INTO missed_trades
+         (account_id, day, instrument, direction, swept_level, strat_session, result_r, reason, note)
+       VALUES (@account_id, @day, @instrument, @direction, @swept_level, @strat_session, @result_r, @reason, @note)`
+    )
+    .run({
+      account_id: accountId ?? null,
+      day,
+      instrument: b.instrument ?? null,
+      direction: dir,
+      swept_level: b.swept_level ?? null,
+      strat_session: b.strat_session ?? null,
+      result_r: b.result_r == null || b.result_r === '' ? null : Number(b.result_r),
+      reason: b.reason ?? null,
+      note: b.note ?? null,
+    });
+  res
+    .status(201)
+    .json(db.prepare('SELECT * FROM missed_trades WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.delete('/api/missed/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM missed_trades WHERE id = ?').run(Number(req.params.id));
+  if (!info.changes) return res.status(404).json({ error: 'missed trade not found' });
+  res.status(204).end();
+});
+
 // ---------- Daily Plans ----------
 function resolveAccountId(qOrBody) {
   if (qOrBody.account_id) return Number(qOrBody.account_id);
@@ -1250,6 +1532,19 @@ app.get('/api/stats/hourly', (req, res) => res.json(hourly(req.query)));
 app.get('/api/stats/setup', (req, res) => res.json(setupStats(req.query)));
 app.get('/api/stats/holdtime', (req, res) => res.json(holdtime(req.query)));
 app.get('/api/stats/excursion', (req, res) => res.json(excursion(req.query)));
+app.get('/api/stats/missed', (req, res) => res.json(missedStats(req.query)));
+app.get('/api/stats/field', (req, res) => {
+  if (!req.query.def) return res.status(400).json({ error: 'def is required' });
+  const stats = fieldStats(req.query, req.query.def);
+  if (!stats) return res.status(404).json({ error: 'field def not found' });
+  res.json(stats);
+});
+app.get('/api/stats/criteria', (req, res) => {
+  if (!req.query.setup) return res.status(400).json({ error: 'setup is required' });
+  const stats = criteriaStats(req.query, req.query.setup);
+  if (!stats) return res.status(404).json({ error: 'setup not found' });
+  res.json(stats);
+});
 app.get('/api/stats/prop', (req, res) => res.json(propStats(req.query)));
 app.get('/api/stats/adherence', (req, res) => res.json(adherence(req.query)));
 app.get('/api/stats/streaks', (req, res) => res.json(streaks(req.query)));

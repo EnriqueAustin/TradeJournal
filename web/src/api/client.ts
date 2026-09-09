@@ -9,6 +9,7 @@ import type {
   TimeCheck,
   Trade,
   TradesResponse,
+  TradeTotals,
   TradeDetail,
   StatsSummary,
   EquityPoint,
@@ -19,6 +20,14 @@ import type {
   Tag,
   Note,
   JournalDay,
+  WeekReport,
+  MissedTrade,
+  MissedStats,
+  FieldDef,
+  TradeFieldValue,
+  FieldStats,
+  TradeCriterion,
+  CriteriaStats,
   Filters,
   Setup,
   NewSetup,
@@ -137,6 +146,10 @@ export const api = {
     request<TradesResponse>(
       `/trades${filterParams(f, { limit, offset, ...query })}`
     ),
+  getTradesTotals: (
+    f: Filters,
+    query?: Record<string, string | number | undefined>
+  ) => request<TradeTotals>(`/trades/totals${filterParams(f, query)}`),
   getTrade: (id: number) => request<TradeDetail>(`/trades/${id}`),
   createTrade: (body: Record<string, unknown>) =>
     request<Trade>('/trades', { method: 'POST', body: JSON.stringify(body) }),
@@ -611,6 +624,47 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ account_id: account ?? undefined, body }),
     }),
+  setTradeCriterion: (tradeId: number, criterion: string, met: boolean) =>
+    request<TradeCriterion[]>(`/trades/${tradeId}/criteria`, {
+      method: 'PUT',
+      body: JSON.stringify({ criterion, met }),
+    }),
+  getCriteriaStats: (f: Filters, setupId: number) =>
+    request<CriteriaStats>(`/stats/criteria${filterParams(f, { setup: setupId })}`),
+  getFieldDefs: (account?: number | null) =>
+    request<FieldDef[]>(`/field-defs${account != null ? `?account=${account}` : ''}`),
+  createFieldDef: (body: { account_id?: number | null; name: string; type: 'number' | 'enum'; options?: string[] }) =>
+    request<FieldDef>('/field-defs', { method: 'POST', body: JSON.stringify(body) }),
+  deleteFieldDef: (id: number) => request<void>(`/field-defs/${id}`, { method: 'DELETE' }),
+  getTradeFields: (tradeId: number) =>
+    request<TradeFieldValue[]>(`/trades/${tradeId}/fields`),
+  setTradeField: (tradeId: number, defId: number, value: string | number | null) =>
+    request<unknown>(`/trades/${tradeId}/fields/${defId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+  getFieldStats: (f: Filters, defId: number) =>
+    request<FieldStats>(`/stats/field${filterParams(f, { def: defId })}`),
+  getWeekReport: (account: number | null, date: string) => {
+    const p = new URLSearchParams();
+    if (account != null) p.set('account', String(account));
+    const qs = p.toString();
+    return request<WeekReport>(`/report/week/${date}${qs ? `?${qs}` : ''}`);
+  },
+  getMissed: (params: { account?: number | null; day?: string; from?: string; to?: string }) => {
+    const p = new URLSearchParams();
+    if (params.account != null) p.set('account', String(params.account));
+    if (params.day) p.set('day', params.day);
+    if (params.from) p.set('from', params.from);
+    if (params.to) p.set('to', params.to);
+    const qs = p.toString();
+    return request<MissedTrade[]>(`/missed${qs ? `?${qs}` : ''}`);
+  },
+  createMissed: (body: Partial<MissedTrade> & { account_id?: number | null }) =>
+    request<MissedTrade>('/missed', { method: 'POST', body: JSON.stringify(body) }),
+  deleteMissed: (id: number) => request<void>(`/missed/${id}`, { method: 'DELETE' }),
+  getMissedStats: (f: Filters) =>
+    request<MissedStats>(`/stats/missed${filterParams(f)}`),
   autoTag: (body: {
     trade_ids?: number[];
     account_id?: number | null;

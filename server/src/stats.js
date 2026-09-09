@@ -322,6 +322,162 @@ export function holdtime(q) {
   };
 }
 
+// Per-criterion adherence for one setup: how often each structured criterion was
+// met, and net / avg R when met vs not — so "did I follow this setup" becomes
+// diagnostic rather than one yes/no flag.
+export function criteriaStats(q, setupId) {
+  const setup = db.prepare('SELECT * FROM setups WHERE id = ?').get(Number(setupId));
+  if (!setup) return null;
+  let criteria = [];
+  try {
+    const parsed = JSON.parse(setup.criteria_json || '[]');
+    if (Array.isArray(parsed)) criteria = parsed.map(String);
+  } catch {
+    /* ignore malformed */
+  }
+  const { where, params } = buildFilter({ ...q, setup: setupId });
+  const trades = db
+    .prepare(`SELECT id, net_pnl, r_multiple FROM trades ${where}`)
+    .all(params);
+  const byId = new Map(trades.map((t) => [t.id, t]));
+  const rows = trades.length
+    ? db
+        .prepare(
+          `SELECT trade_id, criterion, met FROM trade_criteria
+           WHERE trade_id IN (${trades.map(() => '?').join(',')})`
+        )
+        .all(...trades.map((t) => t.id))
+    : [];
+  // criterion -> { met:[trades], not:[trades] }
+  const groups = new Map(criteria.map((c) => [c, { met: [], not: [] }]));
+  for (const r of rows) {
+    if (!groups.has(r.criterion)) groups.set(r.criterion, { met: [], not: [] });
+    const t = byId.get(r.trade_id);
+    if (!t) continue;
+    (r.met ? groups.get(r.criterion).met : groups.get(r.criterion).not).push(t);
+  }
+  const agg = (list) => {
+    const net = list.reduce((s, t) => s + (t.net_pnl || 0), 0);
+    const rVals = list.map((t) => t.r_multiple).filter((v) => v != null);
+    return {
+      count: list.length,
+      net_pnl: round(net, 2),
+      avg_r: rVals.length ? round(rVals.reduce((s, v) => s + v, 0) / rVals.length, 4) : null,
+    };
+  };
+  const out = [...groups.entries()].map(([criterion, g]) => {
+    const scored = g.met.length + g.not.length;
+    return {
+      criterion,
+      scored,
+      met_pct: scored ? round(g.met.length / scored, 4) : null,
+      met: agg(g.met),
+      not_met: agg(g.not),
+    };
+  });
+  return { setup: { id: setup.id, name: setup.name }, trade_count: trades.length, criteria: out };
+}
+
+// Correlate one custom field with outcome, over the filtered trade set. For a
+// number field, split at the median into low/high buckets; for an enum, group
+// by value. Each bucket reports count, net P&L and avg R — surfaced in the Leak
+// Finder so a numeric/enum variable can be read like a tag.
+export function fieldStats(q, defId) {
+  const def = db.prepare('SELECT * FROM field_defs WHERE id = ?').get(Number(defId));
+  if (!def) return null;
+  const { where, params } = buildFilter(q);
+  const rows = db
+    .prepare(
+      `SELECT tf.value_num, tf.value_text, t.net_pnl, t.r_multiple
+       FROM trade_fields tf
+       JOIN trades t ON t.id = tf.trade_id
+       ${where ? where + ' AND' : 'WHERE'} tf.def_id = @defId`
+    )
+    .all({ ...params, defId: def.id });
+
+  const bucket = (label, list) => {
+    const net = list.reduce((s, r) => s + (r.net_pnl || 0), 0);
+    const rVals = list.map((r) => r.r_multiple).filter((v) => v != null);
+    const avgR = rVals.length ? rVals.reduce((s, v) => s + v, 0) / rVals.length : null;
+    const wins = list.filter((r) => (r.net_pnl || 0) > 0).length;
+    return {
+      label,
+      count: list.length,
+      net_pnl: round(net, 2),
+      avg_r: avgR == null ? null : round(avgR, 4),
+      win_rate: list.length ? round(wins / list.length, 4) : null,
+    };
+  };
+
+  let buckets = [];
+  if (def.type === 'number') {
+    const nums = rows.filter((r) => r.value_num != null).map((r) => r.value_num).sort((a, b) => a - b);
+    if (nums.length) {
+      const mid = nums[Math.floor((nums.length - 1) / 2)];
+      const low = rows.filter((r) => r.value_num != null && r.value_num <= mid);
+      const high = rows.filter((r) => r.value_num != null && r.value_num > mid);
+      buckets = [bucket(`≤ ${round(mid, 4)}`, low), bucket(`> ${round(mid, 4)}`, high)].filter(
+        (b) => b.count > 0
+      );
+    }
+  } else {
+    const groups = new Map();
+    for (const r of rows) {
+      const key = r.value_text ?? '—';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    }
+    buckets = [...groups.entries()]
+      .map(([k, list]) => bucket(k, list))
+      .sort((a, b) => a.net_pnl - b.net_pnl);
+  }
+  return { def: { id: def.id, name: def.name, type: def.type }, sample: rows.length, buckets };
+}
+
+// Missed-trade aggregates — the cost of hesitation. Honours account + date
+// range (account omitted = all accounts). cost_r = R left on the table by
+// skipped winners; net_r = net R across every missed setup.
+export function missedStats(q) {
+  const clauses = [];
+  const params = {};
+  if (q.account) {
+    clauses.push('account_id = @account');
+    params.account = Number(q.account);
+  }
+  if (q.from) {
+    clauses.push('day >= @from');
+    params.from = q.from;
+  }
+  if (q.to) {
+    clauses.push('day <= @to');
+    params.to = q.to;
+  }
+  const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
+  const rows = db.prepare(`SELECT result_r FROM missed_trades ${where}`).all(params);
+  let count = rows.length;
+  let costR = 0;
+  let netR = 0;
+  let scored = 0;
+  let winners = 0;
+  for (const r of rows) {
+    if (r.result_r == null) continue;
+    scored++;
+    netR += r.result_r;
+    if (r.result_r > 0) {
+      costR += r.result_r;
+      winners++;
+    }
+  }
+  return {
+    count,
+    scored,
+    winners,
+    cost_r: round(costR, 4),
+    net_r: round(netR, 4),
+    avg_r: scored ? round(netR / scored, 4) : null,
+  };
+}
+
 // Entry/exit efficiency for one trade, from its MAE/MFE (positive price
 // distances) and realized move. Returns { entry, exit } in [0,1], or nulls when
 // the inputs don't support it. For a wick-fill scalper this is the single most

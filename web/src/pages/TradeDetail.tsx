@@ -9,6 +9,7 @@ import { buildMarkers, buildPriceLines, buildPositionBox } from '../utils/replay
 import { newsToMarkers, currenciesForInstrument } from '../utils/news';
 import NewsPanel from '../components/NewsPanel';
 import SocialShareModal from '../components/SocialShareModal';
+import CustomFieldsCard from '../components/CustomFieldsCard';
 import ContextTab from '../features/signal/panels/ContextTab';
 import type {
   TradeDetail as TTradeDetail,
@@ -108,7 +109,7 @@ export default function TradeDetail() {
       <div className="flex items-center justify-between">
         <Link
           to="/trades"
-          className="text-sm text-indigo-400 hover:text-indigo-300"
+          className="text-sm text-cyan-400 hover:text-cyan-300"
         >
           ← Back to trades
         </Link>
@@ -116,7 +117,7 @@ export default function TradeDetail() {
           <button
             onClick={openShareModal}
             disabled={loadingShare}
-            className="btn bg-indigo-600/30 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/40"
+            className="btn bg-cyan-600/30 hover:bg-cyan-600/40 text-cyan-300 border border-cyan-500/40"
           >
             {loadingShare ? 'Loading Card…' : '📸 Share Card'}
           </button>
@@ -247,7 +248,7 @@ function TradeBody({
               #{trade.id}
             </span>
             {setupName && (
-              <span className="rounded bg-indigo-600/20 px-2 py-0.5 text-xs font-medium text-indigo-300">
+              <span className="rounded bg-cyan-600/20 px-2 py-0.5 text-xs font-medium text-cyan-300">
                 {setupName}
               </span>
             )}
@@ -299,7 +300,7 @@ function TradeBody({
       {/* Tab bar */}
       <div className="flex gap-1 border-b border-slate-700">
         <button
-          className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'details' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-slate-400 hover:text-slate-200'}`}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'details' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'}`}
           onClick={() => setActiveTab('details')}
         >
           Details
@@ -424,6 +425,9 @@ function TradeBody({
 
       {/* Partials / executions */}
       <PartialsPanel trade={trade} />
+
+      {/* Custom fields */}
+      <CustomFieldsCard tradeId={trade.id} account={trade.account_id} />
 
       {/* Notes */}
       <NotesPanel trade={trade} onChanged={onChanged} />
@@ -550,7 +554,7 @@ function TradeChartCard({
               <button
                 key={t}
                 className={`btn px-2 py-0.5 text-xs ${
-                  t === tf ? 'border-indigo-500 text-indigo-300' : ''
+                  t === tf ? 'border-cyan-500 text-cyan-300' : ''
                 }`}
                 onClick={() => changeTf(t)}
               >
@@ -559,7 +563,7 @@ function TradeChartCard({
             ))}
           </div>
           <button
-            className={`btn text-xs ${showBox ? 'border-indigo-500 text-indigo-300' : ''}`}
+            className={`btn text-xs ${showBox ? 'border-cyan-500 text-cyan-300' : ''}`}
             onClick={() => setShowBox((v) => !v)}
             title="Show / hide the position indicator"
           >
@@ -575,7 +579,7 @@ function TradeChartCard({
           </button>
           <button
             onClick={onOpenShare}
-            className="btn text-xs bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border-indigo-500/40"
+            className="btn text-xs bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border-cyan-500/40"
             title="Generate social share graphic"
           >
             📸 Share Card
@@ -836,7 +840,7 @@ function ScreenshotsPanel({
         }}
         className={`mb-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center transition ${
           dragOver
-            ? 'border-indigo-400 bg-indigo-500/5'
+            ? 'border-cyan-400 bg-cyan-500/5'
             : 'border-slate-700 hover:border-slate-600'
         }`}
       >
@@ -1174,11 +1178,27 @@ function ReviewPanel({
   trade: TTradeDetail;
   onChanged: () => void;
 }) {
+  const { setups } = useFilters();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const gradeTag = trade.tags.find((t) => t.category === 'grade') ?? null;
   const grade = gradeTag?.name ?? null;
   const followed = trade.followed_plan;
+
+  // Structured criteria for the trade's setup, scored per criterion.
+  const setup = setups.find((s) => s.id === trade.setup_id) ?? null;
+  const criteria: string[] = (() => {
+    if (!setup?.criteria_json) return [];
+    try {
+      const a = JSON.parse(setup.criteria_json);
+      return Array.isArray(a) ? a.map(String) : [];
+    } catch {
+      return [];
+    }
+  })();
+  const metSet = new Set((trade.criteria ?? []).filter((c) => c.met).map((c) => c.criterion));
+  const toggleCriterion = (criterion: string) =>
+    run(() => api.setTradeCriterion(trade.id, criterion, !metSet.has(criterion)));
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -1257,6 +1277,35 @@ function ReviewPanel({
         </div>
         {err && <span className="text-sm text-red-400">{err}</span>}
       </div>
+
+      {criteria.length > 0 && (
+        <div className="mt-4">
+          <div className="label mb-1.5">
+            {setup?.name} criteria{' '}
+            <span className="text-slate-600">
+              ({metSet.size}/{criteria.length} met)
+            </span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {criteria.map((c) => (
+              <label
+                key={c}
+                className="flex cursor-pointer items-center gap-2 rounded border border-slate-800 bg-slate-900/40 px-2.5 py-1.5 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-800"
+                  checked={metSet.has(c)}
+                  disabled={busy}
+                  onChange={() => toggleCriterion(c)}
+                />
+                <span className={metSet.has(c) ? 'text-slate-200' : 'text-slate-400'}>{c}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       <p className="mt-3 text-xs text-slate-500">
         Grade feeds the Report Card &amp; Leak Finder; the plan flag drives the
         Dashboard discipline trend. Tap an active choice again to clear it.

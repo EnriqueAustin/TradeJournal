@@ -6,7 +6,7 @@ import { AsyncBoundary } from '../components/states';
 import HoldTimeBars from '../components/HoldTimeBars';
 import OptimizerHeatmap from '../components/OptimizerHeatmap';
 import ReportCard from '../components/ReportCard';
-import { formatNumber, formatPct, formatDuration, formatMoney, signClass, sessionLabel } from '../utils/format';
+import { formatNumber, formatPct, formatDuration, formatMoney, formatR, signClass, sessionLabel } from '../utils/format';
 import type { ExcursionStats, WickEdgeStats, WickEdgeRow, TagStats, TagStatRow, EfficiencyRow } from '../types';
 
 // Human labels for swept-liquidity keys shown in the efficiency breakdown.
@@ -331,6 +331,14 @@ export default function Analytics() {
   const excursion = useApi(() => api.getExcursion(filters), [key]);
   const wickEdge = useApi(() => api.getWickEdge(filters), [key]);
   const tagStats = useApi(() => api.getTagStats(filters), [key]);
+  const missed = useApi(() => api.getMissedStats(filters), [key]);
+  const fieldDefs = useApi(() => api.getFieldDefs(filters.account), [filterKey(filters)]);
+  const [selectedDef, setSelectedDef] = useState<number | null>(null);
+  const effectiveDef = selectedDef ?? fieldDefs.data?.[0]?.id ?? null;
+  const fieldStats = useApi(
+    () => (effectiveDef == null ? Promise.resolve(null) : api.getFieldStats(filters, effectiveDef)),
+    [key, effectiveDef]
+  );
   const [slGrid, setSlGrid] = useState('0.5,0.75,1,1.25,1.5,2');
   const [tpGrid, setTpGrid] = useState('1,1.5,2,2.5,3,4');
   const optimizer = useApi(
@@ -401,6 +409,104 @@ export default function Analytics() {
           loadingLabel="Loading excursion…"
         >
           {excursion.data && <ExcursionPanel e={excursion.data} />}
+        </AsyncBoundary>
+      </SectionCard>
+
+      <SectionCard title="Cost of Hesitation — Missed Trades">
+        <AsyncBoundary
+          loading={missed.loading}
+          error={missed.error}
+          onRetry={missed.reload}
+          isEmpty={!missed.data || missed.data.count === 0}
+          emptyMessage="No missed trades logged for these filters. Log them from the day journal."
+          loadingLabel="Loading missed trades…"
+        >
+          {missed.data && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Metric
+                label="Cost of hesitation"
+                value={formatR(missed.data.cost_r)}
+                valueClass="text-amber-300"
+                sub="R left on the table by skipped winners"
+              />
+              <Metric
+                label="Net missed R"
+                value={formatR(missed.data.net_r)}
+                valueClass={missed.data.net_r >= 0 ? 'text-emerald-400' : 'text-red-400'}
+                sub="across every scored miss"
+              />
+              <Metric
+                label="Missed setups"
+                value={String(missed.data.count)}
+                valueClass="text-slate-200"
+                sub={`${missed.data.winners} would have won`}
+              />
+              <Metric
+                label="Avg R / miss"
+                value={missed.data.avg_r == null ? '—' : formatR(missed.data.avg_r)}
+                valueClass="text-slate-200"
+              />
+            </div>
+          )}
+        </AsyncBoundary>
+      </SectionCard>
+
+      <SectionCard
+        title="Custom Variables"
+        right={
+          fieldDefs.data && fieldDefs.data.length > 0 ? (
+            <select
+              className="input py-1 text-xs"
+              value={effectiveDef ?? ''}
+              onChange={(e) => setSelectedDef(Number(e.target.value))}
+            >
+              {fieldDefs.data.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          ) : undefined
+        }
+      >
+        <AsyncBoundary
+          loading={fieldStats.loading}
+          error={fieldStats.error}
+          onRetry={fieldStats.reload}
+          isEmpty={!fieldStats.data || fieldStats.data.buckets.length === 0}
+          emptyMessage="No custom-field values match the filters. Define a field and set values on the trade detail."
+          loadingLabel="Correlating…"
+        >
+          {fieldStats.data && (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="pb-1 font-medium">{fieldStats.data.def.name}</th>
+                  <th className="pb-1 text-right font-medium">Trades</th>
+                  <th className="pb-1 text-right font-medium">Win%</th>
+                  <th className="pb-1 text-right font-medium">Net P&L</th>
+                  <th className="pb-1 text-right font-medium">Avg R</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fieldStats.data.buckets.map((b) => (
+                  <tr key={b.label} className="border-t border-slate-800/60">
+                    <td className="py-1.5 text-slate-300">{b.label}</td>
+                    <td className="num py-1.5 text-right text-slate-400">{b.count}</td>
+                    <td className="num py-1.5 text-right text-slate-400">
+                      {b.win_rate == null ? '—' : formatPct(b.win_rate)}
+                    </td>
+                    <td className={`num py-1.5 text-right ${signClass(b.net_pnl)}`}>
+                      {formatMoney(b.net_pnl, currency)}
+                    </td>
+                    <td className={`num py-1.5 text-right ${signClass(b.avg_r)}`}>
+                      {formatR(b.avg_r)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </AsyncBoundary>
       </SectionCard>
 

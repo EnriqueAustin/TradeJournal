@@ -359,7 +359,7 @@ export default function TradesDrilldownModal({
                     </td>
                     <td className="px-4 py-2.5 text-slate-400">
                       {setupName(t.setup_id) ? (
-                        <span className="rounded bg-indigo-600/15 px-1.5 py-0.5 text-[11px] font-medium text-indigo-300">
+                        <span className="rounded bg-cyan-600/15 px-1.5 py-0.5 text-[11px] font-medium text-cyan-300">
                           {setupName(t.setup_id)}
                         </span>
                       ) : (

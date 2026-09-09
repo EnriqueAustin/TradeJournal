@@ -14,7 +14,7 @@ const tmpDb = path.join(
 process.env.JOURNAL_DB = tmpDb;
 
 const { db, migrate } = await import('./db.js');
-const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency } =
+const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency, missedStats, fieldStats, criteriaStats } =
   await import('./stats.js');
 
 migrate();
@@ -124,6 +124,71 @@ test('excursion returns efficiency buckets and runs with the wick join', () => {
   assert.ok('efficiency' in e && 'efficiency_by_session' in e && 'efficiency_by_wick' in e);
   assert.equal(e.efficiency.entry_eff, null);
   assert.ok(Array.isArray(e.efficiency_by_session));
+});
+
+test('missedStats prices the cost of hesitation', () => {
+  db.prepare(
+    `INSERT INTO missed_trades (account_id, day, instrument, direction, result_r)
+     VALUES (1,'2026-03-02','XAUUSD','long',2.0),
+            (1,'2026-03-03','US100','short',1.5),
+            (1,'2026-03-04','XAUUSD','long',-1.0),
+            (1,'2026-03-05','US100','long',NULL)`
+  ).run();
+  const m = missedStats({ account: 1 });
+  assert.equal(m.count, 4);
+  assert.equal(m.scored, 3, 'the null-R row is counted but not scored');
+  assert.equal(m.winners, 2);
+  assert.equal(m.cost_r, 3.5, 'R left on the table by skipped winners = 2 + 1.5');
+  assert.equal(m.net_r, 2.5, 'net across scored missed = 2 + 1.5 - 1');
+  // Date range narrows it.
+  assert.equal(missedStats({ account: 1, from: '2026-03-03', to: '2026-03-04' }).count, 2);
+});
+
+test('fieldStats splits a numeric field at the median and correlates outcome', () => {
+  // Trades 1-5 exist (net 100,-40,50,-60,25). Define a "conviction" number field
+  // and tag them; median of 1..5 is 3 → low (<=3): trades 1,2,3; high (>3): 4,5.
+  const def = db
+    .prepare("INSERT INTO field_defs (name, type) VALUES ('conviction','number')")
+    .run();
+  const defId = def.lastInsertRowid;
+  const tradeIds = db.prepare('SELECT id FROM trades WHERE is_backtest = 0 ORDER BY id').all().map((r) => r.id);
+  const setF = db.prepare('INSERT INTO trade_fields (trade_id, def_id, value_num) VALUES (?, ?, ?)');
+  tradeIds.forEach((id, i) => setF.run(id, defId, i + 1)); // 1..5
+
+  const s = fieldStats({ account: 1 }, defId);
+  assert.equal(s.sample, 5);
+  assert.equal(s.buckets.length, 2);
+  const low = s.buckets.find((b) => b.label.startsWith('≤'));
+  const high = s.buckets.find((b) => b.label.startsWith('>'));
+  assert.equal(low.count, 3); // convictions 1,2,3 → net 100-40+50 = 110
+  assert.equal(low.net_pnl, 110);
+  assert.equal(high.count, 2); // convictions 4,5 → net -60+25 = -35
+  assert.equal(high.net_pnl, -35);
+});
+
+test('criteriaStats reports per-criterion adherence and outcome split', () => {
+  const setup = db
+    .prepare("INSERT INTO setups (name, criteria_json) VALUES ('Sweep', '[\"Swept liquidity\",\"Waited for close\"]')")
+    .run();
+  const setupId = setup.lastInsertRowid;
+  // Attach trades 1 (net 100) and 2 (net -40) to the setup.
+  db.prepare('UPDATE trades SET setup_id = ? WHERE id IN (1,2)').run(setupId);
+  const setC = db.prepare('INSERT INTO trade_criteria (trade_id, criterion, met) VALUES (?, ?, ?)');
+  // Both met "Swept liquidity"; only the winner met "Waited for close".
+  setC.run(1, 'Swept liquidity', 1);
+  setC.run(2, 'Swept liquidity', 1);
+  setC.run(1, 'Waited for close', 1);
+  setC.run(2, 'Waited for close', 0);
+
+  const s = criteriaStats({ account: 1 }, setupId);
+  assert.equal(s.trade_count, 2);
+  const swept = s.criteria.find((c) => c.criterion === 'Swept liquidity');
+  assert.equal(swept.met_pct, 1); // both met
+  assert.equal(swept.met.count, 2);
+  const waited = s.criteria.find((c) => c.criterion === 'Waited for close');
+  assert.equal(waited.met.count, 1);
+  assert.equal(waited.met.net_pnl, 100); // the winner
+  assert.equal(waited.not_met.net_pnl, -40); // the loser broke this rule
 });
 
 test('equity accumulates net P&L and R in chronological order', () => {

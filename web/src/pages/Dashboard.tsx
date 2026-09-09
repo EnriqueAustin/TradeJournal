@@ -63,7 +63,7 @@ function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
   function MiniMeter({ label, pct, danger }: { label: string; pct: number | null; danger?: boolean }) {
     if (pct == null) return null;
     const w = Math.min(100, Math.max(0, pct * 100));
-    const color = pct >= 1 ? 'bg-red-500' : pct >= 0.8 ? 'bg-amber-500' : danger === false ? 'bg-indigo-500' : 'bg-emerald-500';
+    const color = pct >= 1 ? 'bg-red-500' : pct >= 0.8 ? 'bg-amber-500' : danger === false ? 'bg-cyan-500' : 'bg-emerald-500';
     return (
       <div className="min-w-[100px] flex-1">
         <div className="mb-0.5 flex items-center justify-between text-[10px] text-slate-500">
@@ -118,7 +118,7 @@ function UnitToggle({ unit, onChange }: { unit: 'money' | 'r'; onChange: (u: 'mo
           key={u}
           onClick={() => onChange(u)}
           className={`px-2.5 py-1 text-xs font-semibold ${
-            unit === u ? 'bg-indigo-600 text-white' : 'bg-slate-900/40 text-slate-400 hover:text-slate-200'
+            unit === u ? 'bg-cyan-600 text-white' : 'bg-slate-900/40 text-slate-400 hover:text-slate-200'
           }`}
         >
           {u === 'money' ? '$' : 'R'}

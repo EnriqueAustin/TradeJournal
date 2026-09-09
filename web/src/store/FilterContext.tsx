@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -36,10 +37,22 @@ const FilterContext = createContext<FilterContextValue | undefined>(undefined);
 const ACCOUNT_STORAGE_KEY = 'trade-journal:selected-account';
 const FILTERS_STORAGE_KEY = 'trade-journal:filters';
 
-function getStoredAccount(): number | null {
+// Stored account: a number id, the literal 'all' (explicit All-accounts), or
+// nothing (unset — defaults to the first account once they load). null in state
+// always means All accounts; 'all' vs unset is only how we tell an explicit
+// All choice from a fresh user who should default to a single account.
+function getStoredAccountRaw(): string | null {
   if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(ACCOUNT_STORAGE_KEY);
-  if (!raw) return null;
+  try {
+    return window.localStorage.getItem(ACCOUNT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function getStoredAccount(): number | null {
+  const raw = getStoredAccountRaw();
+  if (raw === 'all' || !raw) return null;
   const value = Number(raw);
   return Number.isFinite(value) ? value : null;
 }
@@ -76,6 +89,9 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [setups, setSetups] = useState<Setup[]>([]);
   const [setupsKey, setSetupsKey] = useState(0);
+  // Whether null-account is a deliberate "All accounts" choice (persisted as
+  // 'all') rather than a fresh user who should default to a single account.
+  const explicitAll = useRef(getStoredAccountRaw() === 'all');
 
   useEffect(() => {
     let cancelled = false;
@@ -86,12 +102,16 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       .then((data) => {
         if (cancelled) return;
         setAccounts(data);
-        // Keep the selected account valid when accounts are added or deleted.
-        setFiltersState((f) =>
-          f.account == null || !data.some((a) => a.id === f.account)
-            ? { ...f, account: data[0]?.id ?? null }
-            : f
-        );
+        setFiltersState((f) => {
+          // A stale numeric account (deleted) falls back to All accounts.
+          if (f.account != null) {
+            return data.some((a) => a.id === f.account) ? f : { ...f, account: null };
+          }
+          // Null: keep it if it's a deliberate All choice; otherwise a fresh
+          // user defaults to their first account.
+          if (explicitAll.current) return f;
+          return { ...f, account: data[0]?.id ?? null };
+        });
       })
       .catch((e) => {
         if (!cancelled) setAccountsError(e.message || 'Failed to load accounts');
@@ -105,11 +125,18 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   }, [reloadKey]);
 
   useEffect(() => {
-    if (filters.account == null) {
-      window.localStorage.removeItem(ACCOUNT_STORAGE_KEY);
-      return;
+    try {
+      if (filters.account == null) {
+        // Only persist an explicit All; a transient unset (pre-defaulting) is
+        // left unstored so a fresh user still defaults to a single account.
+        if (explicitAll.current) window.localStorage.setItem(ACCOUNT_STORAGE_KEY, 'all');
+        else window.localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+      } else {
+        window.localStorage.setItem(ACCOUNT_STORAGE_KEY, String(filters.account));
+      }
+    } catch {
+      /* storage may be unavailable; ignore */
     }
-    window.localStorage.setItem(ACCOUNT_STORAGE_KEY, String(filters.account));
   }, [filters.account]);
 
   // Persist the rest of the filter state so filters survive a reload/session.
@@ -137,8 +164,12 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     };
   }, [setupsKey]);
 
-  const setFilters = (patch: Partial<Filters>) =>
+  const setFilters = (patch: Partial<Filters>) => {
+    // Any explicit account choice (including All = null) is deliberate from here
+    // on, so it persists and survives an accounts refresh.
+    if ('account' in patch) explicitAll.current = patch.account == null;
     setFiltersState((f) => ({ ...f, ...patch }));
+  };
   const resetFilters = () =>
     setFiltersState((f) => ({ ...defaultFilters, account: f.account }));
   const refreshAccounts = () => setReloadKey((k) => k + 1);
