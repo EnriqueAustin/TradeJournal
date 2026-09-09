@@ -283,6 +283,24 @@ export function migrate() {
     db.exec('ALTER TABLE news_events ADD COLUMN url TEXT');
   }
 
+  // Structured setup criteria: a JSON array of checkable rule strings (distinct
+  // from the free-text `rules` blob), so "did I follow this setup" becomes a
+  // per-criterion record instead of one yes/no flag.
+  const setupCols = db.prepare('PRAGMA table_info(setups)').all();
+  if (!setupCols.some((c) => c.name === 'criteria_json')) {
+    db.exec('ALTER TABLE setups ADD COLUMN criteria_json TEXT');
+  }
+  // Per-trade criterion scoring, keyed by criterion text (a snapshot, so editing
+  // a setup's criteria later doesn't rewrite history).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS trade_criteria (
+      trade_id INTEGER NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
+      criterion TEXT NOT NULL,
+      met INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (trade_id, criterion)
+    );
+  `);
+
   // Phase 1: add trades.setup_id (guarded so re-running the migration is safe).
   const tradeCols = db.prepare('PRAGMA table_info(trades)').all();
   if (!tradeCols.some((c) => c.name === 'setup_id')) {

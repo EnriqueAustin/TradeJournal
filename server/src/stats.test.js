@@ -14,7 +14,7 @@ const tmpDb = path.join(
 process.env.JOURNAL_DB = tmpDb;
 
 const { db, migrate } = await import('./db.js');
-const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency, missedStats, fieldStats } =
+const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency, missedStats, fieldStats, criteriaStats } =
   await import('./stats.js');
 
 migrate();
@@ -164,6 +164,31 @@ test('fieldStats splits a numeric field at the median and correlates outcome', (
   assert.equal(low.net_pnl, 110);
   assert.equal(high.count, 2); // convictions 4,5 → net -60+25 = -35
   assert.equal(high.net_pnl, -35);
+});
+
+test('criteriaStats reports per-criterion adherence and outcome split', () => {
+  const setup = db
+    .prepare("INSERT INTO setups (name, criteria_json) VALUES ('Sweep', '[\"Swept liquidity\",\"Waited for close\"]')")
+    .run();
+  const setupId = setup.lastInsertRowid;
+  // Attach trades 1 (net 100) and 2 (net -40) to the setup.
+  db.prepare('UPDATE trades SET setup_id = ? WHERE id IN (1,2)').run(setupId);
+  const setC = db.prepare('INSERT INTO trade_criteria (trade_id, criterion, met) VALUES (?, ?, ?)');
+  // Both met "Swept liquidity"; only the winner met "Waited for close".
+  setC.run(1, 'Swept liquidity', 1);
+  setC.run(2, 'Swept liquidity', 1);
+  setC.run(1, 'Waited for close', 1);
+  setC.run(2, 'Waited for close', 0);
+
+  const s = criteriaStats({ account: 1 }, setupId);
+  assert.equal(s.trade_count, 2);
+  const swept = s.criteria.find((c) => c.criterion === 'Swept liquidity');
+  assert.equal(swept.met_pct, 1); // both met
+  assert.equal(swept.met.count, 2);
+  const waited = s.criteria.find((c) => c.criterion === 'Waited for close');
+  assert.equal(waited.met.count, 1);
+  assert.equal(waited.met.net_pnl, 100); // the winner
+  assert.equal(waited.not_met.net_pnl, -40); // the loser broke this rule
 });
 
 test('equity accumulates net P&L and R in chronological order', () => {

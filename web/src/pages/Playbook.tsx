@@ -14,15 +14,22 @@ const emptyForm: NewSetup = { name: '', instrument: '', rules: '' };
 export default function Playbook() {
   const { filters, accounts, setups, refreshSetups } = useFilters();
   const [form, setForm] = useState<NewSetup>(emptyForm);
+  const [criteriaText, setCriteriaText] = useState('');
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [adherenceSetup, setAdherenceSetup] = useState<number | null>(null);
 
   const currency =
     accounts.find((a) => a.id === filters.account)?.currency ?? 'USD';
 
   const key = filterKey(filters);
   const stats = useApi(() => api.getSetupStats(filters), [key]);
+  const effAdherence = adherenceSetup ?? setups.find((s) => s.criteria_json)?.id ?? null;
+  const adherence = useApi(
+    () => (effAdherence == null ? Promise.resolve(null) : api.getCriteriaStats(filters, effAdherence)),
+    [key, effAdherence]
+  );
 
   const set = <K extends keyof NewSetup>(k: K, v: NewSetup[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -37,13 +44,19 @@ export default function Playbook() {
     setFormErr(null);
     setOk(null);
     try {
+      const criteria = criteriaText
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
       const created = await api.createSetup({
         name: form.name.trim(),
         instrument: form.instrument || null,
         rules: form.rules || null,
+        criteria: criteria.length ? criteria : undefined,
       });
       setOk(`Created "${created.name}"`);
       setForm(emptyForm);
+      setCriteriaText('');
       refreshSetups();
       stats.reload();
       setTimeout(() => setOk(null), 2500);
@@ -148,6 +161,67 @@ export default function Playbook() {
         </AsyncBoundary>
       </div>
 
+      {/* Rule adherence per criterion */}
+      {setups.some((s) => s.criteria_json) && (
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+            <span className="text-sm font-semibold text-slate-200">Rule Adherence</span>
+            <select
+              className="input py-1 text-xs"
+              value={effAdherence ?? ''}
+              onChange={(e) => setAdherenceSetup(Number(e.target.value))}
+            >
+              {setups
+                .filter((s) => s.criteria_json)
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <AsyncBoundary
+            loading={adherence.loading}
+            error={adherence.error}
+            onRetry={adherence.reload}
+            isEmpty={!adherence.data || adherence.data.criteria.length === 0}
+            emptyMessage="No criteria scored yet — check them off in the post-trade review."
+            loadingLabel="Loading adherence…"
+          >
+            {adherence.data && (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-2.5 font-medium">Criterion</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Followed</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Net when met</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Net when broken</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adherence.data.criteria.map((c) => (
+                      <tr key={c.criterion} className="border-b border-slate-800/60">
+                        <td className="px-4 py-2.5 text-slate-200">{c.criterion}</td>
+                        <td className="num px-4 py-2.5 text-right text-slate-300">
+                          {c.met_pct == null ? '—' : `${formatPct(c.met_pct)} (${c.met.count}/${c.scored})`}
+                        </td>
+                        <td className={`num px-4 py-2.5 text-right ${signClass(c.met.net_pnl)}`}>
+                          {c.met.count ? formatMoney(c.met.net_pnl, currency) : '—'}
+                        </td>
+                        <td className={`num px-4 py-2.5 text-right ${signClass(c.not_met.net_pnl)}`}>
+                          {c.not_met.count ? formatMoney(c.not_met.net_pnl, currency) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </AsyncBoundary>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         {/* Setups list */}
         <div className="card overflow-hidden lg:col-span-2">
@@ -241,6 +315,18 @@ export default function Playbook() {
               value={form.rules ?? ''}
               onChange={(e) => set('rules', e.target.value)}
               placeholder="Entry / stop / target / conditions…"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="s-criteria">
+              Criteria — one per line (checked per trade)
+            </label>
+            <textarea
+              id="s-criteria"
+              className="input min-h-[80px] w-full resize-y"
+              value={criteriaText}
+              onChange={(e) => setCriteriaText(e.target.value)}
+              placeholder={'Swept a session level\nWaited for the reclaim close\nRisk ≤ 1R'}
             />
           </div>
           <button className="btn btn-primary mt-1" disabled={busy}>

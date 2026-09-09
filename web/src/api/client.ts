@@ -25,6 +25,8 @@ import type {
   FieldDef,
   TradeFieldValue,
   FieldStats,
+  TradeCriterion,
+  CriteriaStats,
   Filters,
   Setup,
   NewSetup,
@@ -621,6 +623,13 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ account_id: account ?? undefined, body }),
     }),
+  setTradeCriterion: (tradeId: number, criterion: string, met: boolean) =>
+    request<TradeCriterion[]>(`/trades/${tradeId}/criteria`, {
+      method: 'PUT',
+      body: JSON.stringify({ criterion, met }),
+    }),
+  getCriteriaStats: (f: Filters, setupId: number) =>
+    request<CriteriaStats>(`/stats/criteria${filterParams(f, { setup: setupId })}`),
   getFieldDefs: (account?: number | null) =>
     request<FieldDef[]>(`/field-defs${account != null ? `?account=${account}` : ''}`),
   createFieldDef: (body: { account_id?: number | null; name: string; type: 'number' | 'enum'; options?: string[] }) =>

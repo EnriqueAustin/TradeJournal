@@ -1178,11 +1178,27 @@ function ReviewPanel({
   trade: TTradeDetail;
   onChanged: () => void;
 }) {
+  const { setups } = useFilters();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const gradeTag = trade.tags.find((t) => t.category === 'grade') ?? null;
   const grade = gradeTag?.name ?? null;
   const followed = trade.followed_plan;
+
+  // Structured criteria for the trade's setup, scored per criterion.
+  const setup = setups.find((s) => s.id === trade.setup_id) ?? null;
+  const criteria: string[] = (() => {
+    if (!setup?.criteria_json) return [];
+    try {
+      const a = JSON.parse(setup.criteria_json);
+      return Array.isArray(a) ? a.map(String) : [];
+    } catch {
+      return [];
+    }
+  })();
+  const metSet = new Set((trade.criteria ?? []).filter((c) => c.met).map((c) => c.criterion));
+  const toggleCriterion = (criterion: string) =>
+    run(() => api.setTradeCriterion(trade.id, criterion, !metSet.has(criterion)));
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -1261,6 +1277,35 @@ function ReviewPanel({
         </div>
         {err && <span className="text-sm text-red-400">{err}</span>}
       </div>
+
+      {criteria.length > 0 && (
+        <div className="mt-4">
+          <div className="label mb-1.5">
+            {setup?.name} criteria{' '}
+            <span className="text-slate-600">
+              ({metSet.size}/{criteria.length} met)
+            </span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {criteria.map((c) => (
+              <label
+                key={c}
+                className="flex cursor-pointer items-center gap-2 rounded border border-slate-800 bg-slate-900/40 px-2.5 py-1.5 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-800"
+                  checked={metSet.has(c)}
+                  disabled={busy}
+                  onChange={() => toggleCriterion(c)}
+                />
+                <span className={metSet.has(c) ? 'text-slate-200' : 'text-slate-400'}>{c}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       <p className="mt-3 text-xs text-slate-500">
         Grade feeds the Report Card &amp; Leak Finder; the plan flag drives the
         Dashboard discipline trend. Tap an active choice again to clear it.

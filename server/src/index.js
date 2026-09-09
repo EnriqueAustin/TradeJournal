@@ -46,6 +46,7 @@ import {
   excursion,
   missedStats,
   fieldStats,
+  criteriaStats,
   propStats,
   adherence,
   streaks,
@@ -443,13 +444,14 @@ app.post('/api/setups', (req, res) => {
     return res.status(400).json({ error: 'name is required' });
   const info = db
     .prepare(
-      `INSERT INTO setups (name, instrument, rules)
-       VALUES (@name, @instrument, @rules)`
+      `INSERT INTO setups (name, instrument, rules, criteria_json)
+       VALUES (@name, @instrument, @rules, @criteria_json)`
     )
     .run({
       name: String(b.name).trim(),
       instrument: b.instrument ? normalizeInstrument(b.instrument) : null,
       rules: b.rules ?? null,
+      criteria_json: Array.isArray(b.criteria) ? JSON.stringify(b.criteria) : b.criteria_json ?? null,
     });
   res
     .status(201)
@@ -461,7 +463,9 @@ app.patch('/api/setups/:id', (req, res) => {
   const setup = db.prepare('SELECT * FROM setups WHERE id = ?').get(id);
   if (!setup) return res.status(404).json({ error: 'setup not found' });
   const b = req.body || {};
-  const EDIT = ['name', 'instrument', 'rules'];
+  const EDIT = ['name', 'instrument', 'rules', 'criteria_json'];
+  // Accept a criteria array as sugar for criteria_json.
+  if (Array.isArray(b.criteria)) b.criteria_json = JSON.stringify(b.criteria);
   const sets = [];
   const params = { id };
   for (const k of EDIT) {
@@ -709,7 +713,28 @@ app.get('/api/trades/:id', (req, res) => {
     .prepare('SELECT * FROM screenshots WHERE trade_id = ?')
     .all(id);
   const wick = db.prepare('SELECT * FROM trade_wick WHERE trade_id = ?').get(id) ?? null;
-  res.json({ ...trade, executions, tags, notes, screenshots, wick });
+  const criteria = db
+    .prepare('SELECT criterion, met FROM trade_criteria WHERE trade_id = ?')
+    .all(id);
+  res.json({ ...trade, executions, tags, notes, screenshots, wick, criteria });
+});
+
+// PUT /api/trades/:id/criteria — set whether one setup criterion was met on
+// this trade (keyed by criterion text). Powers the per-criterion adherence.
+app.put('/api/trades/:id/criteria', (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
+    return res.status(404).json({ error: 'trade not found' });
+  const b = req.body || {};
+  if (!b.criterion || !String(b.criterion).trim())
+    return res.status(400).json({ error: 'criterion is required' });
+  db.prepare(
+    `INSERT INTO trade_criteria (trade_id, criterion, met) VALUES (?, ?, ?)
+     ON CONFLICT(trade_id, criterion) DO UPDATE SET met = excluded.met`
+  ).run(id, String(b.criterion), b.met ? 1 : 0);
+  res.json(
+    db.prepare('SELECT criterion, met FROM trade_criteria WHERE trade_id = ?').all(id)
+  );
 });
 
 // Allowed values for the structured wick-setup fields.
@@ -1440,6 +1465,12 @@ app.get('/api/stats/field', (req, res) => {
   if (!req.query.def) return res.status(400).json({ error: 'def is required' });
   const stats = fieldStats(req.query, req.query.def);
   if (!stats) return res.status(404).json({ error: 'field def not found' });
+  res.json(stats);
+});
+app.get('/api/stats/criteria', (req, res) => {
+  if (!req.query.setup) return res.status(400).json({ error: 'setup is required' });
+  const stats = criteriaStats(req.query, req.query.setup);
+  if (!stats) return res.status(404).json({ error: 'setup not found' });
   res.json(stats);
 });
 app.get('/api/stats/prop', (req, res) => res.json(propStats(req.query)));

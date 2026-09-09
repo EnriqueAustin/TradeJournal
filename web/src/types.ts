@@ -115,6 +115,8 @@ export interface Setup {
   name: string;
   instrument: string | null;
   rules: string | null;
+  /** JSON array of checkable criterion strings. */
+  criteria_json: string | null;
   created_at: string;
 }
 
@@ -122,6 +124,25 @@ export interface NewSetup {
   name: string;
   instrument?: string | null;
   rules?: string | null;
+  criteria?: string[];
+  criteria_json?: string | null;
+}
+
+export interface TradeCriterion {
+  criterion: string;
+  met: number;
+}
+
+export interface CriteriaStats {
+  setup: { id: number; name: string };
+  trade_count: number;
+  criteria: Array<{
+    criterion: string;
+    scored: number;
+    met_pct: number | null;
+    met: { count: number; net_pnl: number; avg_r: number | null };
+    not_met: { count: number; net_pnl: number; avg_r: number | null };
+  }>;
 }
 
 export interface Execution {
@@ -267,6 +288,7 @@ export interface TradeDetail extends Trade {
   notes: Note[];
   screenshots: Screenshot[];
   wick?: WickTag | null;
+  criteria?: TradeCriterion[];
 }
 
 export interface WickEdgeRow {
