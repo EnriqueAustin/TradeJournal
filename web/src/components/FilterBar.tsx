@@ -85,10 +85,12 @@ export default function FilterBar() {
             setFilters({ account: e.target.value ? Number(e.target.value) : null })
           }
         >
-          {accounts.length === 0 && (
+          {accounts.length === 0 ? (
             <option value="">
               {accountsLoading ? 'Loading…' : 'No accounts'}
             </option>
+          ) : (
+            <option value="">All accounts</option>
           )}
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>

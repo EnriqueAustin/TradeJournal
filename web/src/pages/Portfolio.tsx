@@ -1,9 +1,11 @@
+import { useMemo } from 'react';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
+import EquityCurve from '../components/EquityCurve';
 import type { PortfolioAccount } from '../types';
-import { formatMoney, formatPct, signClass } from '../utils/format';
+import { formatMoney, formatPct, formatR, formatNumber, signClass } from '../utils/format';
 
 function statusBadge(s: string) {
   if (s === 'breach')
@@ -169,8 +171,16 @@ export default function Portfolio() {
   const key = filterKey(filters);
   const q = useApi(() => api.getPortfolio(filters), [key]);
 
+  // Performance across ALL accounts (the roll-up always spans everything, so
+  // pin account=null regardless of the global bar; other filters pass through).
+  const allFilters = useMemo(() => ({ ...filters, account: null }), [filters]);
+  const allKey = filterKey(allFilters);
+  const perf = useApi(() => api.getSummary(allFilters), [allKey]);
+  const eq = useApi(() => api.getEquity(allFilters), [allKey]);
+
   const d = q.data;
   const primary = d?.accounts[0]?.currency || 'USD';
+  const s = perf.data;
 
   return (
     <div className="flex flex-col gap-5">
@@ -225,6 +235,39 @@ export default function Portfolio() {
                 </div>
               </div>
             </div>
+
+            {s && (
+              <div className="card p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-slate-200">
+                    Combined performance
+                  </h2>
+                  <span className="text-xs text-slate-500">
+                    every account as one book{s.trade_count === 0 ? ' · no trades' : ''}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+                  {[
+                    { label: 'Net P&L', value: formatMoney(s.net_pnl, primary), cls: signClass(s.net_pnl) },
+                    { label: 'Trades', value: String(s.trade_count), cls: 'text-slate-200' },
+                    { label: 'Win rate', value: formatPct(s.win_rate), cls: 'text-slate-200' },
+                    { label: 'Profit factor', value: s.profit_factor == null ? '—' : formatNumber(s.profit_factor, 2), cls: 'text-slate-200' },
+                    { label: 'Expectancy', value: formatMoney(s.expectancy, primary), cls: signClass(s.expectancy) },
+                    { label: 'Total R', value: formatR(s.total_r), cls: signClass(s.total_r) },
+                  ].map((t) => (
+                    <div key={t.label}>
+                      <div className="label">{t.label}</div>
+                      <div className={`num text-lg font-semibold ${t.cls}`}>{t.value}</div>
+                    </div>
+                  ))}
+                </div>
+                {eq.data && eq.data.length > 0 && (
+                  <div className="mt-4 h-56">
+                    <EquityCurve data={eq.data} />
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="card overflow-hidden">
               <div className="overflow-x-auto">
