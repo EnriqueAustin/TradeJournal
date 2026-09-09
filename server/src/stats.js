@@ -322,6 +322,62 @@ export function holdtime(q) {
   };
 }
 
+// Correlate one custom field with outcome, over the filtered trade set. For a
+// number field, split at the median into low/high buckets; for an enum, group
+// by value. Each bucket reports count, net P&L and avg R — surfaced in the Leak
+// Finder so a numeric/enum variable can be read like a tag.
+export function fieldStats(q, defId) {
+  const def = db.prepare('SELECT * FROM field_defs WHERE id = ?').get(Number(defId));
+  if (!def) return null;
+  const { where, params } = buildFilter(q);
+  const rows = db
+    .prepare(
+      `SELECT tf.value_num, tf.value_text, t.net_pnl, t.r_multiple
+       FROM trade_fields tf
+       JOIN trades t ON t.id = tf.trade_id
+       ${where ? where + ' AND' : 'WHERE'} tf.def_id = @defId`
+    )
+    .all({ ...params, defId: def.id });
+
+  const bucket = (label, list) => {
+    const net = list.reduce((s, r) => s + (r.net_pnl || 0), 0);
+    const rVals = list.map((r) => r.r_multiple).filter((v) => v != null);
+    const avgR = rVals.length ? rVals.reduce((s, v) => s + v, 0) / rVals.length : null;
+    const wins = list.filter((r) => (r.net_pnl || 0) > 0).length;
+    return {
+      label,
+      count: list.length,
+      net_pnl: round(net, 2),
+      avg_r: avgR == null ? null : round(avgR, 4),
+      win_rate: list.length ? round(wins / list.length, 4) : null,
+    };
+  };
+
+  let buckets = [];
+  if (def.type === 'number') {
+    const nums = rows.filter((r) => r.value_num != null).map((r) => r.value_num).sort((a, b) => a - b);
+    if (nums.length) {
+      const mid = nums[Math.floor((nums.length - 1) / 2)];
+      const low = rows.filter((r) => r.value_num != null && r.value_num <= mid);
+      const high = rows.filter((r) => r.value_num != null && r.value_num > mid);
+      buckets = [bucket(`≤ ${round(mid, 4)}`, low), bucket(`> ${round(mid, 4)}`, high)].filter(
+        (b) => b.count > 0
+      );
+    }
+  } else {
+    const groups = new Map();
+    for (const r of rows) {
+      const key = r.value_text ?? '—';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    }
+    buckets = [...groups.entries()]
+      .map(([k, list]) => bucket(k, list))
+      .sort((a, b) => a.net_pnl - b.net_pnl);
+  }
+  return { def: { id: def.id, name: def.name, type: def.type }, sample: rows.length, buckets };
+}
+
 // Missed-trade aggregates — the cost of hesitation. Honours account + date
 // range (account omitted = all accounts). cost_r = R left on the table by
 // skipped winners; net_r = net R across every missed setup.

@@ -14,7 +14,7 @@ const tmpDb = path.join(
 process.env.JOURNAL_DB = tmpDb;
 
 const { db, migrate } = await import('./db.js');
-const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency, missedStats } =
+const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency, missedStats, fieldStats } =
   await import('./stats.js');
 
 migrate();
@@ -142,6 +142,28 @@ test('missedStats prices the cost of hesitation', () => {
   assert.equal(m.net_r, 2.5, 'net across scored missed = 2 + 1.5 - 1');
   // Date range narrows it.
   assert.equal(missedStats({ account: 1, from: '2026-03-03', to: '2026-03-04' }).count, 2);
+});
+
+test('fieldStats splits a numeric field at the median and correlates outcome', () => {
+  // Trades 1-5 exist (net 100,-40,50,-60,25). Define a "conviction" number field
+  // and tag them; median of 1..5 is 3 → low (<=3): trades 1,2,3; high (>3): 4,5.
+  const def = db
+    .prepare("INSERT INTO field_defs (name, type) VALUES ('conviction','number')")
+    .run();
+  const defId = def.lastInsertRowid;
+  const tradeIds = db.prepare('SELECT id FROM trades WHERE is_backtest = 0 ORDER BY id').all().map((r) => r.id);
+  const setF = db.prepare('INSERT INTO trade_fields (trade_id, def_id, value_num) VALUES (?, ?, ?)');
+  tradeIds.forEach((id, i) => setF.run(id, defId, i + 1)); // 1..5
+
+  const s = fieldStats({ account: 1 }, defId);
+  assert.equal(s.sample, 5);
+  assert.equal(s.buckets.length, 2);
+  const low = s.buckets.find((b) => b.label.startsWith('≤'));
+  const high = s.buckets.find((b) => b.label.startsWith('>'));
+  assert.equal(low.count, 3); // convictions 1,2,3 → net 100-40+50 = 110
+  assert.equal(low.net_pnl, 110);
+  assert.equal(high.count, 2); // convictions 4,5 → net -60+25 = -35
+  assert.equal(high.net_pnl, -35);
 });
 
 test('equity accumulates net P&L and R in chronological order', () => {

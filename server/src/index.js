@@ -45,6 +45,7 @@ import {
   holdtime,
   excursion,
   missedStats,
+  fieldStats,
   propStats,
   adherence,
   streaks,
@@ -1057,6 +1058,90 @@ app.put('/api/journal/:day', (req, res) => {
     .json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
 });
 
+// ---------- Custom field definitions + per-trade values ----------
+app.get('/api/field-defs', (req, res) => {
+  // Defs for the account plus global (account_id NULL) defs.
+  const acct = req.query.account ? Number(req.query.account) : null;
+  const rows = acct
+    ? db
+        .prepare(
+          'SELECT * FROM field_defs WHERE account_id = ? OR account_id IS NULL ORDER BY name'
+        )
+        .all(acct)
+    : db.prepare('SELECT * FROM field_defs ORDER BY name').all();
+  res.json(rows);
+});
+
+app.post('/api/field-defs', (req, res) => {
+  const b = req.body || {};
+  if (!b.name || !b.name.trim()) return res.status(400).json({ error: 'name is required' });
+  if (b.type !== 'number' && b.type !== 'enum')
+    return res.status(400).json({ error: "type must be 'number' or 'enum'" });
+  const acct = b.account_id != null ? Number(b.account_id) : null;
+  if (acct != null && !accountExists(acct))
+    return res.status(400).json({ error: 'unknown account' });
+  const options =
+    b.type === 'enum' && Array.isArray(b.options) ? JSON.stringify(b.options) : null;
+  const info = db
+    .prepare(
+      'INSERT INTO field_defs (account_id, name, type, options_json) VALUES (?, ?, ?, ?)'
+    )
+    .run(acct, b.name.trim(), b.type, options);
+  res.status(201).json(db.prepare('SELECT * FROM field_defs WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.delete('/api/field-defs/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM field_defs WHERE id = ?').run(Number(req.params.id));
+  if (!info.changes) return res.status(404).json({ error: 'field def not found' });
+  res.status(204).end();
+});
+
+// Per-trade values, joined to their definitions.
+app.get('/api/trades/:id/fields', (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
+    return res.status(404).json({ error: 'trade not found' });
+  res.json(
+    db
+      .prepare(
+        `SELECT tf.def_id, tf.value_num, tf.value_text, d.name, d.type, d.options_json
+         FROM trade_fields tf JOIN field_defs d ON d.id = tf.def_id
+         WHERE tf.trade_id = ? ORDER BY d.name`
+      )
+      .all(id)
+  );
+});
+
+app.put('/api/trades/:id/fields/:defId', (req, res) => {
+  const id = Number(req.params.id);
+  const defId = Number(req.params.defId);
+  const def = db.prepare('SELECT * FROM field_defs WHERE id = ?').get(defId);
+  if (!def) return res.status(404).json({ error: 'field def not found' });
+  if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
+    return res.status(404).json({ error: 'trade not found' });
+  const raw = (req.body || {}).value;
+  // An empty value clears the field.
+  if (raw == null || raw === '') {
+    db.prepare('DELETE FROM trade_fields WHERE trade_id = ? AND def_id = ?').run(id, defId);
+    return res.status(204).end();
+  }
+  let valueNum = null;
+  let valueText = null;
+  if (def.type === 'number') {
+    const n = Number(raw);
+    if (Number.isNaN(n)) return res.status(400).json({ error: 'value must be a number' });
+    valueNum = n;
+  } else {
+    valueText = String(raw);
+  }
+  db.prepare(
+    `INSERT INTO trade_fields (trade_id, def_id, value_num, value_text)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(trade_id, def_id) DO UPDATE SET value_num = excluded.value_num, value_text = excluded.value_text`
+  ).run(id, defId, valueNum, valueText);
+  res.json({ def_id: defId, value_num: valueNum, value_text: valueText });
+});
+
 // ---------- Missed trades ----------
 // The setup you saw and skipped. Logged from the day journal; priced on
 // Analytics as the "cost of hesitation".
@@ -1351,6 +1436,12 @@ app.get('/api/stats/setup', (req, res) => res.json(setupStats(req.query)));
 app.get('/api/stats/holdtime', (req, res) => res.json(holdtime(req.query)));
 app.get('/api/stats/excursion', (req, res) => res.json(excursion(req.query)));
 app.get('/api/stats/missed', (req, res) => res.json(missedStats(req.query)));
+app.get('/api/stats/field', (req, res) => {
+  if (!req.query.def) return res.status(400).json({ error: 'def is required' });
+  const stats = fieldStats(req.query, req.query.def);
+  if (!stats) return res.status(404).json({ error: 'field def not found' });
+  res.json(stats);
+});
 app.get('/api/stats/prop', (req, res) => res.json(propStats(req.query)));
 app.get('/api/stats/adherence', (req, res) => res.json(adherence(req.query)));
 app.get('/api/stats/streaks', (req, res) => res.json(streaks(req.query)));

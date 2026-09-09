@@ -167,6 +167,38 @@ export interface MissedTrade {
   created_at: string;
 }
 
+export interface FieldDef {
+  id: number;
+  account_id: number | null;
+  name: string;
+  type: 'number' | 'enum';
+  options_json: string | null;
+  created_at?: string;
+}
+
+export interface TradeFieldValue {
+  def_id: number;
+  value_num: number | null;
+  value_text: string | null;
+  name: string;
+  type: 'number' | 'enum';
+  options_json: string | null;
+}
+
+export interface FieldStatsBucket {
+  label: string;
+  count: number;
+  net_pnl: number;
+  avg_r: number | null;
+  win_rate: number | null;
+}
+
+export interface FieldStats {
+  def: { id: number; name: string; type: 'number' | 'enum' };
+  sample: number;
+  buckets: FieldStatsBucket[];
+}
+
 export interface MissedStats {
   count: number;
   scored: number;

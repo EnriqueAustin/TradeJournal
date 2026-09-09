@@ -332,6 +332,13 @@ export default function Analytics() {
   const wickEdge = useApi(() => api.getWickEdge(filters), [key]);
   const tagStats = useApi(() => api.getTagStats(filters), [key]);
   const missed = useApi(() => api.getMissedStats(filters), [key]);
+  const fieldDefs = useApi(() => api.getFieldDefs(filters.account), [filterKey(filters)]);
+  const [selectedDef, setSelectedDef] = useState<number | null>(null);
+  const effectiveDef = selectedDef ?? fieldDefs.data?.[0]?.id ?? null;
+  const fieldStats = useApi(
+    () => (effectiveDef == null ? Promise.resolve(null) : api.getFieldStats(filters, effectiveDef)),
+    [key, effectiveDef]
+  );
   const [slGrid, setSlGrid] = useState('0.5,0.75,1,1.25,1.5,2');
   const [tpGrid, setTpGrid] = useState('1,1.5,2,2.5,3,4');
   const optimizer = useApi(
@@ -440,6 +447,65 @@ export default function Analytics() {
                 valueClass="text-slate-200"
               />
             </div>
+          )}
+        </AsyncBoundary>
+      </SectionCard>
+
+      <SectionCard
+        title="Custom Variables"
+        right={
+          fieldDefs.data && fieldDefs.data.length > 0 ? (
+            <select
+              className="input py-1 text-xs"
+              value={effectiveDef ?? ''}
+              onChange={(e) => setSelectedDef(Number(e.target.value))}
+            >
+              {fieldDefs.data.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          ) : undefined
+        }
+      >
+        <AsyncBoundary
+          loading={fieldStats.loading}
+          error={fieldStats.error}
+          onRetry={fieldStats.reload}
+          isEmpty={!fieldStats.data || fieldStats.data.buckets.length === 0}
+          emptyMessage="No custom-field values match the filters. Define a field and set values on the trade detail."
+          loadingLabel="Correlating…"
+        >
+          {fieldStats.data && (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="pb-1 font-medium">{fieldStats.data.def.name}</th>
+                  <th className="pb-1 text-right font-medium">Trades</th>
+                  <th className="pb-1 text-right font-medium">Win%</th>
+                  <th className="pb-1 text-right font-medium">Net P&L</th>
+                  <th className="pb-1 text-right font-medium">Avg R</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fieldStats.data.buckets.map((b) => (
+                  <tr key={b.label} className="border-t border-slate-800/60">
+                    <td className="py-1.5 text-slate-300">{b.label}</td>
+                    <td className="num py-1.5 text-right text-slate-400">{b.count}</td>
+                    <td className="num py-1.5 text-right text-slate-400">
+                      {b.win_rate == null ? '—' : formatPct(b.win_rate)}
+                    </td>
+                    <td className={`num py-1.5 text-right ${signClass(b.net_pnl)}`}>
+                      {formatMoney(b.net_pnl, currency)}
+                    </td>
+                    <td className={`num py-1.5 text-right ${signClass(b.avg_r)}`}>
+                      {formatR(b.avg_r)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </AsyncBoundary>
       </SectionCard>

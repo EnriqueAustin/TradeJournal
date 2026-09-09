@@ -22,6 +22,9 @@ import type {
   JournalDay,
   MissedTrade,
   MissedStats,
+  FieldDef,
+  TradeFieldValue,
+  FieldStats,
   Filters,
   Setup,
   NewSetup,
@@ -618,6 +621,20 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ account_id: account ?? undefined, body }),
     }),
+  getFieldDefs: (account?: number | null) =>
+    request<FieldDef[]>(`/field-defs${account != null ? `?account=${account}` : ''}`),
+  createFieldDef: (body: { account_id?: number | null; name: string; type: 'number' | 'enum'; options?: string[] }) =>
+    request<FieldDef>('/field-defs', { method: 'POST', body: JSON.stringify(body) }),
+  deleteFieldDef: (id: number) => request<void>(`/field-defs/${id}`, { method: 'DELETE' }),
+  getTradeFields: (tradeId: number) =>
+    request<TradeFieldValue[]>(`/trades/${tradeId}/fields`),
+  setTradeField: (tradeId: number, defId: number, value: string | number | null) =>
+    request<unknown>(`/trades/${tradeId}/fields/${defId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+  getFieldStats: (f: Filters, defId: number) =>
+    request<FieldStats>(`/stats/field${filterParams(f, { def: defId })}`),
   getMissed: (params: { account?: number | null; day?: string; from?: string; to?: string }) => {
     const p = new URLSearchParams();
     if (params.account != null) p.set('account', String(params.account));

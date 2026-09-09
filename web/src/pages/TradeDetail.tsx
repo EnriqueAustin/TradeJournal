@@ -9,6 +9,7 @@ import { buildMarkers, buildPriceLines, buildPositionBox } from '../utils/replay
 import { newsToMarkers, currenciesForInstrument } from '../utils/news';
 import NewsPanel from '../components/NewsPanel';
 import SocialShareModal from '../components/SocialShareModal';
+import CustomFieldsCard from '../components/CustomFieldsCard';
 import ContextTab from '../features/signal/panels/ContextTab';
 import type {
   TradeDetail as TTradeDetail,
@@ -424,6 +425,9 @@ function TradeBody({
 
       {/* Partials / executions */}
       <PartialsPanel trade={trade} />
+
+      {/* Custom fields */}
+      <CustomFieldsCard tradeId={trade.id} account={trade.account_id} />
 
       {/* Notes */}
       <NotesPanel trade={trade} onChanged={onChanged} />
