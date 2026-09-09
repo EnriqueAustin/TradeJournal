@@ -353,6 +353,18 @@ export interface TradesResponse {
   total: number;
 }
 
+export interface TradeTotals {
+  count: number;
+  net_pnl: number;
+  wins: number;
+  losses: number;
+  win_rate: number | null;
+  total_r: number | null;
+  avg_r: number | null;
+  commission: number;
+  hold_time_sec: number;
+}
+
 export interface StatsSummary {
   net_pnl: number;
   gross_pnl: number;

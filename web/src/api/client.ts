@@ -9,6 +9,7 @@ import type {
   TimeCheck,
   Trade,
   TradesResponse,
+  TradeTotals,
   TradeDetail,
   StatsSummary,
   EquityPoint,
@@ -137,6 +138,10 @@ export const api = {
     request<TradesResponse>(
       `/trades${filterParams(f, { limit, offset, ...query })}`
     ),
+  getTradesTotals: (
+    f: Filters,
+    query?: Record<string, string | number | undefined>
+  ) => request<TradeTotals>(`/trades/totals${filterParams(f, query)}`),
   getTrade: (id: number) => request<TradeDetail>(`/trades/${id}`),
   createTrade: (body: Record<string, unknown>) =>
     request<Trade>('/trades', { method: 'POST', body: JSON.stringify(body) }),

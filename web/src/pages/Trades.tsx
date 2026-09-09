@@ -12,10 +12,26 @@ import {
   formatDateTime,
   formatNumber,
   formatDuration,
+  formatPct,
   sessionLabel,
 } from '../utils/format';
 
 const PAGE_SIZE = 25;
+
+// Optional columns the table can show — data the trade already carries but that
+// was hidden. Persisted per-browser so a chosen layout sticks.
+type OptionalCols = { mae: boolean; mfe: boolean; commission: boolean };
+const COLS_KEY = 'trade-journal:trade-columns';
+const DEFAULT_COLS: OptionalCols = { mae: false, mfe: false, commission: false };
+function loadCols(): OptionalCols {
+  try {
+    const raw = window.localStorage.getItem(COLS_KEY);
+    if (raw) return { ...DEFAULT_COLS, ...(JSON.parse(raw) as Partial<OptionalCols>) };
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_COLS;
+}
 
 // Debounce a value so typing in the search box doesn't fire a request per key.
 function useDebounced<T>(value: T, ms = 300): T {
@@ -141,7 +157,17 @@ export default function Trades() {
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [cols, setCols] = useState<OptionalCols>(loadCols);
+  const [showColMenu, setShowColMenu] = useState(false);
   const debouncedSearch = useDebounced(search);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(COLS_KEY, JSON.stringify(cols));
+    } catch {
+      /* storage may be unavailable; ignore */
+    }
+  }, [cols]);
 
   const toggleNeed = (n: TradeNeed) =>
     setNeeds((cur) =>
@@ -186,6 +212,11 @@ export default function Trades() {
     () => api.getTrades(filters, PAGE_SIZE, page * PAGE_SIZE, query),
     [key, queryKey]
   );
+  // Totals over the whole filtered set (not just this page), for the footer.
+  const { data: totals, reload: reloadTotals } = useApi(
+    () => api.getTradesTotals(filters, query),
+    [filterKey(filters), queryKey]
+  );
 
   const filtersActive =
     Boolean(search) || direction !== '' || outcome !== '' || needs.length > 0;
@@ -221,6 +252,7 @@ export default function Trades() {
       await api.bulkTrades(body);
       setSelected(new Set());
       reload();
+      reloadTotals();
     } catch (e) {
       window.alert((e as Error)?.message ?? 'Bulk action failed');
     } finally {
@@ -239,6 +271,40 @@ export default function Trades() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="relative">
+            <button
+              className="btn text-xs"
+              onClick={() => setShowColMenu((v) => !v)}
+              title="Show or hide optional columns"
+            >
+              ⚙ Columns
+            </button>
+            {showColMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowColMenu(false)} />
+                <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-slate-700 bg-slate-900 p-2 shadow-xl">
+                  {([
+                    ['mae', 'MAE'],
+                    ['mfe', 'MFE'],
+                    ['commission', 'Commission'],
+                  ] as [keyof OptionalCols, string][]).map(([k, label]) => (
+                    <label
+                      key={k}
+                      className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800"
+                        checked={cols[k]}
+                        onChange={(e) => setCols((c) => ({ ...c, [k]: e.target.checked }))}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <button className="btn text-xs" onClick={() => setShowAdd(true)}>
             + Add trade
           </button>
@@ -418,6 +484,9 @@ export default function Trades() {
                   <SortHeader col="size" label="Size" sort={sort} dir={dir} onSort={onSort} align="right" />
                   <SortHeader col="net_pnl" label="Net P&L" sort={sort} dir={dir} onSort={onSort} align="right" />
                   <SortHeader col="r_multiple" label="R" sort={sort} dir={dir} onSort={onSort} align="right" />
+                  {cols.mae && <th className="px-4 py-2.5 text-right font-medium">MAE</th>}
+                  {cols.mfe && <th className="px-4 py-2.5 text-right font-medium">MFE</th>}
+                  {cols.commission && <th className="px-4 py-2.5 text-right font-medium">Comm</th>}
                   <SortHeader col="session" label="Session" sort={sort} dir={dir} onSort={onSort} />
                   <th className="px-4 py-2.5 font-medium">Setup</th>
                   <th className="px-4 py-2.5 font-medium">Tags</th>
@@ -509,6 +578,21 @@ export default function Trades() {
                         </span>
                       ) : null}
                     </td>
+                    {cols.mae && (
+                      <td className="num px-4 py-2.5 text-right text-slate-400">
+                        {t.mae == null ? '—' : formatNumber(t.mae, 2)}
+                      </td>
+                    )}
+                    {cols.mfe && (
+                      <td className="num px-4 py-2.5 text-right text-slate-400">
+                        {t.mfe == null ? '—' : formatNumber(t.mfe, 2)}
+                      </td>
+                    )}
+                    {cols.commission && (
+                      <td className="num px-4 py-2.5 text-right text-slate-400">
+                        {t.commission == null ? '—' : formatMoney(t.commission, currency)}
+                      </td>
+                    )}
                     <td className="px-4 py-2.5 text-slate-400">
                       {sessionLabel(t.session)}
                     </td>
@@ -546,6 +630,48 @@ export default function Trades() {
                   </tr>
                 ))}
               </tbody>
+              {totals && totals.count > 0 && (
+                <tfoot>
+                  <tr className="border-t-2 border-slate-700 bg-slate-900/60 text-xs font-semibold">
+                    <td className="px-3 py-2.5" />
+                    <td className="px-4 py-2.5 text-slate-300" colSpan={2}>
+                      Totals · {totals.count} trade{totals.count === 1 ? '' : 's'}
+                      {totals.win_rate != null && (
+                        <span className="ml-1 font-normal text-slate-500">
+                          ({formatPct(totals.win_rate)} win)
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5" colSpan={2} />
+                    <td className="num px-4 py-2.5 text-right text-slate-400">
+                      {formatDuration(totals.hold_time_sec)}
+                    </td>
+                    <td className="px-4 py-2.5" />
+                    <td
+                      className={`num px-4 py-2.5 text-right ${
+                        totals.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'
+                      }`}
+                    >
+                      {formatMoney(totals.net_pnl, currency)}
+                    </td>
+                    <td
+                      className={`num px-4 py-2.5 text-right ${
+                        (totals.total_r ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
+                      }`}
+                    >
+                      {formatR(totals.total_r)}
+                    </td>
+                    {cols.mae && <td className="px-4 py-2.5" />}
+                    {cols.mfe && <td className="px-4 py-2.5" />}
+                    {cols.commission && (
+                      <td className="num px-4 py-2.5 text-right text-slate-400">
+                        {formatMoney(totals.commission, currency)}
+                      </td>
+                    )}
+                    <td className="px-4 py-2.5" colSpan={3} />
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </AsyncBoundary>

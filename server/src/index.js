@@ -624,6 +624,39 @@ app.get('/api/trades', (req, res) => {
   res.json({ rows, total });
 });
 
+// Totals over the WHOLE filtered set (all pages), so the list can show a footer
+// summary without exporting. Uses the same tradesQuery builder as the list, so
+// search / direction / outcome / needs / R-range all apply. Defined before
+// /api/trades/:id so "totals" isn't captured as an :id.
+app.get('/api/trades/totals', (req, res) => {
+  const { where, params } = tradesQuery(req.query);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count,
+              COALESCE(SUM(net_pnl), 0) AS net_pnl,
+              SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN net_pnl < 0 THEN 1 ELSE 0 END) AS losses,
+              SUM(r_multiple) AS total_r,
+              AVG(r_multiple) AS avg_r,
+              COALESCE(SUM(commission), 0) AS commission,
+              COALESCE(SUM(hold_time_sec), 0) AS hold_time_sec
+       FROM trades ${where}`
+    )
+    .get(params);
+  const decided = (row.wins || 0) + (row.losses || 0);
+  res.json({
+    count: row.count,
+    net_pnl: row.net_pnl,
+    wins: row.wins || 0,
+    losses: row.losses || 0,
+    win_rate: decided ? row.wins / decided : null,
+    total_r: row.total_r,
+    avg_r: row.avg_r,
+    commission: row.commission,
+    hold_time_sec: row.hold_time_sec,
+  });
+});
+
 // CSV export of the filtered trade set (honours the same account/instrument/
 // session/setup/date filters). Defined before /api/trades/:id so "export" isn't
 // captured as an :id. Rivals all offer report export; we had none.
