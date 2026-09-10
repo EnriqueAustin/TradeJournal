@@ -572,6 +572,20 @@ export interface EfficiencyRow extends EfficiencyBucket {
   key: string;
 }
 
+// One trade's risk at entry: stop distance x cash-per-point, from the recorded
+// stop. Only trades carrying a stop appear.
+export interface RiskTrade {
+  id: number;
+  day: string;
+  instrument: string;
+  direction: Direction;
+  size: number;
+  stop_distance: number;
+  risk_cash: number;
+  risk_pct: number;
+  net_pnl: number;
+}
+
 export interface PropStats {
   account_id: number;
   currency: string;
@@ -617,22 +631,21 @@ export interface PropStats {
   safety_buffer_pct: number | null;
   safety_buffer_amount: number | null;
   safety_buffer_met: boolean | null;
-  consistency_required_profit: number | null;
-  consistency_day_max_today: number | null;
-  payout_required_profit: number | null;
-  payout_required_equity: number | null;
-  payout_profit_gap: number | null;
-  payout_progress_pct: number | null;
-  payout_eligible: boolean | null;
   risk_limit_pct: number | null;
   risk_limit_cash: number | null;
   risk_sample: number;
+  risk_avg_cash: number | null;
   risk_avg_pct: number | null;
+  risk_max_cash: number | null;
   risk_max_pct: number | null;
+  risk_max_trade: RiskTrade | null;
+  risk_last_cash: number | null;
   risk_last_pct: number | null;
   risk_over_count: number;
+  risk_day_cash: number;
   risk_day_pct: number;
   risk_used_pct: number | null;
+  risk_trades: RiskTrade[];
   max_inactivity_days: number | null;
   last_trade_date: string | null;
   days_since_last_trade: number | null;

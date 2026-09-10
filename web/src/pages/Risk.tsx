@@ -10,6 +10,7 @@ import {
   formatDate,
   formatDateTime,
   formatDuration,
+  formatNumber,
   signClass,
 } from '../utils/format';
 import type { PropStats } from '../types';
@@ -234,124 +235,22 @@ function pctToStatus(pct: number | null): RuleStatus {
   return 'pass';
 }
 
-// Payout gate. A consistency rule caps one day's share of total profit, so the
-// largest day already banked implies a minimum total profit before a payout can
-// be requested: best_day / cap. The safety buffer is a second gate; whichever is
-// larger binds. All of it is computed server-side — this just lays it out.
-function PayoutRequirement({ p, currency }: { p: PropStats; currency: string }) {
-  if (p.payout_required_profit == null) return null;
-
-  const req = p.payout_required_profit;
-  const gap = p.payout_profit_gap ?? 0;
-  const progress = p.payout_progress_pct ?? 0;
-  const width = Math.min(100, Math.max(0, progress * 100));
-  const eligible = p.payout_eligible === true;
-  const consistencyBinds =
-    p.consistency_required_profit != null &&
-    p.consistency_required_profit >= (p.safety_buffer_amount ?? 0);
-
-  return (
-    <div className="rounded-lg border border-cyan-900/50 bg-cyan-950/20 px-3 py-3">
-      <div className="flex items-baseline justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-cyan-300">
-          Payout Requirement
-        </span>
-        <span
-          className={`num text-xs font-semibold ${eligible ? 'text-emerald-400' : 'text-cyan-300'}`}
-        >
-          {eligible ? 'Eligible now' : `${formatPct(progress)} there`}
-        </span>
-      </div>
-
-      <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div>
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Equity needed</div>
-          <div className="num text-lg font-semibold text-slate-100">
-            {formatMoney(p.payout_required_equity, currency)}
-          </div>
-          <div className="num text-[10px] text-slate-500">
-            now {formatMoney(p.current_equity, currency)}
-          </div>
-        </div>
-        <div>
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Profit needed</div>
-          <div className="num text-lg font-semibold text-slate-100">
-            {formatMoney(req, currency)}
-          </div>
-          <div className="num text-[10px] text-slate-500">
-            now {formatMoney(p.total_pnl, currency)}
-          </div>
-        </div>
-        <div>
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Still to make</div>
-          <div
-            className={`num text-lg font-semibold ${gap > 0 ? 'text-amber-400' : 'text-emerald-400'}`}
-          >
-            {gap > 0 ? formatMoney(gap, currency) : 'Met'}
-          </div>
-          <div className="num text-[10px] text-slate-500">
-            {consistencyBinds ? 'consistency binds' : 'safety buffer binds'}
-          </div>
-        </div>
-        <div>
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Max new day</div>
-          <div className="num text-lg font-semibold text-slate-100">
-            {p.consistency_day_max_today != null
-              ? formatMoney(p.consistency_day_max_today, currency)
-              : '—'}
-          </div>
-          <div className="num text-[10px] text-slate-500">
-            {p.consistency_day_max_today != null
-              ? 'biggest day you can add today'
-              : 'needs net profit first'}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-slate-800">
-        <div
-          className={`h-full rounded-full transition-all ${eligible ? 'bg-emerald-500' : 'bg-cyan-500'}`}
-          style={{ width: `${width}%` }}
-        />
-      </div>
-
-      <p className="mt-2 text-[11px] leading-snug text-slate-500">
-        {p.consistency_pct != null && p.best_day_pnl > 0 ? (
-          <>
-            Best day {formatMoney(p.best_day_pnl, currency)} ÷ {p.consistency_pct}% cap ={' '}
-            {formatMoney(p.consistency_required_profit, currency)} of total profit before that day
-            is compliant
-            {p.safety_buffer_amount != null && (
-              <> · safety buffer needs {formatMoney(p.safety_buffer_amount, currency)}</>
-            )}
-            . The payout gate is the larger of the two.
-          </>
-        ) : (
-          <>
-            No profitable day yet — the gate is the{' '}
-            {p.safety_buffer_pct != null
-              ? `${p.safety_buffer_pct}% safety buffer`
-              : 'profit requirement'}
-            . Every outsized day raises this bar, so one day bigger than the cap allows pushes the
-            payout further out.
-          </>
-        )}
-      </p>
-    </div>
-  );
-}
-
 // Per-trade position-size guard against the account's risk cap (default 1%).
-// Risk at entry is stop distance × cash-per-point, so only trades that recorded
-// a stop are measurable — the sample count says how many that is.
+// Risk at entry is stop distance x cash-per-point, so only trades that recorded
+// a stop are measurable. Dollars lead — that is the number on the order ticket —
+// with the percent of equity beside it, and the per-trade rows below make it
+// obvious which trade set the high-water mark (and whether its stop is right).
 function PositionSizeGuard({ p, currency }: { p: PropStats; currency: string }) {
+  const [open, setOpen] = useState(false);
   const limitPct = p.risk_limit_pct;
   if (limitPct == null || limitPct <= 0) return null;
 
   const used = p.risk_used_pct;
   const c = meterColor(used);
   const width = used == null ? 0 : Math.min(100, Math.max(0, used * 100));
-  const overCap = (v: number | null) => v != null && v * 100 > limitPct + 1e-9;
+  const over = (pct: number | null) => pct != null && pct * 100 > limitPct + 1e-9;
+  const cap = p.risk_limit_cash;
+  const worst = p.risk_max_trade;
 
   return (
     <SectionCard
@@ -366,39 +265,43 @@ function PositionSizeGuard({ p, currency }: { p: PropStats; currency: string }) 
     >
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatTile
-          label={`${limitPct}% of equity`}
-          value={formatMoney(p.risk_limit_cash, currency)}
-          sub={`max risk per trade · equity ${formatMoney(p.current_equity, currency)}`}
+          label={`Max risk / trade (${limitPct}%)`}
+          value={formatMoney(cap, currency)}
+          sub={`of ${formatMoney(p.current_equity, currency)} equity`}
           valueClass="text-cyan-200"
         />
         <StatTile
           label="Largest risk taken"
-          value={p.risk_max_pct != null ? formatPct(p.risk_max_pct) : '—'}
+          value={p.risk_max_cash != null ? formatMoney(p.risk_max_cash, currency) : '—'}
           sub={
-            p.risk_max_pct != null
-              ? `${formatMoney(p.risk_max_pct * p.current_equity, currency)} at current equity`
+            worst
+              ? `${formatPct(worst.risk_pct)} · ${worst.size} lots ${worst.instrument} · ${formatNumber(worst.stop_distance, 2)} pt stop`
               : 'needs a trade with a stop'
           }
-          valueClass={overCap(p.risk_max_pct) ? 'text-red-400' : 'text-slate-100'}
+          valueClass={over(p.risk_max_pct) ? 'text-red-400' : 'text-slate-100'}
         />
         <StatTile
           label="Average risk"
-          value={p.risk_avg_pct != null ? formatPct(p.risk_avg_pct) : '—'}
-          sub={p.risk_last_pct != null ? `last trade ${formatPct(p.risk_last_pct)}` : 'no sample'}
-          valueClass={overCap(p.risk_avg_pct) ? 'text-amber-400' : 'text-slate-100'}
+          value={p.risk_avg_cash != null ? formatMoney(p.risk_avg_cash, currency) : '—'}
+          sub={
+            p.risk_avg_pct != null
+              ? `${formatPct(p.risk_avg_pct)} of equity${p.risk_last_cash != null ? ` · last ${formatMoney(p.risk_last_cash, currency)}` : ''}`
+              : 'no sample'
+          }
+          valueClass={over(p.risk_avg_pct) ? 'text-amber-400' : 'text-slate-100'}
         />
         <StatTile
           label="Risk opened today"
-          value={formatPct(p.risk_day_pct)}
-          sub={`${formatMoney(p.risk_day_pct * p.current_equity, currency)} put at risk today`}
-          valueClass={p.risk_day_pct * 100 > limitPct ? 'text-amber-400' : 'text-slate-100'}
+          value={formatMoney(p.risk_day_cash, currency)}
+          sub={`${formatPct(p.risk_day_pct)} of equity at risk today`}
+          valueClass={over(p.risk_day_pct) ? 'text-amber-400' : 'text-slate-100'}
         />
       </div>
 
       <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/40 p-3">
         <div className="flex items-baseline justify-between">
           <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-            Largest position vs the {limitPct}% cap
+            Largest position vs the {formatMoney(cap, currency)} cap
           </span>
           <span className={`num text-xs font-semibold ${c.text}`}>
             {used == null ? 'no data' : `${(used * 100).toFixed(0)}% of cap`}
@@ -414,10 +317,80 @@ function PositionSizeGuard({ p, currency }: { p: PropStats; currency: string }) 
           {p.risk_sample === 0
             ? 'Record stop levels on your trades to measure sizing against the cap.'
             : p.risk_over_count > 0
-              ? `${p.risk_over_count} of ${p.risk_sample} measured trades were sized above ${limitPct}%.`
-              : `All ${p.risk_sample} measured trades stayed within ${limitPct}%.`}
+              ? `${p.risk_over_count} of ${p.risk_sample} measured trades were sized above ${formatMoney(cap, currency)}.`
+              : `All ${p.risk_sample} measured trades stayed within ${formatMoney(cap, currency)}.`}
         </div>
       </div>
+
+      {p.risk_trades.length > 0 && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="flex items-center gap-1.5 text-xs text-slate-400 transition-colors hover:text-slate-200"
+            aria-expanded={open}
+          >
+            <span className={`inline-block transition-transform ${open ? 'rotate-90' : ''}`}>
+              ▸
+            </span>
+            Risk per trade ({p.risk_trades.length} most recent)
+          </button>
+          {open && (
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full min-w-[560px] text-xs">
+                <thead>
+                  <tr className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+                    <th className="py-1 pr-3 font-medium">Day</th>
+                    <th className="py-1 pr-3 font-medium">Instrument</th>
+                    <th className="py-1 pr-3 text-right font-medium">Lots</th>
+                    <th className="py-1 pr-3 text-right font-medium">Stop</th>
+                    <th className="py-1 pr-3 text-right font-medium">Risk</th>
+                    <th className="py-1 pr-3 text-right font-medium">% eq</th>
+                    <th className="py-1 text-right font-medium">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {p.risk_trades.map((t) => (
+                    <tr key={t.id} className="border-t border-slate-800/60">
+                      <td className="num py-1.5 pr-3 text-slate-400">{formatDate(t.day)}</td>
+                      <td className="py-1.5 pr-3 text-slate-300">
+                        {t.instrument}{' '}
+                        <span className={t.direction === 'long' ? 'text-emerald-500' : 'text-red-500'}>
+                          {t.direction === 'long' ? 'L' : 'S'}
+                        </span>
+                      </td>
+                      <td className="num py-1.5 pr-3 text-right text-slate-300">
+                        {formatNumber(t.size, 2)}
+                      </td>
+                      <td className="num py-1.5 pr-3 text-right text-slate-400">
+                        {formatNumber(t.stop_distance, 2)}
+                      </td>
+                      <td
+                        className={`num py-1.5 pr-3 text-right font-medium ${over(t.risk_pct) ? 'text-red-400' : 'text-slate-200'}`}
+                      >
+                        {formatMoney(t.risk_cash, currency)}
+                      </td>
+                      <td
+                        className={`num py-1.5 pr-3 text-right ${over(t.risk_pct) ? 'text-red-400' : 'text-slate-400'}`}
+                      >
+                        {formatPct(t.risk_pct)}
+                      </td>
+                      <td className={`num py-1.5 text-right ${signClass(t.net_pnl)}`}>
+                        {formatMoney(t.net_pnl, currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-2 text-[11px] leading-snug text-slate-500">
+                Risk is the recorded stop distance × the cash value of a 1-point move at that
+                size. A row that looks too big is usually a stop that was moved or imported
+                wrong — check it on the trade.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </SectionCard>
   );
 }
@@ -491,7 +464,6 @@ function PropRulesCompliance({ p, currency }: { p: PropStats; currency: string }
             }
           />
         )}
-        <PayoutRequirement p={p} currency={currency} />
         {p.min_trading_days != null && p.min_trading_days > 0 && (
           <RuleRow
             rule="Minimum Trading Days"

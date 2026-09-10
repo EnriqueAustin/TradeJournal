@@ -643,8 +643,8 @@ export function propStats(q) {
   const { where, params } = buildFilter({ ...q, account: account.id });
   const rows = db
     .prepare(
-      `SELECT COALESCE(exit_time, entry_time) AS t, net_pnl, gross_pnl, hold_time_sec,
-              entry_price, exit_price, stop_price, size FROM trades ${where}
+      `SELECT id, COALESCE(exit_time, entry_time) AS t, net_pnl, gross_pnl, hold_time_sec,
+              instrument, direction, entry_price, exit_price, stop_price, size FROM trades ${where}
        ORDER BY COALESCE(exit_time, entry_time) ASC, id ASC`
     )
     .all(params);
@@ -659,16 +659,25 @@ export function propStats(q) {
   // Position-sizing exposure: dollar risk at entry vs the equity standing before
   // the trade, so a 1%-per-trade cap can be checked against what was actually
   // sized. Only trades carrying a stop can be measured.
-  const riskPctSeries = []; // { day, pct }
-  const dayRisk = new Map(); // day -> summed risk % opened that day
+  const riskSeries = []; // one entry per trade that carried a usable stop
+  const dayRisk = new Map(); // day -> summed dollar risk opened that day
   for (const r of rows) {
     const day0 = (r.t || '').slice(0, 10);
     const equityBefore = starting_balance + cum;
     const riskCash = riskCashAtEntry(r);
     if (riskCash != null && equityBefore > 0) {
-      const pct = riskCash / equityBefore;
-      riskPctSeries.push({ day: day0, pct });
-      if (day0) dayRisk.set(day0, (dayRisk.get(day0) || 0) + pct);
+      riskSeries.push({
+        id: r.id,
+        day: day0,
+        instrument: r.instrument,
+        direction: r.direction,
+        size: r.size,
+        stop_distance: round(Math.abs((r.entry_price ?? 0) - (r.stop_price ?? 0)), 4),
+        risk_cash: round(riskCash),
+        risk_pct: round(riskCash / equityBefore, 4),
+        net_pnl: round(r.net_pnl || 0),
+      });
+      if (day0) dayRisk.set(day0, (dayRisk.get(day0) || 0) + riskCash);
     }
     cum += r.net_pnl || 0;
     if (cum > peak) peak = cum;
@@ -797,57 +806,42 @@ export function propStats(q) {
   // Trading days count for min-days rule
   const trading_days_count = dayMap.size;
 
-  // ---- Payout planning ------------------------------------------------
-  // A consistency rule caps one day's share of total profit. Working it
-  // backwards: with a best day of B and a cap of c%, total profit must reach
-  // B / c before that day stops being a violation — which is the real gate on
-  // when a payout can be requested. The safety buffer (if any) is a second gate;
-  // the binding requirement is the larger of the two.
-  const consistency_required_profit =
-    consistencyLimit && consistencyLimit > 0 && best_day_pnl > 0
-      ? round(best_day_pnl / (consistencyLimit / 100))
-      : null;
-  const gates = [];
-  if (consistency_required_profit != null) gates.push(consistency_required_profit);
-  if (safetyBufferAmount != null) gates.push(safetyBufferAmount);
-  const payout_required_profit = gates.length ? round(Math.max(...gates)) : null;
-  const payout_required_equity =
-    payout_required_profit != null ? round(starting_balance + payout_required_profit) : null;
-  const payout_profit_gap =
-    payout_required_profit != null ? round(Math.max(0, payout_required_profit - total_pnl)) : null;
-  const payout_progress_pct =
-    payout_required_profit != null && payout_required_profit > 0
-      ? round(Math.max(0, total_pnl) / payout_required_profit, 4)
-      : null;
-  const payout_eligible = payout_required_profit != null ? total_pnl >= payout_required_profit : null;
-  // Largest profit a single new day may add and still satisfy the cap:
-  // x <= c(total + x)  ->  x <= total·c / (1 - c).
-  const consistency_day_max_today =
-    consistencyLimit && consistencyLimit > 0 && consistencyLimit < 100 && total_pnl > 0
-      ? round((total_pnl * (consistencyLimit / 100)) / (1 - consistencyLimit / 100))
-      : null;
-
   // ---- Position sizing vs the per-trade risk cap -------------------------
+  // Dollar risk at entry is the number that matters at the platform ticket, so
+  // it leads; the percent is the same figure against the equity standing before
+  // that trade. Only trades that recorded a stop can be measured.
   const riskLimitPct = account.default_risk_pct ?? null;
-  const risk_sample = riskPctSeries.length;
+  const risk_sample = riskSeries.length;
   const risk_limit_cash =
     riskLimitPct != null ? round(current_equity * (riskLimitPct / 100)) : null;
-  const risk_avg_pct = risk_sample
-    ? round(riskPctSeries.reduce((a, b) => a + b.pct, 0) / risk_sample, 4)
-    : null;
-  const risk_max_pct = risk_sample
-    ? round(Math.max(...riskPctSeries.map((x) => x.pct)), 4)
-    : null;
-  const risk_last_pct = risk_sample ? round(riskPctSeries[risk_sample - 1].pct, 4) : null;
+  const pick = (fn) => (risk_sample ? fn() : null);
+  const risk_avg_cash = pick(() =>
+    round(riskSeries.reduce((a, b) => a + b.risk_cash, 0) / risk_sample)
+  );
+  const risk_avg_pct = pick(() =>
+    round(riskSeries.reduce((a, b) => a + b.risk_pct, 0) / risk_sample, 4)
+  );
+  const biggest = pick(() =>
+    riskSeries.reduce((a, b) => (b.risk_pct > a.risk_pct ? b : a))
+  );
+  const risk_max_cash = biggest ? biggest.risk_cash : null;
+  const risk_max_pct = biggest ? biggest.risk_pct : null;
+  const risk_max_trade = biggest ?? null;
+  const last = pick(() => riskSeries[risk_sample - 1]);
+  const risk_last_cash = last ? last.risk_cash : null;
+  const risk_last_pct = last ? last.risk_pct : null;
   const risk_over_count =
     riskLimitPct != null
-      ? riskPctSeries.filter((x) => x.pct * 100 > riskLimitPct + 1e-9).length
+      ? riskSeries.filter((x) => x.risk_pct * 100 > riskLimitPct + 1e-9).length
       : 0;
-  const risk_day_pct = round(dayRisk.get(currentDay) || 0, 4);
+  const risk_day_cash = round(dayRisk.get(currentDay) || 0);
+  const risk_day_pct = current_equity > 0 ? round(risk_day_cash / current_equity, 4) : 0;
   const risk_used_pct =
     riskLimitPct != null && riskLimitPct > 0 && risk_max_pct != null
       ? round((risk_max_pct * 100) / riskLimitPct, 4)
       : null;
+  // Most recent first, capped — the table is for spotting outliers, not a ledger.
+  const risk_trades = riskSeries.slice(-10).reverse();
 
   const breaches = [];
   if (day_loss_used_pct != null && day_loss_used_pct >= 1)
@@ -909,22 +903,21 @@ export function propStats(q) {
     safety_buffer_pct: safetyBufferPct,
     safety_buffer_amount: safetyBufferAmount,
     safety_buffer_met: safetyBufferMet,
-    consistency_required_profit,
-    consistency_day_max_today,
-    payout_required_profit,
-    payout_required_equity,
-    payout_profit_gap,
-    payout_progress_pct,
-    payout_eligible,
     risk_limit_pct: riskLimitPct,
     risk_limit_cash,
     risk_sample,
+    risk_avg_cash,
     risk_avg_pct,
+    risk_max_cash,
     risk_max_pct,
+    risk_max_trade,
+    risk_last_cash,
     risk_last_pct,
     risk_over_count,
+    risk_day_cash,
     risk_day_pct,
     risk_used_pct,
+    risk_trades,
     max_inactivity_days: maxInactivityDays,
     last_trade_date: lastTradeDate,
     days_since_last_trade: daysSinceLastTrade,
