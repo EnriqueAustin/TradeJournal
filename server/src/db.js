@@ -401,6 +401,12 @@ export function migrate() {
     }
   }
 
+  // Normalise plan keys that were stored under an earlier name, so accounts keep
+  // resolving to their preset (and its rules) after a rename.
+  db.exec(
+    "UPDATE accounts SET prop_plan = 'instant' WHERE prop_plan = 'instant_funded'"
+  );
+
   // One-shot backfill: recompute `session` for every trade under the new
   // DST-aware, "NY-wins" rule in util.js sessionFromTime (retires the old fixed
   // UTC "overlap" band). Guarded by user_version so it runs once per DB.

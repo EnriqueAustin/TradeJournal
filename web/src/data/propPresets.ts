@@ -188,8 +188,17 @@ export function getPlanOptions(firmKey: string) {
   }));
 }
 
+// Plan keys that were stored under an earlier name. Accounts saved with one of
+// these still resolve to the current preset instead of silently losing their
+// firm/plan label.
+const LEGACY_PLAN_KEYS: Record<string, string> = {
+  instant_funded: 'instant',
+};
+
 export function getPreset(firmKey: string, planKey: string): PropPlanPreset | null {
-  return PROP_FIRMS[firmKey]?.plans[planKey] ?? null;
+  const plans = PROP_FIRMS[firmKey]?.plans;
+  if (!plans) return null;
+  return plans[planKey] ?? plans[LEGACY_PLAN_KEYS[planKey]] ?? null;
 }
 
 export function getPhaseRules(
