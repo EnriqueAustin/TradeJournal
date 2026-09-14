@@ -1,4 +1,5 @@
 import { db } from './db.js';
+import { riskCashAtEntry } from './util.js';
 
 // Build a WHERE clause + params from common query filters.
 // Date range (from/to) applies to the realized date = date(exit_time).
@@ -642,7 +643,8 @@ export function propStats(q) {
   const { where, params } = buildFilter({ ...q, account: account.id });
   const rows = db
     .prepare(
-      `SELECT COALESCE(exit_time, entry_time) AS t, net_pnl, hold_time_sec FROM trades ${where}
+      `SELECT id, COALESCE(exit_time, entry_time) AS t, net_pnl, gross_pnl, hold_time_sec,
+              instrument, direction, entry_price, exit_price, stop_price, size FROM trades ${where}
        ORDER BY COALESCE(exit_time, entry_time) ASC, id ASC`
     )
     .all(params);
@@ -654,7 +656,29 @@ export function propStats(q) {
   let max_dd = 0; // largest peak-to-trough (static) or trailing high-water mark drop
   let trailingFloor = 0; // for trailing DD: floor = hwm - limit (rises, never falls)
   const dayMap = new Map();
+  // Position-sizing exposure: dollar risk at entry vs the equity standing before
+  // the trade, so a 1%-per-trade cap can be checked against what was actually
+  // sized. Only trades carrying a stop can be measured.
+  const riskSeries = []; // one entry per trade that carried a usable stop
+  const dayRisk = new Map(); // day -> summed dollar risk opened that day
   for (const r of rows) {
+    const day0 = (r.t || '').slice(0, 10);
+    const equityBefore = starting_balance + cum;
+    const riskCash = riskCashAtEntry(r);
+    if (riskCash != null && equityBefore > 0) {
+      riskSeries.push({
+        id: r.id,
+        day: day0,
+        instrument: r.instrument,
+        direction: r.direction,
+        size: r.size,
+        stop_distance: round(Math.abs((r.entry_price ?? 0) - (r.stop_price ?? 0)), 4),
+        risk_cash: round(riskCash),
+        risk_pct: round(riskCash / equityBefore, 4),
+        net_pnl: round(r.net_pnl || 0),
+      });
+      if (day0) dayRisk.set(day0, (dayRisk.get(day0) || 0) + riskCash);
+    }
     cum += r.net_pnl || 0;
     if (cum > peak) peak = cum;
     const dd = peak - cum;
@@ -782,6 +806,43 @@ export function propStats(q) {
   // Trading days count for min-days rule
   const trading_days_count = dayMap.size;
 
+  // ---- Position sizing vs the per-trade risk cap -------------------------
+  // Dollar risk at entry is the number that matters at the platform ticket, so
+  // it leads; the percent is the same figure against the equity standing before
+  // that trade. Only trades that recorded a stop can be measured.
+  const riskLimitPct = account.default_risk_pct ?? null;
+  const risk_sample = riskSeries.length;
+  const risk_limit_cash =
+    riskLimitPct != null ? round(current_equity * (riskLimitPct / 100)) : null;
+  const pick = (fn) => (risk_sample ? fn() : null);
+  const risk_avg_cash = pick(() =>
+    round(riskSeries.reduce((a, b) => a + b.risk_cash, 0) / risk_sample)
+  );
+  const risk_avg_pct = pick(() =>
+    round(riskSeries.reduce((a, b) => a + b.risk_pct, 0) / risk_sample, 4)
+  );
+  const biggest = pick(() =>
+    riskSeries.reduce((a, b) => (b.risk_pct > a.risk_pct ? b : a))
+  );
+  const risk_max_cash = biggest ? biggest.risk_cash : null;
+  const risk_max_pct = biggest ? biggest.risk_pct : null;
+  const risk_max_trade = biggest ?? null;
+  const last = pick(() => riskSeries[risk_sample - 1]);
+  const risk_last_cash = last ? last.risk_cash : null;
+  const risk_last_pct = last ? last.risk_pct : null;
+  const risk_over_count =
+    riskLimitPct != null
+      ? riskSeries.filter((x) => x.risk_pct * 100 > riskLimitPct + 1e-9).length
+      : 0;
+  const risk_day_cash = round(dayRisk.get(currentDay) || 0);
+  const risk_day_pct = current_equity > 0 ? round(risk_day_cash / current_equity, 4) : 0;
+  const risk_used_pct =
+    riskLimitPct != null && riskLimitPct > 0 && risk_max_pct != null
+      ? round((risk_max_pct * 100) / riskLimitPct, 4)
+      : null;
+  // Most recent first, capped — the table is for spotting outliers, not a ledger.
+  const risk_trades = riskSeries.slice(-10).reverse();
+
   const breaches = [];
   if (day_loss_used_pct != null && day_loss_used_pct >= 1)
     breaches.push('daily_loss');
@@ -842,6 +903,21 @@ export function propStats(q) {
     safety_buffer_pct: safetyBufferPct,
     safety_buffer_amount: safetyBufferAmount,
     safety_buffer_met: safetyBufferMet,
+    risk_limit_pct: riskLimitPct,
+    risk_limit_cash,
+    risk_sample,
+    risk_avg_cash,
+    risk_avg_pct,
+    risk_max_cash,
+    risk_max_pct,
+    risk_max_trade,
+    risk_last_cash,
+    risk_last_pct,
+    risk_over_count,
+    risk_day_cash,
+    risk_day_pct,
+    risk_used_pct,
+    risk_trades,
     max_inactivity_days: maxInactivityDays,
     last_trade_date: lastTradeDate,
     days_since_last_trade: daysSinceLastTrade,

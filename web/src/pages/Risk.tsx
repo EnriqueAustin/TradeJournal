@@ -10,6 +10,7 @@ import {
   formatDate,
   formatDateTime,
   formatDuration,
+  formatNumber,
   signClass,
 } from '../utils/format';
 import type { PropStats } from '../types';
@@ -232,6 +233,166 @@ function pctToStatus(pct: number | null): RuleStatus {
   if (pct >= 1) return 'fail';
   if (pct >= 0.8) return 'warn';
   return 'pass';
+}
+
+// Per-trade position-size guard against the account's risk cap (default 1%).
+// Risk at entry is stop distance x cash-per-point, so only trades that recorded
+// a stop are measurable. Dollars lead — that is the number on the order ticket —
+// with the percent of equity beside it, and the per-trade rows below make it
+// obvious which trade set the high-water mark (and whether its stop is right).
+function PositionSizeGuard({ p, currency }: { p: PropStats; currency: string }) {
+  const [open, setOpen] = useState(false);
+  const limitPct = p.risk_limit_pct;
+  if (limitPct == null || limitPct <= 0) return null;
+
+  const used = p.risk_used_pct;
+  const c = meterColor(used);
+  const width = used == null ? 0 : Math.min(100, Math.max(0, used * 100));
+  const over = (pct: number | null) => pct != null && pct * 100 > limitPct + 1e-9;
+  const cap = p.risk_limit_cash;
+  const worst = p.risk_max_trade;
+
+  return (
+    <SectionCard
+      title={`Position Size Guard (${limitPct}% max risk)`}
+      right={
+        <span className="text-xs text-slate-500">
+          {p.risk_sample > 0
+            ? `${p.risk_sample} trade${p.risk_sample === 1 ? '' : 's'} with a stop`
+            : 'no stops recorded'}
+        </span>
+      }
+    >
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatTile
+          label={`Max risk / trade (${limitPct}%)`}
+          value={formatMoney(cap, currency)}
+          sub={`of ${formatMoney(p.current_equity, currency)} equity`}
+          valueClass="text-cyan-200"
+        />
+        <StatTile
+          label="Largest risk taken"
+          value={p.risk_max_cash != null ? formatMoney(p.risk_max_cash, currency) : '—'}
+          sub={
+            worst
+              ? `${formatPct(worst.risk_pct)} · ${worst.size} lots ${worst.instrument} · ${formatNumber(worst.stop_distance, 2)} pt stop`
+              : 'needs a trade with a stop'
+          }
+          valueClass={over(p.risk_max_pct) ? 'text-red-400' : 'text-slate-100'}
+        />
+        <StatTile
+          label="Average risk"
+          value={p.risk_avg_cash != null ? formatMoney(p.risk_avg_cash, currency) : '—'}
+          sub={
+            p.risk_avg_pct != null
+              ? `${formatPct(p.risk_avg_pct)} of equity${p.risk_last_cash != null ? ` · last ${formatMoney(p.risk_last_cash, currency)}` : ''}`
+              : 'no sample'
+          }
+          valueClass={over(p.risk_avg_pct) ? 'text-amber-400' : 'text-slate-100'}
+        />
+        <StatTile
+          label="Risk opened today"
+          value={formatMoney(p.risk_day_cash, currency)}
+          sub={`${formatPct(p.risk_day_pct)} of equity at risk today`}
+          valueClass={over(p.risk_day_pct) ? 'text-amber-400' : 'text-slate-100'}
+        />
+      </div>
+
+      <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+        <div className="flex items-baseline justify-between">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            Largest position vs the {formatMoney(cap, currency)} cap
+          </span>
+          <span className={`num text-xs font-semibold ${c.text}`}>
+            {used == null ? 'no data' : `${(used * 100).toFixed(0)}% of cap`}
+          </span>
+        </div>
+        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+          <div
+            className={`h-full rounded-full transition-all ${c.bar}`}
+            style={{ width: `${width}%` }}
+          />
+        </div>
+        <div className="num mt-1.5 text-[11px] text-slate-500">
+          {p.risk_sample === 0
+            ? 'Record stop levels on your trades to measure sizing against the cap.'
+            : p.risk_over_count > 0
+              ? `${p.risk_over_count} of ${p.risk_sample} measured trades were sized above ${formatMoney(cap, currency)}.`
+              : `All ${p.risk_sample} measured trades stayed within ${formatMoney(cap, currency)}.`}
+        </div>
+      </div>
+
+      {p.risk_trades.length > 0 && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="flex items-center gap-1.5 text-xs text-slate-400 transition-colors hover:text-slate-200"
+            aria-expanded={open}
+          >
+            <span className={`inline-block transition-transform ${open ? 'rotate-90' : ''}`}>
+              ▸
+            </span>
+            Risk per trade ({p.risk_trades.length} most recent)
+          </button>
+          {open && (
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full min-w-[560px] text-xs">
+                <thead>
+                  <tr className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+                    <th className="py-1 pr-3 font-medium">Day</th>
+                    <th className="py-1 pr-3 font-medium">Instrument</th>
+                    <th className="py-1 pr-3 text-right font-medium">Lots</th>
+                    <th className="py-1 pr-3 text-right font-medium">Stop</th>
+                    <th className="py-1 pr-3 text-right font-medium">Risk</th>
+                    <th className="py-1 pr-3 text-right font-medium">% eq</th>
+                    <th className="py-1 text-right font-medium">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {p.risk_trades.map((t) => (
+                    <tr key={t.id} className="border-t border-slate-800/60">
+                      <td className="num py-1.5 pr-3 text-slate-400">{formatDate(t.day)}</td>
+                      <td className="py-1.5 pr-3 text-slate-300">
+                        {t.instrument}{' '}
+                        <span className={t.direction === 'long' ? 'text-emerald-500' : 'text-red-500'}>
+                          {t.direction === 'long' ? 'L' : 'S'}
+                        </span>
+                      </td>
+                      <td className="num py-1.5 pr-3 text-right text-slate-300">
+                        {formatNumber(t.size, 2)}
+                      </td>
+                      <td className="num py-1.5 pr-3 text-right text-slate-400">
+                        {formatNumber(t.stop_distance, 2)}
+                      </td>
+                      <td
+                        className={`num py-1.5 pr-3 text-right font-medium ${over(t.risk_pct) ? 'text-red-400' : 'text-slate-200'}`}
+                      >
+                        {formatMoney(t.risk_cash, currency)}
+                      </td>
+                      <td
+                        className={`num py-1.5 pr-3 text-right ${over(t.risk_pct) ? 'text-red-400' : 'text-slate-400'}`}
+                      >
+                        {formatPct(t.risk_pct)}
+                      </td>
+                      <td className={`num py-1.5 text-right ${signClass(t.net_pnl)}`}>
+                        {formatMoney(t.net_pnl, currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-2 text-[11px] leading-snug text-slate-500">
+                Risk is the recorded stop distance × the cash value of a 1-point move at that
+                size. A row that looks too big is usually a stop that was moved or imported
+                wrong — check it on the trade.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </SectionCard>
+  );
 }
 
 function PropRulesCompliance({ p, currency }: { p: PropStats; currency: string }) {
@@ -535,13 +696,18 @@ export default function Risk() {
       {/* Prop rules compliance — full rule-by-rule status */}
       {p && <PropRulesCompliance p={p} currency={currency} />}
 
+      {/* Position sizing vs the per-trade risk cap */}
+      {p && <PositionSizeGuard p={p} currency={currency} />}
+
       {/* Position-size / risk calculator */}
       <SectionCard
         title="Position Size Calculator"
         right={<span className="text-xs text-slate-500">lot size from risk %</span>}
       >
         <RiskCalculator
-          key={filters.account ?? 'all'}
+          /* remount when the account (or its loaded equity) changes so the
+             calculator's prefilled equity is never stale */
+          key={`${filters.account ?? 'all'}-${p?.current_equity ?? ''}`}
           currency={currency}
           equity={p?.current_equity ?? null}
         />

@@ -250,3 +250,25 @@ export function normalizeInstrument(sym) {
   if (nas.includes(base) || nas.includes(s)) return 'US100';
   return base || s;
 }
+
+// Dollar risk at entry: stop distance × cash-per-price-point. The cash value of
+// a 1-point move (lot size × contract multiplier) is inferred from the realized
+// trade the same way computeRMultiple does it, so no per-symbol table is needed.
+// Returns null when the trade carries no usable stop.
+export function riskCashAtEntry({
+  entry_price,
+  exit_price,
+  stop_price,
+  size,
+  gross_pnl,
+}) {
+  if (stop_price == null || entry_price == null) return null;
+  const stopDist = Math.abs(entry_price - stop_price);
+  if (!stopDist) return null;
+  const move = exit_price != null ? Math.abs(exit_price - entry_price) : 0;
+  if (move > 0 && gross_pnl != null && gross_pnl !== 0) {
+    return stopDist * (Math.abs(gross_pnl) / move);
+  }
+  if (size) return stopDist * Math.abs(size);
+  return null;
+}

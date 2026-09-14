@@ -87,6 +87,26 @@ function SessionTimeline({
     })
     .filter((m): m is { t: Trade; pos: number } => m !== null);
 
+  // Per-hour segment breakdown: avg win / avg loss for entries in that hour.
+  const segments = Array.from({ length: win.len }, (_, i) => ({
+    start: win.start + i,
+    wins: 0,
+    losses: 0,
+    grossWin: 0,
+    grossLoss: 0,
+  }));
+  for (const m of marks) {
+    const seg = segments[Math.min(win.len - 1, Math.floor(m.pos * win.len))];
+    if (m.t.net_pnl > 0) {
+      seg.wins++;
+      seg.grossWin += m.t.net_pnl;
+    } else if (m.t.net_pnl < 0) {
+      seg.losses++;
+      seg.grossLoss += m.t.net_pnl;
+    }
+  }
+  const cols = { gridTemplateColumns: `repeat(${win.len}, minmax(0, 1fr))` };
+
   return (
     <div className="border-b border-slate-800 px-6 py-4">
       <div className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-wide text-slate-500">
@@ -94,6 +114,17 @@ function SessionTimeline({
         <span className="num">
           {hh(win.start)} → {hh(win.start + win.len)}
         </span>
+      </div>
+      {/* segment time labels */}
+      <div className="mb-1 grid" style={cols}>
+        {segments.map((s) => (
+          <div
+            key={s.start}
+            className="num text-center text-[10px] text-slate-400"
+          >
+            {hh(s.start)}
+          </div>
+        ))}
       </div>
       <div className="relative h-9 rounded-lg border border-slate-800 bg-slate-950/40">
         {/* hour gridlines */}
@@ -118,6 +149,43 @@ function SessionTimeline({
             style={{ left: `${m.pos * 100}%` }}
           />
         ))}
+      </div>
+      {/* per-segment avg win / avg loss */}
+      <div>
+        <div className="mt-2 grid gap-1" style={cols}>
+          {segments.map((s) => {
+            const n = s.wins + s.losses;
+            return (
+              <div
+                key={s.start}
+                className="rounded-md border border-slate-800 bg-slate-950/40 px-1 py-1.5 text-center"
+                title={`${hh(s.start)}–${hh(s.start + 1)} · ${s.wins}W / ${s.losses}L`}
+              >
+                {n === 0 ? (
+                  <div className="text-[10px] text-slate-600">—</div>
+                ) : (
+                  <>
+                    <div className="num text-[10px] text-slate-400">
+                      {s.wins}W/{s.losses}L
+                    </div>
+                    <div className="num text-[10px] text-emerald-400">
+                      {s.wins ? formatMoney(s.grossWin / s.wins, currency) : '—'}
+                    </div>
+                    <div className="num text-[10px] text-red-400">
+                      {s.losses
+                        ? formatMoney(s.grossLoss / s.losses, currency)
+                        : '—'}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="mt-1 flex gap-3 text-[10px] text-slate-500">
+        <span className="text-emerald-400/80">green = avg win</span>
+        <span className="text-red-400/80">red = avg loss</span>
       </div>
     </div>
   );
