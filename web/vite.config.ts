@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+declare const process: { env: Record<string, string | undefined> };
+
 // API_PORT lets parallel worktrees QA against their own server without clashing on :4000.
 const api = `http://localhost:${process.env.API_PORT || 4000}`;
 
