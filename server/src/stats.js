@@ -1,5 +1,6 @@
 import { db } from './db.js';
-import { riskCashAtEntry } from './util.js';
+import { riskCashAtEntry, normalizeInstrument } from './util.js';
+import { exitAnalysisFor } from './excursion.js';
 
 // Build a WHERE clause + params from common query filters.
 // Date range (from/to) applies to the realized date = date(exit_time).
@@ -1297,6 +1298,90 @@ export function optimizer(q) {
     baseline_avg_r: sample.length ? round(baseline_r / sample.length, 4) : 0,
     uplift_r:
       best && sample.length ? round(best.total_r - baseline_r, 4) : null,
+  };
+}
+
+// GET /api/stats/exits — "price after exit" across the filtered trades. Runs the
+// per-trade exit analysis (excursion.js) over stored bars and aggregates it.
+export function exitStats(q) {
+  const { where, params } = buildFilter(q);
+  const rows = db.prepare(`SELECT * FROM trades ${where} ORDER BY exit_time`).all(params);
+  const analyses = [];
+  for (const t of rows) {
+    const a = exitAnalysisFor(db, t, normalizeInstrument);
+    if (a) analyses.push({ ...a, net_pnl: t.net_pnl, instrument: t.instrument });
+  }
+  return { total_scanned: rows.length, ...aggregateExits(analyses) };
+}
+
+// Aggregate per-trade exit analyses (pure). Left-on-table = best favorable move
+// within the longest horizon after exit; "continued 1R" = that move ≥ 1R.
+export function aggregateExits(analyses) {
+  const mean = (xs) => {
+    const v = xs.filter((x) => x != null && Number.isFinite(x));
+    return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
+  };
+  const summarize = (list) => {
+    const withR = list.filter((a) => a.continued_1r != null);
+    const cont = withR.filter((a) => a.continued_1r).length;
+    return {
+      sample: list.length,
+      avg_left_usd: round(mean(list.map((a) => a.left_on_table.usd)), 2),
+      avg_left_r: round(mean(list.map((a) => a.left_on_table.r)), 3),
+      r_sample: withR.length,
+      continued_1r: cont,
+      continued_1r_pct: withR.length ? round(cont / withR.length, 4) : null,
+    };
+  };
+
+  const minutes = analyses[0]?.horizons.map((h) => h.minutes) ?? [];
+  const horizons = minutes.map((m, i) => {
+    const hs = analyses.map((a) => a.horizons[i]).filter((h) => h && h.move != null);
+    return {
+      minutes: m,
+      sample: hs.length,
+      avg_move_usd: round(mean(hs.map((h) => h.move_usd)), 2),
+      avg_move_r: round(mean(hs.map((h) => h.move_r)), 3),
+      avg_best_usd: round(mean(hs.map((h) => h.best_usd)), 2),
+      avg_best_r: round(mean(hs.map((h) => h.best_r)), 3),
+      pct_continued: hs.length ? round(hs.filter((h) => h.move > 0).length / hs.length, 4) : null,
+    };
+  });
+
+  const bySession = new Map();
+  for (const a of analyses) {
+    const k = a.session || 'off';
+    if (!bySession.has(k)) bySession.set(k, []);
+    bySession.get(k).push(a);
+  }
+
+  const hold = { target: 0, stop: 0, neither: 0, ambiguous: 0, already: 0 };
+  for (const a of analyses) if (a.hold_to_target) hold[a.hold_to_target]++;
+
+  const trades = analyses
+    .map((a) => ({
+      id: a.trade_id,
+      instrument: a.instrument ?? null,
+      direction: a.direction,
+      session: a.session,
+      exit_time: a.exit_time,
+      net_pnl: a.net_pnl ?? null,
+      left_usd: a.left_on_table.usd,
+      left_r: a.left_on_table.r,
+      r_kind: a.r_kind,
+      continued_1r: a.continued_1r,
+      hold_to_target: a.hold_to_target,
+    }))
+    .sort((x, y) => (y.left_usd ?? -Infinity) - (x.left_usd ?? -Infinity));
+
+  return {
+    ...summarize(analyses),
+    horizons,
+    by_session: [...bySession.entries()]
+      .map(([key, list]) => ({ key, ...summarize(list) }))
+      .sort((a, b) => b.sample - a.sample),
+    hold_to_target: hold,
+    trades,
   };
 }
 

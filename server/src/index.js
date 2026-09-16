@@ -18,6 +18,7 @@ import { captureSnapshot } from './research/snapshot.js';
 import { parseImport } from './import.js';
 import { parseBarsCsv, getBarsForTf, upsertBars, TF_MINUTES, TF_MS, tfMs, isKnownTf } from './bars.js';
 import { fetchOandaM1, fetchOandaCandles, oandaConfigured, oandaSymbol } from './marketdata.js';
+import { refreshExcursions, exitAnalysisFor } from './excursion.js';
 import { aiReview, autoTagTrades, getAiConfig } from './ai.js';
 import {
   safeRefresh,
@@ -52,6 +53,7 @@ import {
   streaks,
   tilt,
   optimizer,
+  exitStats,
   portfolio,
   wickEdge,
   reportCard,
@@ -182,7 +184,47 @@ function insertTradeTx(t) {
     } catch (_) { /* never block trade insertion */ }
   }
 
+  // Auto MAE/MFE from any bars already stored (manual/EA/backtest trades inside
+  // a fetched range). Bars fetched later refresh it again.
+  try {
+    refreshExcursionsByIds([tradeId]);
+  } catch (_) { /* never block trade insertion */ }
+
   return tradeId;
+}
+
+// Recompute auto MAE/MFE for trades by id (null/auto values only). → count.
+function refreshExcursionsByIds(ids) {
+  const list = [...new Set(ids.map(Number).filter(Boolean))];
+  if (!list.length) return 0;
+  const stmt = db.prepare('SELECT * FROM trades WHERE id = ?');
+  return refreshExcursions(db, list.map((id) => stmt.get(id)).filter(Boolean), normalizeInstrument);
+}
+
+// Recompute auto MAE/MFE for every trade on `instrument` whose holding window
+// overlaps [fromIso, toIso] — after new bars land for that range.
+function refreshExcursionsInRange(instrument, fromIso, toIso) {
+  const rows = db
+    .prepare(
+      `SELECT * FROM trades
+       WHERE instrument = ? AND exit_time IS NOT NULL
+         AND exit_time >= ? AND entry_time <= ?
+         AND (mae IS NULL OR mae_auto = 1 OR mfe IS NULL OR mfe_auto = 1)`
+    )
+    .all(normalizeInstrument(instrument), fromIso, toIso);
+  return refreshExcursions(db, rows, normalizeInstrument);
+}
+
+// Fire-and-forget: pull bars around freshly created trades, then fill their
+// MAE/MFE. Used by the manual-create and EA paths, which respond immediately.
+function fetchBarsThenExcursions(ids) {
+  if (!oandaConfigured()) return;
+  const stmt = db.prepare('SELECT * FROM trades WHERE id = ?');
+  const trades = ids.map((id) => stmt.get(id)).filter((t) => t && t.exit_time);
+  if (!trades.length) return;
+  autoFetchBarsForTrades(trades)
+    .then(() => refreshExcursionsByIds(ids))
+    .catch(() => { /* best-effort */ });
 }
 
 function accountExists(id) {
@@ -929,9 +971,17 @@ app.patch('/api/trades/:id', (req, res) => {
       params[k] = k === 'setup_id' ? (v == null ? null : Number(v)) : v;
     }
   }
+  // A hand-entered MAE/MFE is no longer auto-derived; clearing it (null) hands
+  // it back to the auto fill below.
+  if ('mae' in b) sets.push('mae_auto = 0');
+  if ('mfe' in b) sets.push('mfe_auto = 0');
   if (sets.length) {
     db.prepare(`UPDATE trades SET ${sets.join(', ')} WHERE id = @id`).run(params);
   }
+  // Price/direction/instrument edits change the excursion; recompute auto values.
+  try {
+    refreshExcursionsByIds([id]);
+  } catch (_) { /* best-effort */ }
   // Recompute r_multiple after an edit. A real stop gives a stop-based R (uses
   // realized $/point, so it's correct across instruments); otherwise fall back to
   // the account's modeled risk and flag it derived, so correcting a stop later
@@ -1468,6 +1518,7 @@ app.post('/api/trades', (req, res) => {
       bt_session_id: null,
     });
     const row = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
+    fetchBarsThenExcursions([id]);
     res.status(201).json(row);
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) });
@@ -1558,6 +1609,16 @@ app.get('/api/stats/streaks', (req, res) => res.json(streaks(req.query)));
 app.get('/api/stats/tilt', (req, res) => res.json(tilt(req.query)));
 app.get('/api/stats/wick', (req, res) => res.json(wickEdge(req.query)));
 app.get('/api/stats/optimizer', (req, res) => res.json(optimizer(req.query)));
+app.get('/api/stats/exits', (req, res) => res.json(exitStats(req.query)));
+
+// GET /api/trades/:id/exit-analysis → where price went after this trade's exit.
+// `analysis` is null when the trade is ineligible or has no post-exit bars.
+app.get('/api/trades/:id/exit-analysis', (req, res) => {
+  const id = Number(req.params.id);
+  const trade = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
+  if (!trade) return res.status(404).json({ error: 'trade not found' });
+  res.json({ trade_id: id, analysis: exitAnalysisFor(db, trade, normalizeInstrument) });
+});
 app.get('/api/stats/portfolio', (req, res) => res.json(portfolio(req.query)));
 app.get('/api/stats/reportcard', (req, res) => res.json(reportCard(req.query)));
 app.get('/api/stats/tags', (req, res) => res.json(tagStats(req.query)));
@@ -1807,6 +1868,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
 
     let inserted = 0;
     let skipped = 0;
+    const insertedIds = [];
     const tx = db.transaction((list) => {
       for (const t of list) {
         if (
@@ -1818,7 +1880,7 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
           skipped++;
           continue;
         }
-        insertTradeTx(t);
+        insertedIds.push(insertTradeTx(t));
         inserted++;
       }
     });
@@ -1832,7 +1894,15 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
       /* never fail an import over bars */
     }
 
-    res.json({ inserted, skipped, account_id: accountId, bars });
+    // Now that bars are stored, derive MAE/MFE for the new trades.
+    let excursions = 0;
+    try {
+      excursions = refreshExcursionsByIds(insertedIds);
+    } catch {
+      /* best-effort */
+    }
+
+    res.json({ inserted, skipped, account_id: accountId, bars, excursions });
   } catch (err) {
     res.status(500).json({ error: String(err.message || err) });
   }
@@ -1899,6 +1969,12 @@ app.post('/api/bars/import', upload.single('file'), (req, res) => {
     });
     tx(bars);
 
+    if (bars.length) {
+      try {
+        refreshExcursionsInRange(instrument, bars[0].t, bars[bars.length - 1].t);
+      } catch { /* best-effort */ }
+    }
+
     const total = db
       .prepare('SELECT COUNT(*) AS c FROM price_bars WHERE instrument = ? AND tf = ?')
       .get(normalizeInstrument(instrument), tf).c;
@@ -1953,6 +2029,9 @@ app.post('/api/bars/fetch', async (req, res) => {
           const s5 = await fetchOandaCandles(inst, from, to, FINE_TF);
           row.s5 = upsertBars(inst, FINE_TF, s5);
         }
+        try {
+          row.excursions = refreshExcursionsInRange(inst, from.toISOString(), to.toISOString());
+        } catch { /* best-effort */ }
         results.push(row);
       } catch (e) {
         results.push({ instrument: inst, error: String(e.message || e) });
@@ -2086,7 +2165,8 @@ app.post('/api/trades/:id/bars/refetch', async (req, res) => {
     return res.status(400).json({ error: 'OANDA not configured' });
   try {
     const bars = await autoFetchBarsForTrades([trade]);
-    res.json({ trade_id: id, bars });
+    const excursions = refreshExcursionsByIds([id]);
+    res.json({ trade_id: id, bars, excursions });
   } catch (e) {
     res.status(502).json({ error: String(e.message || e) });
   }
@@ -2539,6 +2619,7 @@ function webhookTrade(req, res) {
     return res.status(200).json({ inserted: 0, skipped: 1 });
   }
   const id = insertTradeTx(trade);
+  fetchBarsThenExcursions([id]);
   res.status(201).json({ inserted: 1, id });
 }
 
