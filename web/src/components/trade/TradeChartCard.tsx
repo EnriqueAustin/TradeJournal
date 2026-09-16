@@ -117,7 +117,7 @@ export default function TradeChartCard({
     <div className="card p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-slate-200">Chart</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
             {CHART_TFS.map((t) => (
               <button

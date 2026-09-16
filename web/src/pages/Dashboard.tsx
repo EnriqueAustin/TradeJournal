@@ -503,7 +503,7 @@ export default function Dashboard() {
       </div>
 
       {/* Session heatmap + hourly P&L + sessions clock */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SectionCard
           title="Session Heatmap"
           right={
@@ -543,7 +543,7 @@ export default function Dashboard() {
 
         <SectionCard
           title="Sessions"
-          className="lg:col-span-2 xl:col-span-1"
+          className="lg:col-span-2"
           right={<span className="text-[11px] text-slate-500">local · {DISPLAY_TZ.split('/')[1]?.replace('_', ' ')}</span>}
         >
           <SessionsClock />

@@ -48,7 +48,7 @@ export default function RecentTradesCard({
                 <span className="block truncate text-[13px] font-medium text-slate-200">
                   {t.instrument}
                 </span>
-                <span className="num block text-[11px] text-slate-500">
+                <span className="num block whitespace-nowrap text-[11px] text-slate-500">
                   {shortTime(t.exit_time ?? t.entry_time)}
                 </span>
               </span>
