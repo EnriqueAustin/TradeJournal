@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import DailyPlanCard from '../components/DailyPlanCard';
 import MissedTradesCard from '../components/MissedTradesCard';
-import type { JournalDay } from '../types';
+import type { Filters, JournalDay } from '../types';
 import {
   formatMoney,
   formatR,
@@ -83,6 +83,37 @@ export default function Journal() {
     load();
   }, [load]);
 
+  // Most recent trading day on or before the viewed day's account (the server
+  // falls back to the first account when none is picked, so mirror that).
+  // Trades sort newest-realized first; the journal buckets on the same date.
+  const [lastDay, setLastDay] = useState<string | null>(null);
+  const journalAccount = account ?? accounts[0]?.id ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    const f: Filters = {
+      account: journalAccount,
+      instrument: 'All',
+      session: 'All',
+      setup: 'All',
+      from: '',
+      to: today(),
+      rMin: '',
+      rMax: '',
+    };
+    api
+      .getTrades(f, 1, 0)
+      .then((r) => {
+        const t = r.rows[0];
+        if (!cancelled) setLastDay((t?.exit_time ?? t?.entry_time ?? '').slice(0, 10) || null);
+      })
+      .catch(() => {
+        if (!cancelled) setLastDay(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [journalAccount]);
+
   const saveRecap = async () => {
     setSavingRecap(true);
     setRecapMsg(null);
@@ -142,6 +173,16 @@ export default function Journal() {
           <button className="btn px-2 py-1 text-xs" onClick={() => setDay(today())} disabled={isToday}>
             Today
           </button>
+          {lastDay && (
+            <button
+              className="btn px-2 py-1 text-xs"
+              onClick={() => setDay(lastDay)}
+              disabled={day === lastDay}
+              title="Jump to the most recent day with trades"
+            >
+              Last trading day
+            </button>
+          )}
           <Link className="btn px-2 py-1 text-xs" to={`/report/week/${day}`}>
             Week review →
           </Link>
@@ -149,6 +190,19 @@ export default function Journal() {
       </div>
 
       {err && <div className="card border-red-500/30 p-3 text-sm text-red-400">{err}</div>}
+
+      {!loading && data && trades.length === 0 && lastDay && lastDay !== day && (
+        <button
+          className="card flex items-center justify-between gap-3 border-amber-500/40 p-3 text-left text-sm hover:border-amber-500"
+          onClick={() => setDay(lastDay)}
+        >
+          <span className="text-slate-300">
+            No trades on this day. Last trading day was{' '}
+            <span className="font-semibold text-amber-400">{weekday(lastDay)}</span>.
+          </span>
+          <span className="text-amber-400">Open →</span>
+        </button>
+      )}
 
       {/* Plan (editable, driven by this page's day) */}
       <DailyPlanCard account={account} currency={currency} day={day} hideDatePicker />
