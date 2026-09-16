@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { isTypingTarget, saveTradesQuery } from '../utils/tradeNav';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
@@ -184,6 +185,10 @@ export default function Trades() {
     [sort, dir, debouncedSearch, direction, outcome, needs]
   );
   const queryKey = JSON.stringify(query);
+  // Trade detail steps prev/next through the list in this same order.
+  useEffect(() => {
+    saveTradesQuery(query);
+  }, [query]);
 
   // Reset to first page whenever the filters or the list query change.
   const filtersKey = filterKey(filters);
@@ -236,6 +241,39 @@ export default function Trades() {
     Boolean(search) || direction !== '' || outcome !== '' || needs.length > 0;
 
   const rows: Trade[] = data?.rows ?? [];
+
+  // Keyboard row cursor: j/↓ and k/↑ move it, Enter opens the trade. Reset
+  // whenever the visible rows change.
+  const [cursor, setCursor] = useState(-1);
+  const tbodyRef = useRef<HTMLTableSectionElement>(null);
+  useEffect(() => {
+    setCursor(-1);
+  }, [data]);
+  useEffect(() => {
+    if (cursor < 0) return;
+    const row = tbodyRef.current?.children[cursor] as HTMLElement | undefined;
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [cursor]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (showAdd || isTypingTarget(e) || rows.length === 0) return;
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        setCursor((c) => Math.min(rows.length - 1, c + 1));
+      } else if (e.key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setCursor((c) => Math.max(0, c < 0 ? 0 : c - 1));
+      } else if (e.key === 'Enter' && cursor >= 0 && rows[cursor]) {
+        // Let Enter on a focused button/link do its own thing.
+        const tag = (e.target as HTMLElement | null)?.tagName;
+        if (tag === 'BUTTON' || tag === 'A') return;
+        e.preventDefault();
+        navigate(`/trades/${rows[cursor].id}`);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rows, cursor, showAdd, navigate]);
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -518,9 +556,10 @@ export default function Trades() {
               </button>
             </div>
           )}
-          <div className="overflow-x-auto">
+          {/* Own scroll box so the header can stick while the rows scroll. */}
+          <div className="max-h-[calc(100vh-16rem)] min-h-[16rem] overflow-auto">
             <table className="w-full min-w-[880px] text-sm">
-              <thead>
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-900 [&_th]:shadow-[inset_0_-1px_0_rgb(var(--c-border))]">
                 <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="px-3 py-2.5">
                     <input
@@ -547,14 +586,15 @@ export default function Trades() {
                   <th className="px-4 py-2.5 font-medium">Tags</th>
                 </tr>
               </thead>
-              <tbody>
-                {rows.map((t) => (
+              <tbody ref={tbodyRef}>
+                {rows.map((t, i) => (
                   <tr
                     key={t.id}
                     onClick={() => navigate(`/trades/${t.id}`)}
+                    aria-selected={i === cursor}
                     className={`group cursor-pointer border-b border-slate-800/60 transition hover:bg-slate-800/40 ${
                       selected.has(t.id) ? 'bg-slate-800/50' : ''
-                    }`}
+                    } ${i === cursor ? 'bg-cyan-500/10 shadow-[inset_2px_0_0_rgb(var(--c-cyan))]' : ''}`}
                   >
                     <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <input
@@ -753,6 +793,10 @@ export default function Trades() {
           <span className="num">
             Showing {page * PAGE_SIZE + 1}–
             {Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+            <span className="ml-3 hidden text-xs text-slate-500 md:inline">
+              <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move ·{' '}
+              <kbd className="font-mono">Enter</kbd> open
+            </span>
           </span>
           <div className="flex items-center gap-2">
             <button
