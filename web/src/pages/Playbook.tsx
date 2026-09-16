@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
-import DailyPlanCard from '../components/DailyPlanCard';
+import { Link } from 'react-router-dom';
 import type { NewSetup, Setup } from '../types';
 import { formatMoney, formatPct, formatR, signClass } from '../utils/format';
 
@@ -92,7 +92,15 @@ export default function Playbook() {
         </p>
       </div>
 
-      <DailyPlanCard account={filters.account} currency={currency} />
+      <Link
+        to="/journal"
+        className="card flex items-center justify-between gap-3 px-4 py-3 text-sm hover:border-amber-500"
+      >
+        <span className="text-slate-300">
+          Today's plan (bias, key levels, risk) lives in the Journal.
+        </span>
+        <span className="text-amber-400">Open daily plan →</span>
+      </Link>
 
       {/* Performance table */}
       <div className="card overflow-hidden">
