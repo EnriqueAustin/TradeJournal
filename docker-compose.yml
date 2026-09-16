@@ -26,6 +26,14 @@ services:
       FINNHUB_WEBHOOK_SECRET: "${FINNHUB_WEBHOOK_SECRET:-}"
       ALPACA_KEY: "${ALPACA_KEY:-}"
       ALPACA_SECRET: "${ALPACA_SECRET:-}"
+      # Backups (README "Backups & restore") — default dir /app/data/backups.
+      BACKUP_AUTO: "${BACKUP_AUTO:-1}"
+      BACKUP_KEEP: "${BACKUP_KEEP:-14}"
+      # Watch-folder auto-import: needs a bind mount of the host folder, e.g.
+      #   volumes: - "C:/Users/you/Documents/MT5 Reports:/import"
+      # then IMPORT_WATCH_DIR=/import. Blank = use the Import page setting.
+      IMPORT_WATCH_DIR: "${IMPORT_WATCH_DIR:-}"
+      IMPORT_WATCH_ACCOUNT: "${IMPORT_WATCH_ACCOUNT:-}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
