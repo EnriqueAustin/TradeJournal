@@ -99,6 +99,9 @@ export interface Trade {
   target_price: number | null;
   mae: number | null;
   mfe: number | null;
+  /** 1 when mae/mfe was derived from stored price bars rather than entered by hand. */
+  mae_auto?: number;
+  mfe_auto?: number;
   hold_time_sec: number | null;
   session: Session;
   source: string;
@@ -568,6 +571,79 @@ export interface ExcursionStats {
   efficiency: EfficiencyBucket;
   efficiency_by_session: EfficiencyRow[];
   efficiency_by_wick: EfficiencyRow[];
+}
+
+// ---- Exit analysis: where price went after a trade's exit ----
+
+export type HoldToTarget = 'target' | 'stop' | 'neither' | 'ambiguous' | 'already';
+
+/** Price move N minutes after exit, in the trade's direction (+ = kept going). */
+export interface ExitHorizon {
+  minutes: number;
+  move: number | null;
+  move_usd: number | null;
+  move_r: number | null;
+  best: number | null;
+  best_usd: number | null;
+  best_r: number | null;
+  adverse: number | null;
+  adverse_r: number | null;
+  /** false when stored bars end before the horizon does. */
+  complete: boolean;
+}
+
+export interface ExitAnalysis {
+  trade_id: number;
+  exit_time: string;
+  exit_price: number;
+  direction: Direction;
+  session: string | null;
+  cash_per_point: number | null;
+  risk_dist: number | null;
+  /** 'stop' = R from a recorded stop; 'derived' = from the modeled R. */
+  r_kind: 'stop' | 'derived' | null;
+  horizons: ExitHorizon[];
+  left_on_table: { price: number | null; usd: number | null; r: number | null; minutes: number | null };
+  continued_1r: boolean | null;
+  hold_to_target: HoldToTarget | null;
+  tf: 'S5' | 'M1';
+}
+
+export interface ExitSummary {
+  sample: number;
+  avg_left_usd: number | null;
+  avg_left_r: number | null;
+  r_sample: number;
+  continued_1r: number;
+  continued_1r_pct: number | null;
+}
+
+export interface ExitStats extends ExitSummary {
+  total_scanned: number;
+  horizons: {
+    minutes: number;
+    sample: number;
+    avg_move_usd: number | null;
+    avg_move_r: number | null;
+    avg_best_usd: number | null;
+    avg_best_r: number | null;
+    pct_continued: number | null;
+  }[];
+  by_session: (ExitSummary & { key: string })[];
+  hold_to_target: Record<HoldToTarget, number>;
+  trades: {
+    id: number;
+    instrument: string | null;
+    direction: Direction;
+    session: string | null;
+    exit_time: string;
+    net_pnl: number | null;
+    left_usd: number | null;
+    left_r: number | null;
+    r_kind: 'stop' | 'derived' | null;
+    continued_1r: boolean | null;
+    hold_to_target: HoldToTarget | null;
+  }[];
 }
 
 export interface EfficiencyBucket {

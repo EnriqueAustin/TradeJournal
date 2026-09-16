@@ -6,6 +6,7 @@ import { AsyncBoundary } from '../components/states';
 import HoldTimeBars from '../components/HoldTimeBars';
 import OptimizerHeatmap from '../components/OptimizerHeatmap';
 import ReportCard from '../components/ReportCard';
+import ExitAnalysisPanel from '../components/ExitAnalysisPanel';
 import { formatNumber, formatPct, formatDuration, formatMoney, formatR, signClass, sessionLabel } from '../utils/format';
 import type { ExcursionStats, WickEdgeStats, WickEdgeRow, TagStats, TagStatRow, EfficiencyRow } from '../types';
 
@@ -311,9 +312,9 @@ function ExcursionPanel({ e }: { e: ExcursionStats }) {
         </div>
       </div>
       <p className="text-xs text-slate-500">
-        MAE/MFE are price-distance excursions recorded per trade. Sample:{' '}
-        {e.mae_sample} with MAE, {e.mfe_sample} with MFE. Populate them on the
-        Trade detail page or via the EA/import to enrich this panel.
+        MAE/MFE are price-distance excursions per trade, auto-derived from stored
+        price bars (S5 when available, else M1) unless entered by hand. Sample:{' '}
+        {e.mae_sample} with MAE, {e.mfe_sample} with MFE.
       </p>
     </div>
   );
@@ -329,6 +330,7 @@ export default function Analytics() {
   const reportCard = useApi(() => api.getReportCard(filters), [key]);
   const holdtime = useApi(() => api.getHoldtime(filters), [key]);
   const excursion = useApi(() => api.getExcursion(filters), [key]);
+  const exits = useApi(() => api.getExitStats(filters), [key]);
   const wickEdge = useApi(() => api.getWickEdge(filters), [key]);
   const tagStats = useApi(() => api.getTagStats(filters), [key]);
   const missed = useApi(() => api.getMissedStats(filters), [key]);
@@ -409,6 +411,19 @@ export default function Analytics() {
           loadingLabel="Loading excursion…"
         >
           {excursion.data && <ExcursionPanel e={excursion.data} />}
+        </AsyncBoundary>
+      </SectionCard>
+
+      <SectionCard title="Exit Analysis — Price After Exit">
+        <AsyncBoundary
+          loading={exits.loading}
+          error={exits.error}
+          onRetry={exits.reload}
+          isEmpty={!exits.data || exits.data.sample === 0}
+          emptyMessage="No trades with price bars after their exit match the filters."
+          loadingLabel="Reading price after exit…"
+        >
+          {exits.data && <ExitAnalysisPanel data={exits.data} currency={currency} />}
         </AsyncBoundary>
       </SectionCard>
 

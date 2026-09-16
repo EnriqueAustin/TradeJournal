@@ -2,7 +2,8 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { sessionFromTime, computeRMultiple, defaultRiskCash } from './util.js';
+import { sessionFromTime, computeRMultiple, defaultRiskCash, normalizeInstrument } from './util.js';
+import { refreshExcursions } from './excursion.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, '..', 'data');
@@ -338,6 +339,16 @@ export function migrate() {
     db.exec('ALTER TABLE trades ADD COLUMN r_derived INTEGER NOT NULL DEFAULT 0');
   }
 
+  // Auto MAE/MFE: 1 when the stored value was derived from price bars (see
+  // excursion.js) rather than entered by hand. Only null/auto values are ever
+  // recomputed, so a manual edit (which clears the flag) sticks.
+  if (!tradeCols.some((c) => c.name === 'mae_auto')) {
+    db.exec('ALTER TABLE trades ADD COLUMN mae_auto INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!tradeCols.some((c) => c.name === 'mfe_auto')) {
+    db.exec('ALTER TABLE trades ADD COLUMN mfe_auto INTEGER NOT NULL DEFAULT 0');
+  }
+
   // Day-scoped journal recaps live in `notes` with trade_id NULL and a day set;
   // account_id scopes the recap to one account's trading day (trade notes leave
   // it null and derive the account from the trade). Nullable + guarded.
@@ -484,6 +495,18 @@ export function migrate() {
     });
     backfillR(rows);
     db.pragma('user_version = 2');
+  }
+
+  // One-shot backfill: derive MAE/MFE from stored price bars for existing trades
+  // whose excursions are null. Trades without bars yet are filled later, when
+  // their bars are fetched. Guarded by user_version.
+  if (db.pragma('user_version', { simple: true }) < 3) {
+    const rows = db
+      .prepare('SELECT * FROM trades WHERE (mae IS NULL OR mfe IS NULL) AND exit_time IS NOT NULL')
+      .all();
+    const n = refreshExcursions(db, rows, normalizeInstrument);
+    if (rows.length) console.log(`[migrate] auto MAE/MFE backfill: ${n}/${rows.length} trades`);
+    db.pragma('user_version = 3');
   }
 
   // Seed default account if none exists
