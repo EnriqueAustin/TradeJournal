@@ -22,6 +22,10 @@ export function buildFilter(q, opts = {}) {
   if (q.account) {
     clauses.push('account_id = @account');
     params.account = Number(q.account);
+  } else if (q.profile) {
+    // Profile scope: every account assigned to the profile (account wins).
+    clauses.push('account_id IN (SELECT id FROM accounts WHERE profile_id = @profile)');
+    params.profile = Number(q.profile);
   }
   if (q.instrument) {
     clauses.push('instrument = @instrument');
@@ -453,6 +457,9 @@ export function missedStats(q) {
   if (q.account) {
     clauses.push('account_id = @account');
     params.account = Number(q.account);
+  } else if (q.profile) {
+    clauses.push('account_id IN (SELECT id FROM accounts WHERE profile_id = @profile)');
+    params.profile = Number(q.profile);
   }
   if (q.from) {
     clauses.push('day >= @from');
@@ -631,6 +638,12 @@ export function excursion(q) {
 // Resolve the target account: explicit ?account, else the first account.
 function resolveAccount(q) {
   if (q.account) return db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(q.account));
+  if (q.profile) {
+    const a = db
+      .prepare('SELECT * FROM accounts WHERE profile_id = ? ORDER BY id LIMIT 1')
+      .get(Number(q.profile));
+    if (a) return a;
+  }
   return db.prepare('SELECT * FROM accounts ORDER BY id LIMIT 1').get();
 }
 
@@ -961,9 +974,13 @@ export function propStats(q) {
 // Ignores q.account (portfolio spans them all). propStats is account-wide and
 // all-time, so the other filters don't affect these guardrail figures.
 export function portfolio(q = {}) {
-  const accounts = db.prepare('SELECT * FROM accounts ORDER BY id').all();
+  // An active profile narrows the roll-up to that profile's accounts.
+  const accounts = q.profile
+    ? db.prepare('SELECT * FROM accounts WHERE profile_id = ? ORDER BY id').all(Number(q.profile))
+    : db.prepare('SELECT * FROM accounts ORDER BY id').all();
   const rest = { ...q };
   delete rest.account;
+  delete rest.profile;
   const rows = accounts.map((a) => {
     const stats = propStats({ ...rest, account: a.id });
     // Performance side follows the global filters (date, instrument, …) like
