@@ -218,6 +218,20 @@ export default function Trades() {
     [filterKey(filters), queryKey]
   );
 
+  // Needs-attention counts over the global filters (not the list query), for
+  // the summary chip. One totals call per gap plus one for "any gap".
+  const { data: needCounts, reload: reloadNeedCounts } = useApi(async () => {
+    const all = NEED_OPTIONS.map((o) => o.value);
+    const [any, ...each] = await Promise.all([
+      api.getTradesTotals(filters, { needs: all.join(',') }),
+      ...all.map((n) => api.getTradesTotals(filters, { needs: n })),
+    ]);
+    const by = {} as Record<TradeNeed, number>;
+    all.forEach((n, i) => (by[n] = each[i].count));
+    return { any: any.count, by };
+  }, [filterKey(filters)]);
+  const allNeedsOn = NEED_OPTIONS.every((o) => needs.includes(o.value));
+
   const filtersActive =
     Boolean(search) || direction !== '' || outcome !== '' || needs.length > 0;
 
@@ -253,6 +267,7 @@ export default function Trades() {
       setSelected(new Set());
       reload();
       reloadTotals();
+      reloadNeedCounts();
     } catch (e) {
       window.alert((e as Error)?.message ?? 'Bulk action failed');
     } finally {
@@ -370,11 +385,35 @@ export default function Trades() {
       {/* Needs-attention backfill queue — one click to find the trades whose
           missing data keeps them out of the stats. */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs uppercase tracking-wide text-slate-500">
-          Needs attention
-        </span>
+        {needCounts ? (
+          needCounts.any > 0 ? (
+            <button
+              type="button"
+              onClick={() =>
+                setNeeds(allNeedsOn ? [] : NEED_OPTIONS.map((o) => o.value))
+              }
+              title="Show every trade with at least one data gap"
+              className={`rounded border px-2.5 py-1 text-xs font-semibold transition ${
+                allNeedsOn
+                  ? 'border-amber-500 bg-amber-500/15 text-amber-300'
+                  : 'border-amber-500/40 text-amber-400 hover:border-amber-500'
+              }`}
+            >
+              ⚠ <span className="num">{needCounts.any}</span>{' '}
+              {needCounts.any === 1 ? 'trade needs' : 'trades need'} attention
+            </button>
+          ) : (
+            <span className="text-xs text-emerald-400">✓ No trades need attention</span>
+          )
+        ) : (
+          <span className="text-xs uppercase tracking-wide text-slate-500">
+            Needs attention
+          </span>
+        )}
         {NEED_OPTIONS.map((o) => {
           const on = needs.includes(o.value);
+          const n = needCounts?.by[o.value];
+          if (n === 0 && !on) return null;
           return (
             <button
               key={o.value}
@@ -388,6 +427,7 @@ export default function Trades() {
               }`}
             >
               {o.label}
+              {n != null && <span className="num ml-1 text-slate-500">{n}</span>}
             </button>
           );
         })}
@@ -512,7 +552,7 @@ export default function Trades() {
                   <tr
                     key={t.id}
                     onClick={() => navigate(`/trades/${t.id}`)}
-                    className={`cursor-pointer border-b border-slate-800/60 transition hover:bg-slate-800/40 ${
+                    className={`group cursor-pointer border-b border-slate-800/60 transition hover:bg-slate-800/40 ${
                       selected.has(t.id) ? 'bg-slate-800/50' : ''
                     }`}
                   >
@@ -537,8 +577,11 @@ export default function Trades() {
                         {(() => {
                           const gaps = tradeGaps(t);
                           return gaps.length ? (
+                            // Subtle by default (most rows have some gap); lights
+                            // up on row hover. The summary chip carries the signal.
                             <span
-                              className="text-amber-400"
+                              className="text-[10px] leading-none text-slate-700 transition group-hover:text-amber-400"
+                              aria-label="Needs attention"
                               title={`Needs attention: ${gaps
                                 .map(
                                   (g) =>
@@ -546,7 +589,7 @@ export default function Trades() {
                                 )
                                 .join(', ')}`}
                             >
-                              ⚠
+                              ●
                             </span>
                           ) : null;
                         })()}
