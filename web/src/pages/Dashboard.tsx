@@ -66,7 +66,7 @@ function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
     const color = pct >= 1 ? 'bg-red-500' : pct >= 0.8 ? 'bg-amber-500' : danger === false ? 'bg-cyan-500' : 'bg-emerald-500';
     return (
       <div className="min-w-[100px] flex-1">
-        <div className="mb-0.5 flex items-center justify-between text-[10px] text-slate-500">
+        <div className="mb-0.5 flex items-center justify-between text-[11px] text-slate-500">
           <span>{label}</span>
           <span className="num">{formatPct(pct)}</span>
         </div>
@@ -88,12 +88,12 @@ function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
             Equity {formatMoney(p.current_equity, currency)}
           </span>
           {p.dd_type && (
-            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">
+            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[11px]">
               {p.dd_type === 'trailing' ? 'trailing' : 'static'} DD
             </span>
           )}
           {p.phase > 0 && (
-            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">
+            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[11px]">
               Phase {p.phase}
             </span>
           )}
@@ -146,7 +146,7 @@ function EdgeScoreChip({ score }: { score: EdgeScore }) {
     >
       <span className="num text-2xl font-bold leading-none">{score.total}</span>
       <span className="flex flex-col leading-tight">
-        <span className="text-[10px] uppercase tracking-wide opacity-70">Edge Score</span>
+        <span className="text-[11px] uppercase tracking-wide opacity-70">Edge Score</span>
         <span className="text-xs font-semibold">
           Grade {score.grade}
           {!score.reliable && <span className="ml-1 opacity-60">· early</span>}
@@ -187,7 +187,7 @@ function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['f
         {d && (
           <div className="flex flex-wrap items-center gap-x-10 gap-y-4">
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">
+              <div className="text-[11px] uppercase tracking-wide text-slate-500">
                 Plan followed
               </div>
               <div
@@ -206,7 +206,7 @@ function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['f
               </div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">
+              <div className="text-[11px] uppercase tracking-wide text-slate-500">
                 Avg P&L: followed vs broke
               </div>
               <div className="mt-1 flex items-center gap-3 text-sm">
@@ -222,7 +222,7 @@ function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['f
             </div>
             {d.graded > 0 && (
               <div>
-                <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">
+                <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">
                   Grades
                 </div>
                 <div className="flex items-end gap-1.5">
@@ -437,7 +437,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               {lastTradeMonth && month !== lastTradeMonth && (
                 <button
-                  className="btn px-2 py-1 text-[10px]"
+                  className="btn px-2 py-1 text-[11px]"
                   onClick={() => pickMonth(lastTradeMonth)}
                   title="Jump to the month of the most recent trade matching the filters"
                 >
@@ -495,7 +495,7 @@ export default function Dashboard() {
       {/* Market sessions clock */}
       <SectionCard
         title="Sessions"
-        right={<span className="text-[10px] text-slate-500">local · {DISPLAY_TZ.split('/')[1]?.replace('_', ' ')}</span>}
+        right={<span className="text-[11px] text-slate-500">local · {DISPLAY_TZ.split('/')[1]?.replace('_', ' ')}</span>}
       >
         <SessionsClock />
       </SectionCard>

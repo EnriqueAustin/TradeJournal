@@ -44,7 +44,7 @@ const TAG_CATEGORIES: TagCategory[] = [
 function AutoMark() {
   return (
     <span
-      className="ml-1 rounded bg-slate-800 px-1 text-[10px] uppercase text-slate-500"
+      className="ml-1 rounded bg-slate-800 px-1 text-[11px] uppercase text-slate-500"
       title="Auto-derived from stored price bars (S5 when available, else M1)"
     >
       auto
@@ -796,7 +796,7 @@ function Detail({
 }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+      <div className="text-[11px] uppercase tracking-wide text-slate-500">
         {label}
       </div>
       <div className={`num text-slate-300 ${className}`}>{value}</div>

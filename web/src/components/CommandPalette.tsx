@@ -132,7 +132,7 @@ export default function CommandPalette() {
             >
               <span className="font-semibold">{c.label}</span>
               <span
-                className="text-[10px] uppercase tracking-wide"
+                className="text-[11px] uppercase tracking-wide"
                 style={{ color: i === active ? 'var(--term-bg)' : 'var(--term-muted)' }}
               >
                 {c.group}

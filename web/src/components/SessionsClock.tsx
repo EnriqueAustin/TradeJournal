@@ -104,7 +104,7 @@ export default function SessionsClock({ tz = DISPLAY_TZ }: { tz?: string }) {
         {AXIS_TICKS.map((h) => (
           <span
             key={h}
-            className="absolute -translate-x-1/2 text-[10px] text-slate-500 num"
+            className="absolute -translate-x-1/2 text-[11px] text-slate-500 num"
             style={{ left: `${(h / 24) * 100}%` }}
           >
             {h === 0 ? '12a' : h < 12 ? `${h}a` : h === 12 ? '12p' : `${h - 12}p`}
@@ -118,7 +118,7 @@ export default function SessionsClock({ tz = DISPLAY_TZ }: { tz?: string }) {
           className="pointer-events-none absolute bottom-0 top-0 z-10 border-l border-amber-400/70"
           style={{ left: `calc(6rem + (100% - 6rem) * ${nowPct / 100})` }}
         >
-          <span className="absolute -top-0 left-1 whitespace-nowrap text-[9px] font-semibold text-amber-400">
+          <span className="absolute -top-0 left-1 whitespace-nowrap text-[11px] font-semibold text-amber-400">
             now
           </span>
         </div>
@@ -154,7 +154,7 @@ export default function SessionsClock({ tz = DISPLAY_TZ }: { tz?: string }) {
                     }}
                   />
                 ))}
-                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] num text-slate-400">
+                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] num text-slate-400">
                   {r.localLabel} {r.isOpen ? 'open' : 'closed'}
                 </span>
               </div>

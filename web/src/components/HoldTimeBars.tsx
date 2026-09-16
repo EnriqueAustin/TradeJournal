@@ -10,40 +10,40 @@ import {
 } from 'recharts';
 import type { HoldTimeBucket } from '../types';
 import { formatMoney } from '../utils/format';
+import { useChartTheme } from '../store/theme';
 
-const POS = '#22c55e';
-const NEG = '#ef4444';
 
 export default function HoldTimeBars({ data }: { data: HoldTimeBucket[] }) {
+  const ct = useChartTheme();
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
         <CartesianGrid
           strokeDasharray="3 3"
-          stroke="rgba(51,65,85,0.3)"
+          stroke={ct.grid}
           vertical={false}
         />
         <XAxis
           dataKey="label"
-          tick={{ fill: '#64748b', fontSize: 11 }}
+          tick={{ fill: ct.muted, fontSize: 11 }}
           tickLine={false}
-          axisLine={{ stroke: 'rgba(51,65,85,0.6)' }}
+          axisLine={{ stroke: ct.border }}
         />
         <YAxis
-          tick={{ fill: '#64748b', fontSize: 10 }}
+          tick={{ fill: ct.muted, fontSize: 10 }}
           tickLine={false}
           axisLine={false}
           width={52}
         />
         <Tooltip
-          cursor={{ fill: 'rgba(148,163,184,0.08)' }}
+          cursor={{ fill: ct.cursor }}
           contentStyle={{
-            background: '#0f172a',
-            border: '1px solid #334155',
+            background: ct.tooltipBg,
+            border: `1px solid ${ct.tooltipBorder}`,
             borderRadius: 8,
             fontSize: 12,
           }}
-          labelStyle={{ color: '#94a3b8' }}
+          labelStyle={{ color: ct.text }}
           formatter={(v: number, _n, p: any) => [
             `${formatMoney(v)} · ${p?.payload?.trade_count ?? 0}t · ${(
               (p?.payload?.win_rate ?? 0) * 100
@@ -53,7 +53,7 @@ export default function HoldTimeBars({ data }: { data: HoldTimeBucket[] }) {
         />
         <Bar dataKey="net_pnl" radius={[2, 2, 0, 0]}>
           {data.map((d) => (
-            <Cell key={d.bucket} fill={d.net_pnl >= 0 ? POS : NEG} />
+            <Cell key={d.bucket} fill={d.net_pnl >= 0 ? ct.pos : ct.neg} />
           ))}
         </Bar>
       </BarChart>

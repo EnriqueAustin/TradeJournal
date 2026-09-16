@@ -65,8 +65,8 @@ function Field({
     <div className="flex items-center gap-1.5">
       <label
         htmlFor={htmlFor}
-        className="text-[9px] font-bold uppercase"
-        style={{ color: 'var(--term-muted)', letterSpacing: '0.1em' }}
+        className="text-[11px] font-bold uppercase"
+        style={{ color: 'var(--term-muted)', letterSpacing: '0.04em' }}
       >
         {label}
       </label>
@@ -221,7 +221,7 @@ export default function FilterBar({ variant = 'full' }: { variant?: 'full' | 'ac
               return (
                 <button
                   key={p.key}
-                  className={`btn px-2 py-1 text-[10px] uppercase ${
+                  className={`btn px-2 py-1 text-[11px] uppercase ${
                     active ? 'border-cyan-500 text-cyan-300' : ''
                   }`}
                   aria-pressed={active}
@@ -231,7 +231,7 @@ export default function FilterBar({ variant = 'full' }: { variant?: 'full' | 'ac
                 </button>
               );
             })}
-            <button className="btn px-2 py-1 text-[10px]" onClick={resetFilters}>
+            <button className="btn px-2 py-1 text-[11px]" onClick={resetFilters}>
               Reset
             </button>
           </div>
@@ -240,8 +240,8 @@ export default function FilterBar({ variant = 'full' }: { variant?: 'full' | 'ac
 
       {accountsError && (
         <span
-          className="w-full text-[10px] uppercase"
-          style={{ color: 'var(--term-red)', letterSpacing: '0.08em' }}
+          className="w-full text-[11px] uppercase"
+          style={{ color: 'var(--term-red)', letterSpacing: '0.04em' }}
         >
           {accountsError}
         </span>

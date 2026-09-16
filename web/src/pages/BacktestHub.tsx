@@ -35,7 +35,7 @@ export default function BacktestHub() {
             key={m.key}
             role="tab"
             aria-selected={mode === m.key}
-            className={`btn px-3 py-1 text-[10px] ${mode === m.key ? 'btn-primary' : ''}`}
+            className={`btn px-3 py-1 text-[11px] ${mode === m.key ? 'btn-primary' : ''}`}
             onClick={() => setMode(m.key)}
           >
             {m.label}

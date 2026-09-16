@@ -11,9 +11,8 @@ import {
 } from 'recharts';
 import type { HourlyStat } from '../types';
 import { formatMoney } from '../utils/format';
+import { useChartTheme } from '../store/theme';
 
-const POS = '#22c55e';
-const NEG = '#ef4444';
 
 interface Row {
   hour: number;
@@ -31,36 +30,37 @@ function HourChart({ instrument, rows }: { instrument: string; rows: Row[] }) {
       trade_count: map.get(h)?.trade_count ?? 0,
     }));
   }, [rows]);
+  const ct = useChartTheme();
 
   return (
     <div>
       <div className="mb-1 text-xs font-medium text-slate-400">{instrument}</div>
       <ResponsiveContainer width="100%" height={160}>
         <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.3)" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
           <XAxis
             dataKey="hour"
-            tick={{ fill: '#64748b', fontSize: 10 }}
+            tick={{ fill: ct.muted, fontSize: 10 }}
             interval={2}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(51,65,85,0.6)' }}
+            axisLine={{ stroke: ct.border }}
           />
           <YAxis
-            tick={{ fill: '#64748b', fontSize: 10 }}
+            tick={{ fill: ct.muted, fontSize: 10 }}
             tickLine={false}
             axisLine={false}
             width={48}
           />
           <Tooltip
-            cursor={{ fill: 'rgba(148,163,184,0.08)' }}
+            cursor={{ fill: ct.cursor }}
             contentStyle={{
-              background: '#0f172a',
-              border: '1px solid #334155',
+              background: ct.tooltipBg,
+              border: `1px solid ${ct.tooltipBorder}`,
               borderRadius: 8,
               fontSize: 12,
             }}
-            itemStyle={{ color: '#e2e8f0' }}
-            labelStyle={{ color: '#94a3b8' }}
+            itemStyle={{ color: ct.textHi }}
+            labelStyle={{ color: ct.text }}
             labelFormatter={(h) => `${String(h).padStart(2, '0')}:00 UTC`}
             formatter={(v: number, _n, p: any) => [
               `${formatMoney(v)} · ${p?.payload?.trade_count ?? 0}t`,
@@ -69,7 +69,7 @@ function HourChart({ instrument, rows }: { instrument: string; rows: Row[] }) {
           />
           <Bar dataKey="net_pnl" radius={[2, 2, 0, 0]}>
             {data.map((d) => (
-              <Cell key={d.hour} fill={d.net_pnl >= 0 ? POS : NEG} />
+              <Cell key={d.hour} fill={d.net_pnl >= 0 ? ct.pos : ct.neg} />
             ))}
           </Bar>
         </BarChart>

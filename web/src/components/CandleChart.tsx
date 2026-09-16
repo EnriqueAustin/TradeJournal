@@ -10,6 +10,7 @@ import {
   type SeriesMarker,
   type MouseEventParams,
 } from 'lightweight-charts';
+import { useChartTheme, lwcThemeOptions } from '../store/theme';
 import type { Bar } from '../types';
 import { DISPLAY_TZ } from '../utils/format';
 import { PositionBoxPrimitive } from './positionBoxPrimitive';
@@ -128,6 +129,7 @@ export default function CandleChart({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const ct = useChartTheme();
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const linesRef = useRef<IPriceLine[]>([]);
   const clickRef = useRef(onClickPrice);
@@ -293,6 +295,11 @@ export default function CandleChart({
     // height is intentionally fixed for the lifetime of the chart
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Canvas charts don't see CSS vars — push the palette on mount and on toggle.
+  useEffect(() => {
+    chartRef.current?.applyOptions(lwcThemeOptions(ct));
+  }, [ct]);
 
   // The chart is built once, so re-apply the axis mode if a caller flips it on
   // an already-mounted chart (switching a frame's timeframe in place).
@@ -466,7 +473,7 @@ function PositionBoxInfo({
       <div className="mb-1.5 flex items-center justify-between">
         <span className="flex items-center gap-2">
           <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+            className={`rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase ${
               direction === 'long'
                 ? 'bg-emerald-500/15 text-emerald-400'
                 : 'bg-red-500/15 text-red-400'
@@ -511,7 +518,7 @@ function PositionBoxInfo({
         />
       </dl>
       {stopPrice == null && (
-        <p className="mt-1.5 text-[10px] leading-tight text-slate-500">
+        <p className="mt-1.5 text-[11px] leading-tight text-slate-500">
           No stop set — add one in Risk Levels to see risk / R:R.
         </p>
       )}

@@ -580,7 +580,7 @@ export default function Trades() {
                             // Subtle by default (most rows have some gap); lights
                             // up on row hover. The summary chip carries the signal.
                             <span
-                              className="text-[10px] leading-none text-slate-700 transition group-hover:text-amber-400"
+                              className="text-[11px] leading-none text-slate-700 transition group-hover:text-amber-400"
                               aria-label="Needs attention"
                               title={`Needs attention: ${gaps
                                 .map(
@@ -621,7 +621,7 @@ export default function Trades() {
                     >
                       {t.is_be ? (
                         <span
-                          className="mr-1.5 rounded bg-slate-600/40 px-1 py-0.5 text-[10px] font-semibold text-slate-300"
+                          className="mr-1.5 rounded bg-slate-600/40 px-1 py-0.5 text-[11px] font-semibold text-slate-300"
                           title={t.be_override === 1 ? 'Marked break-even manually' : 'Break-even (within the account R band)'}
                         >
                           BE

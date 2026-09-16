@@ -10,11 +10,11 @@ const SESSION_ORDER = ['asia', 'london', 'ny', 'off'];
 
 // Map a net_pnl to a background style scaled against the max magnitude.
 function cellStyle(pnl: number, max: number): React.CSSProperties {
-  if (max === 0 || pnl === 0) return { background: 'rgba(30,41,59,0.4)' };
+  if (max === 0 || pnl === 0) return { background: 'rgb(var(--c-border) / 0.4)' };
   const intensity = Math.min(1, Math.abs(pnl) / max);
   const alpha = 0.12 + intensity * 0.5;
-  const color = pnl > 0 ? `34,197,94` : `239,68,68`;
-  return { background: `rgba(${color},${alpha.toFixed(3)})` };
+  const color = pnl > 0 ? 'var(--c-green)' : 'var(--c-red)';
+  return { background: `rgb(${color} / ${alpha.toFixed(3)})` };
 }
 
 // Narrow a from/to range to one YYYY-MM month (intersected with any existing
@@ -130,12 +130,12 @@ export default function SessionHeatmap({
                           >
                             {formatMoney(cell.net_pnl, currency)}
                           </div>
-                          <div className="num text-[10px] text-slate-400">
+                          <div className="num text-[11px] text-slate-400">
                             {cell.trade_count}t · {formatR(cell.avg_r)}
                           </div>
                         </>
                       ) : (
-                        <div className="text-[10px] text-slate-600">—</div>
+                        <div className="text-[11px] text-slate-600">—</div>
                       )}
                     </div>
                   </td>

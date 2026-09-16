@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { setTheme, useTheme } from '../store/theme';
 
 type Link = { to: string; label: string; icon: string; end?: boolean };
 
@@ -46,15 +47,15 @@ export default function Sidebar() {
           className="flex h-7 w-7 items-center justify-center text-xs font-bold"
           style={{
             background: 'var(--term-amber)',
-            color: 'var(--term-bg)',
+            color: 'var(--term-on-accent)',
             borderRadius: 2,
           }}
         >
           TJ
         </div>
         <div
-          className="text-[11px] font-bold uppercase leading-tight"
-          style={{ color: 'var(--term-amber)', letterSpacing: '0.14em' }}
+          className="text-[12px] font-bold uppercase leading-tight"
+          style={{ color: 'var(--term-amber)', letterSpacing: '0.06em' }}
         >
           TRADE<span style={{ color: 'var(--term-green)' }}>▮</span>JOURNAL
         </div>
@@ -63,8 +64,8 @@ export default function Sidebar() {
         {groups.map((g) => (
           <div key={g.heading} className="flex flex-col gap-0.5">
             <div
-              className="px-2 pb-1 text-[9px] font-bold uppercase"
-              style={{ color: 'var(--term-muted)', letterSpacing: '0.14em' }}
+              className="px-2 pb-1 text-[11px] font-semibold uppercase"
+              style={{ color: 'var(--term-muted)', letterSpacing: '0.05em' }}
             >
               {g.heading}
             </div>
@@ -74,16 +75,15 @@ export default function Sidebar() {
                 to={l.to}
                 end={l.end}
                 className={({ isActive }) =>
-                  `flex items-center gap-2 border px-2.5 py-1.5 text-[11px] font-semibold uppercase transition ${
+                  `flex items-center gap-2 border px-2.5 py-1.5 text-[13px] font-medium transition ${
                     isActive ? 'is-active' : ''
                   }`
                 }
                 style={({ isActive }) => ({
-                  letterSpacing: '0.08em',
                   borderRadius: 2,
                   borderColor: isActive ? 'var(--term-amber)' : 'transparent',
                   background: isActive ? 'var(--term-amber)' : 'transparent',
-                  color: isActive ? 'var(--term-bg)' : 'var(--term-text-dim)',
+                  color: isActive ? 'var(--term-on-accent)' : 'var(--term-text-dim)',
                 })}
               >
                 <span
@@ -99,16 +99,38 @@ export default function Sidebar() {
         ))}
       </nav>
       <div
-        className="px-4 py-3 text-[9px] uppercase border-t"
-        style={{
-          color: 'var(--term-muted)',
-          borderColor: 'var(--term-border)',
-          letterSpacing: '0.1em',
-          background: 'var(--term-panel-hd)',
-        }}
+        className="flex items-center justify-between gap-2 border-t px-4 py-2.5"
+        style={{ borderColor: 'var(--term-border)', background: 'var(--term-panel-hd)' }}
       >
-        LOCAL · SINGLE-USER · SAST
+        <span className="text-[11px]" style={{ color: 'var(--term-muted)' }}>
+          Local · SAST
+        </span>
+        <ThemeToggle />
       </div>
     </aside>
+  );
+}
+
+function ThemeToggle() {
+  const theme = useTheme();
+  const next = theme === 'dark' ? 'light' : 'dark';
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(next)}
+      className="flex items-center gap-1.5 border px-2 py-1 text-[11px] font-medium transition hover:brightness-110"
+      style={{
+        borderColor: 'var(--term-border-2)',
+        color: 'var(--term-text-dim)',
+        borderRadius: 2,
+      }}
+      title={`Switch to ${next} theme`}
+      aria-label={`Switch to ${next} theme`}
+    >
+      <span aria-hidden className="text-sm leading-none">
+        {theme === 'dark' ? '☾' : '☀'}
+      </span>
+      {theme === 'dark' ? 'Dark' : 'Light'}
+    </button>
   );
 }

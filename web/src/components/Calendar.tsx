@@ -16,9 +16,9 @@ const WEEKDAYS_ONLY_KEY = 'cal-weekdays-only';
 const GRID_7 = 'grid-cols-[repeat(7,minmax(0,1fr))_minmax(0,1.15fr)]';
 const GRID_5 = 'grid-cols-[repeat(5,minmax(0,1fr))_minmax(0,1.15fr)]';
 
-// Terminal palette (tailwind.config.js): emerald-400 #2ee56b / red-400 #ff5a5a.
-const POS_RGB = '46,229,107';
-const NEG_RGB = '255,90,90';
+// Theme P&L colours (index.css) — triplets, so they follow the light/dark toggle.
+const POS_RGB = 'var(--c-green)';
+const NEG_RGB = 'var(--c-red)';
 
 // Extra breathing room before the totals column, on top of the grid gap — a
 // CSS grid `gap` is uniform, so the separation has to come from the column
@@ -30,7 +30,7 @@ const WEEK_COL_GAP = 'ml-2.5';
 // heat() sets — spread this *after* the heat style.
 const WEEK_DIVIDER = {
   borderLeftWidth: '2px',
-  borderLeftColor: 'rgba(245,166,35,0.65)', // term.amber #f5a623
+  borderLeftColor: 'rgb(var(--c-amber) / 0.65)',
 } as const;
 
 // Heat scaled by magnitude against the month's biggest day — the way Tradezella /
@@ -43,9 +43,9 @@ function heat(pnl: number, maxAbs: number, strong = false) {
   // Ceilings stay low (0.25 day / 0.32 week): past ~0.35 the fill gets bright
   // enough that the slate secondary line on top of it stops being readable.
   const bg = (strong ? 0.12 : 0.08) + (strong ? 0.2 : 0.17) * mag;
-  const border = `rgba(${rgb},${(0.3 + 0.45 * mag).toFixed(3)})`;
+  const border = `rgb(${rgb} / ${(0.3 + 0.45 * mag).toFixed(3)})`;
   return {
-    backgroundColor: `rgba(${rgb},${bg.toFixed(3)})`,
+    backgroundColor: `rgb(${rgb} / ${bg.toFixed(3)})`,
     // Per-side longhands, never the `borderColor` shorthand. React diffs style
     // objects property by property, so on a re-render the shorthand can be
     // applied after the week column's borderLeftColor and silently wipe the
@@ -63,8 +63,8 @@ function heat(pnl: number, maxAbs: number, strong = false) {
 // inside the cell. Class names are spelled out for Tailwind's scanner.
 function moneySize(s: string, strong = false): string {
   const [lg, md, sm] = strong
-    ? ['text-xs', 'text-[11px]', 'text-[10px]']
-    : ['text-[11px]', 'text-[10px]', 'text-[9px]'];
+    ? ['text-xs', 'text-[11px]', 'text-[11px]']
+    : ['text-[11px]', 'text-[11px]', 'text-[11px]'];
   return s.length <= 8 ? lg : s.length <= 10 ? md : sm;
 }
 
@@ -439,7 +439,7 @@ function WeekRow({
               : ''
         }`}
       >
-        <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
           {label}
         </div>
         {active ? (
@@ -452,12 +452,12 @@ function WeekRow({
             >
               {formatMoney(stat.net_pnl, currency)}
             </div>
-            <div className="num text-[10px] leading-tight text-slate-500">
+            <div className="num text-[11px] leading-tight text-slate-500">
               {stat.days_traded}d · {stat.trade_count}t
             </div>
             {stat.r != null && (
               <div
-                className={`num text-[10px] leading-tight ${
+                className={`num text-[11px] leading-tight ${
                   stat.r >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'
                 }`}
               >
@@ -528,7 +528,7 @@ function DayCell({
           >
             {formatMoney(c.net_pnl, currency)}
           </div>
-          <div className="num text-[10px] text-slate-500">{c.trade_count}t</div>
+          <div className="num text-[11px] text-slate-500">{c.trade_count}t</div>
         </div>
       )}
     </div>
