@@ -26,7 +26,7 @@ function scoreColor(v: number): string {
   return 'var(--term-red)'; // red
 }
 
-function EdgeScoreGauge({ score }: { score: EdgeScore }) {
+export function EdgeScoreGauge({ score }: { score: EdgeScore }) {
   const r = 52;
   const c = 2 * Math.PI * r;
   const pct = score.total / 100;
