@@ -1909,7 +1909,7 @@ async function importTradesFromBuffer(buffer, { filename, mimetype, accountId } 
     /* best-effort */
   }
 
-  return { inserted, skipped, account_id: acct, bars, excursions };
+  return { parsed: trades.length, inserted, skipped, account_id: acct, bars, excursions };
 }
 
 app.post('/api/import', upload.single('file'), async (req, res) => {

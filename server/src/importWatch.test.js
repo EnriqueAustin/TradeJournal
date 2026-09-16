@@ -84,6 +84,21 @@ test('files still being written (recent mtime) wait for a later scan', async () 
   assert.ok(fs.existsSync(path.join(dir, 'fresh.csv')));
 });
 
+test('a file that parses to zero trades goes to failed/', async () => {
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'empty.csv'), 'a,b');
+  const w = createImportWatcher({
+    getConfig: () => ({ dir, accountId: 1 }),
+    importFile: async () => ({ parsed: 0, inserted: 0, skipped: 0, account_id: 1 }),
+    settleMs: 0,
+    log: quiet,
+  });
+  const { results } = await w.scanOnce();
+  assert.equal(results[0].ok, false);
+  assert.match(results[0].error, /no trades/);
+  assert.ok(fs.existsSync(path.join(dir, 'failed', 'empty.csv.log')));
+});
+
 test('disabled or unreadable dir is a no-op with status', async () => {
   const w = createImportWatcher({
     getConfig: () => ({ dir: null }),

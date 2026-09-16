@@ -24,7 +24,9 @@ const stamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$
 function moveInto(file, destDir) {
   fs.mkdirSync(destDir, { recursive: true });
   let dest = path.join(destDir, path.basename(file));
-  if (fs.existsSync(dest)) dest = path.join(destDir, `${stamp()}_${path.basename(file)}`);
+  for (let i = 0; fs.existsSync(dest); i++) {
+    dest = path.join(destDir, `${stamp()}${i ? `-${i}` : ''}_${path.basename(file)}`);
+  }
   try {
     fs.renameSync(file, dest);
   } catch (e) {
@@ -86,13 +88,16 @@ export function createImportWatcher({
         } catch {
           continue;
         }
-        if (now - st.mtimeMs < settleMs) continue; // still being written; next scan
+        if (settleMs > 0 && now - st.mtimeMs < settleMs) continue; // still being written; next scan
 
         const target = accountFromFilename(name) ?? accountId ?? null;
         const at = new Date().toISOString();
         try {
           const buffer = fs.readFileSync(file);
           const r = await importFile(buffer, { filename: name, accountId: target });
+          // A report that parses to zero trades is almost certainly the wrong
+          // file/format — surface it in failed/ rather than silently "succeeding".
+          if (r && r.parsed === 0) throw new Error('no trades found in file (unrecognised report?)');
           const moved = moveInto(file, path.join(dir, 'processed'));
           const entry = {
             file: name,
