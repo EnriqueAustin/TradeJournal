@@ -520,6 +520,28 @@ export function migrate() {
     );
   `);
 
+  // Structured psychology per trade (Edgewonk-style tiltmeter): pre-trade
+  // confidence 1-5, the emotional state going in (single select) and a
+  // post-trade execution/satisfaction rating 1-5. One row per trade; every
+  // column nullable so a partial rating is fine. Idempotent, no version bump.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS trade_psych (
+      trade_id INTEGER PRIMARY KEY REFERENCES trades(id) ON DELETE CASCADE,
+      confidence INTEGER CHECK(confidence BETWEEN 1 AND 5),
+      emotion TEXT CHECK(emotion IN ('calm','anxious','fomo','revenge','bored','confident')),
+      satisfaction INTEGER CHECK(satisfaction BETWEEN 1 AND 5),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
+  // notes.kind distinguishes a week recap ('week', stored on the week's Monday)
+  // from day recaps and trade notes (NULL). Day-recap queries filter on
+  // kind IS NULL so a Monday's day recap and its week recap never collide.
+  const noteKindCols = db.prepare('PRAGMA table_info(notes)').all();
+  if (!noteKindCols.some((c) => c.name === 'kind')) {
+    db.exec('ALTER TABLE notes ADD COLUMN kind TEXT');
+  }
+
   // Seed default account if none exists
   const count = db.prepare('SELECT COUNT(*) AS c FROM accounts').get().c;
   if (count === 0) {

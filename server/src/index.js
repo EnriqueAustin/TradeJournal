@@ -71,6 +71,8 @@ import {
   tagStats,
   discipline,
 } from './stats.js';
+import { psychology, insights, EMOTIONS, INSIGHT_THRESHOLDS } from './insights.js';
+import { monthReport, mondayOf } from './report.js';
 
 migrate();
 migrateResearch();
@@ -617,6 +619,40 @@ function tradesQuery(q) {
   //   stop       → no stop set — no R (MT5 drops the original risk stop; set it)
   //   untagged   → no setup assigned and no tags
   //   unreviewed → no post-trade review (followed_plan not set)
+  // Insight drill-down filters (from /api/stats/insights links).
+  if (q.tag !== undefined && q.tag !== '') {
+    clauses.push('EXISTS (SELECT 1 FROM trade_tags tt WHERE tt.trade_id = trades.id AND tt.tag_id = @tag)');
+    params.tag = Number(q.tag);
+  }
+  if (q.hour !== undefined && q.hour !== '') {
+    clauses.push("CAST(strftime('%H', entry_time) AS INTEGER) = @hour");
+    params.hour = Number(q.hour);
+  }
+  if (q.dow !== undefined && q.dow !== '') {
+    clauses.push("CAST(strftime('%w', entry_time) AS INTEGER) = @dow");
+    params.dow = Number(q.dow);
+  }
+  if (q.emotion) {
+    clauses.push('EXISTS (SELECT 1 FROM trade_psych p WHERE p.trade_id = trades.id AND p.emotion = @emotion)');
+    params.emotion = String(q.emotion);
+  }
+  if (q.followed === '0' || q.followed === '1') {
+    clauses.push('followed_plan = @followed');
+    params.followed = Number(q.followed);
+  }
+  // Entered within N minutes after a losing exit on the same account — the same
+  // rule insights.js afterLossIds() uses for the "tilt after loss" check.
+  if (q.after_loss === '1') {
+    clauses.push(
+      `EXISTS (SELECT 1 FROM trades p
+               WHERE p.account_id = trades.account_id AND p.id <> trades.id
+                 AND COALESCE(p.is_backtest, 0) = 0 AND p.net_pnl < 0 AND p.is_be = 0
+                 AND p.exit_time IS NOT NULL
+                 AND julianday(trades.entry_time) >= julianday(p.exit_time)
+                 AND (julianday(trades.entry_time) - julianday(p.exit_time)) * 1440 <= @after_loss_min)`
+    );
+    params.after_loss_min = INSIGHT_THRESHOLDS.after_loss_min;
+  }
   const needs = String(q.needs || '')
     .split(',')
     .map((s) => s.trim())
@@ -773,7 +809,44 @@ app.get('/api/trades/:id', (req, res) => {
   const criteria = db
     .prepare('SELECT criterion, met FROM trade_criteria WHERE trade_id = ?')
     .all(id);
-  res.json({ ...trade, executions, tags, notes, screenshots, wick, criteria });
+  const psych = db.prepare('SELECT * FROM trade_psych WHERE trade_id = ?').get(id) ?? null;
+  res.json({ ...trade, executions, tags, notes, screenshots, wick, criteria, psych });
+});
+
+// PUT /api/trades/:id/psych — upsert the structured psychology rating. Partial
+// bodies merge: only keys present are changed; null clears a field.
+app.put('/api/trades/:id/psych', (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
+    return res.status(404).json({ error: 'trade not found' });
+  const b = req.body || {};
+  const scale = (v) => v == null || (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 5);
+  if ('confidence' in b && !scale(b.confidence))
+    return res.status(400).json({ error: 'confidence must be 1-5 or null' });
+  if ('satisfaction' in b && !scale(b.satisfaction))
+    return res.status(400).json({ error: 'satisfaction must be 1-5 or null' });
+  if ('emotion' in b && b.emotion != null && !EMOTIONS.includes(b.emotion))
+    return res.status(400).json({ error: `emotion must be one of ${EMOTIONS.join(', ')}` });
+  const cur = db.prepare('SELECT * FROM trade_psych WHERE trade_id = ?').get(id) || {};
+  const pick = (k, num) => (k in b ? (b[k] == null ? null : num ? Number(b[k]) : b[k]) : cur[k] ?? null);
+  const next = {
+    trade_id: id,
+    confidence: pick('confidence', true),
+    emotion: pick('emotion', false),
+    satisfaction: pick('satisfaction', true),
+  };
+  if (next.confidence == null && next.emotion == null && next.satisfaction == null) {
+    db.prepare('DELETE FROM trade_psych WHERE trade_id = ?').run(id);
+    return res.json(null);
+  }
+  db.prepare(
+    `INSERT INTO trade_psych (trade_id, confidence, emotion, satisfaction, updated_at)
+     VALUES (@trade_id, @confidence, @emotion, @satisfaction, datetime('now'))
+     ON CONFLICT(trade_id) DO UPDATE SET confidence = excluded.confidence,
+       emotion = excluded.emotion, satisfaction = excluded.satisfaction,
+       updated_at = excluded.updated_at`
+  ).run(next);
+  res.json(db.prepare('SELECT * FROM trade_psych WHERE trade_id = ?').get(id));
 });
 
 // PUT /api/trades/:id/criteria — set whether one setup criterion was met on
@@ -1006,6 +1079,21 @@ app.patch('/api/trades/:id', (req, res) => {
 });
 
 // ---------- Tags ----------
+// Known tags (optionally one category) with how often each is used — feeds the
+// review stepper's quick-pick mistake chips.
+app.get('/api/tags', (req, res) => {
+  const cat = req.query.category ? String(req.query.category) : null;
+  const rows = db
+    .prepare(
+      `SELECT t.id, t.category, t.name, COUNT(tt.trade_id) AS uses
+       FROM tags t LEFT JOIN trade_tags tt ON tt.tag_id = t.id
+       ${cat ? 'WHERE t.category = ?' : ''}
+       GROUP BY t.id ORDER BY uses DESC, t.name`
+    )
+    .all(...(cat ? [cat] : []));
+  res.json(rows);
+});
+
 app.post('/api/trades/:id/tags', (req, res) => {
   const id = Number(req.params.id);
   if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
@@ -1113,7 +1201,7 @@ app.get('/api/journal/:day', (req, res) => {
     .get(accountId, day) || null;
   const recap = db
     .prepare(
-      'SELECT * FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+      'SELECT * FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL AND kind IS NULL ORDER BY id LIMIT 1'
     )
     .get(accountId, day) || null;
 
@@ -1133,7 +1221,7 @@ app.put('/api/journal/:day', (req, res) => {
 
   const existing = db
     .prepare(
-      'SELECT id FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+      'SELECT id FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL AND kind IS NULL ORDER BY id LIMIT 1'
     )
     .get(accountId, day);
   if (existing) {
@@ -1149,6 +1237,54 @@ app.put('/api/journal/:day', (req, res) => {
   res
     .status(201)
     .json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
+});
+
+// ---------- Week recap ----------
+// One recap per (account, week), stored like the day recap (a trade-less note)
+// but with kind = 'week' on the week's Monday, so it never collides with that
+// Monday's own day recap. `date` is any day in the week.
+function weekRecapRow(accountId, monday) {
+  return (
+    db
+      .prepare(
+        "SELECT * FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL AND kind = 'week' ORDER BY id LIMIT 1"
+      )
+      .get(accountId, monday) || null
+  );
+}
+
+app.get('/api/journal/week/:date', (req, res) => {
+  const date = req.params.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  const accountId = resolveAccountId(req.query);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+  const monday = mondayOf(date);
+  res.json({ week: monday, account_id: accountId, recap: weekRecapRow(accountId, monday) });
+});
+
+app.put('/api/journal/week/:date', (req, res) => {
+  const date = req.params.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  const b = req.body || {};
+  const accountId = resolveAccountId(b);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+  const monday = mondayOf(date);
+  const body = b.body ?? '';
+  const existing = weekRecapRow(accountId, monday);
+  if (existing) {
+    db.prepare("UPDATE notes SET body = ?, updated_at = datetime('now') WHERE id = ?").run(body, existing.id);
+    return res.json(db.prepare('SELECT * FROM notes WHERE id = ?').get(existing.id));
+  }
+  const info = db
+    .prepare(
+      "INSERT INTO notes (account_id, day, kind, body, updated_at) VALUES (?, ?, 'week', ?, datetime('now'))"
+    )
+    .run(accountId, monday, body);
+  res.status(201).json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
 });
 
 // ---------- Custom field definitions + per-trade values ----------
@@ -1287,7 +1423,7 @@ app.get('/api/report/week/:date', (req, res) => {
       .get(accountId, day);
     const recap = db
       .prepare(
-        'SELECT body FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+        'SELECT body FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL AND kind IS NULL ORDER BY id LIMIT 1'
       )
       .get(accountId, day);
     const plan = db
@@ -1304,7 +1440,20 @@ app.get('/api/report/week/:date', (req, res) => {
   }
 
   const account = db.prepare('SELECT id, name, currency FROM accounts WHERE id = ?').get(accountId);
-  res.json({ from, to, account, stats, best, worst, days });
+  const weekRecap = weekRecapRow(accountId, from)?.body ?? null;
+  res.json({ from, to, account, stats, best, worst, days, week_recap: weekRecap });
+});
+
+// ---------- Monthly review report ----------
+// GET /api/report/month/:ym (YYYY-MM) — see report.js monthReport().
+app.get('/api/report/month/:ym', (req, res) => {
+  const ym = req.params.ym;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym))
+    return res.status(400).json({ error: 'month must be YYYY-MM' });
+  const accountId = resolveAccountId(req.query);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+  res.json(monthReport(accountId, ym));
 });
 
 // ---------- Missed trades ----------
@@ -1634,6 +1783,10 @@ app.get('/api/stats/portfolio', (req, res) => res.json(portfolio(req.query)));
 app.get('/api/stats/reportcard', (req, res) => res.json(reportCard(req.query)));
 app.get('/api/stats/tags', (req, res) => res.json(tagStats(req.query)));
 app.get('/api/stats/discipline', (req, res) => res.json(discipline(req.query)));
+app.get('/api/stats/psychology', (req, res) => res.json(psychology(req.query)));
+app.get('/api/stats/insights', (req, res) =>
+  res.json(insights(req.query, { exits: req.query.exits !== '0' }))
+);
 
 // --- Goals ---
 app.get('/api/goals', (req, res) => res.json(listGoals(req.query)));
