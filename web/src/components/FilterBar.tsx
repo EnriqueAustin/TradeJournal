@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useFilters } from '../store/FilterContext';
 import { sessionLabel } from '../utils/format';
 
@@ -49,7 +50,37 @@ const PRESETS = [
   { key: 'all', label: 'All' },
 ];
 
-export default function FilterBar() {
+
+// Inline label + control, so the whole bar fits on one row where width allows.
+function Field({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <label
+        htmlFor={htmlFor}
+        className="text-[9px] font-bold uppercase"
+        style={{ color: 'var(--term-muted)', letterSpacing: '0.1em' }}
+      >
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Global filter bar. `full` on report/list pages; `account` on pages scoped to
+ * one account that ignore the other filters (Journal, Week report, Replay,
+ * Backtest), so the account can still be switched there.
+ */
+export default function FilterBar({ variant = 'full' }: { variant?: 'full' | 'account' }) {
   const {
     filters,
     setFilters,
@@ -62,16 +93,13 @@ export default function FilterBar() {
 
   return (
     <div
-      className="flex flex-wrap items-end gap-2 border-b px-4 py-2"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-4 py-1.5"
       style={{
         borderColor: 'var(--term-border-2)',
         background: 'linear-gradient(180deg, var(--term-panel-hd), var(--term-bg-2))',
       }}
     >
-      <div>
-        <label className="label" htmlFor="f-account">
-          Account
-        </label>
+      <Field label="Account" htmlFor="f-account">
         <select
           id="f-account"
           className="input min-w-[9rem]"
@@ -82,9 +110,7 @@ export default function FilterBar() {
           }
         >
           {accounts.length === 0 ? (
-            <option value="">
-              {accountsLoading ? 'Loading…' : 'No accounts'}
-            </option>
+            <option value="">{accountsLoading ? 'Loading…' : 'No accounts'}</option>
           ) : (
             <option value="">All accounts</option>
           )}
@@ -94,118 +120,101 @@ export default function FilterBar() {
             </option>
           ))}
         </select>
-      </div>
+      </Field>
 
-      <div>
-        <label className="label" htmlFor="f-instrument">
-          Instrument
-        </label>
-        <select
-          id="f-instrument"
-          className="input min-w-[7rem]"
-          value={filters.instrument}
-          onChange={(e) => setFilters({ instrument: e.target.value })}
-        >
-          {INSTRUMENTS.map((i) => (
-            <option key={i} value={i}>
-              {i}
-            </option>
-          ))}
-        </select>
-      </div>
+      {variant === 'full' && (
+        <>
+          <Field label="Inst" htmlFor="f-instrument">
+            <select
+              id="f-instrument"
+              className="input"
+              value={filters.instrument}
+              onChange={(e) => setFilters({ instrument: e.target.value })}
+            >
+              {INSTRUMENTS.map((i) => (
+                <option key={i} value={i}>
+                  {i}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-      <div>
-        <label className="label" htmlFor="f-session">
-          Session
-        </label>
-        <select
-          id="f-session"
-          className="input min-w-[7rem]"
-          value={filters.session}
-          onChange={(e) => setFilters({ session: e.target.value })}
-        >
-          {SESSIONS.map((s) => (
-            <option key={s} value={s}>
-              {sessionLabel(s)}
-            </option>
-          ))}
-        </select>
-      </div>
+          <Field label="Session" htmlFor="f-session">
+            <select
+              id="f-session"
+              className="input"
+              value={filters.session}
+              onChange={(e) => setFilters({ session: e.target.value })}
+            >
+              {SESSIONS.map((s) => (
+                <option key={s} value={s}>
+                  {sessionLabel(s)}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-      <div>
-        <label className="label" htmlFor="f-setup">
-          Setup
-        </label>
-        <select
-          id="f-setup"
-          className="input min-w-[8rem]"
-          value={filters.setup}
-          onChange={(e) => setFilters({ setup: e.target.value })}
-        >
-          <option value="All">All</option>
-          {setups.map((s) => (
-            <option key={s.id} value={String(s.id)}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-      </div>
+          <Field label="Setup" htmlFor="f-setup">
+            <select
+              id="f-setup"
+              className="input max-w-[10rem]"
+              value={filters.setup}
+              onChange={(e) => setFilters({ setup: e.target.value })}
+            >
+              <option value="All">All</option>
+              {setups.map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-      <div>
-        <label className="label" htmlFor="f-from">
-          From
-        </label>
-        <input
-          id="f-from"
-          type="date"
-          className="input"
-          value={filters.from}
-          max={filters.to || undefined}
-          onChange={(e) => setFilters({ from: e.target.value })}
-        />
-      </div>
+          <Field label="Dates" htmlFor="f-from">
+            <input
+              id="f-from"
+              type="date"
+              className="input"
+              aria-label="From"
+              value={filters.from}
+              max={filters.to || undefined}
+              onChange={(e) => setFilters({ from: e.target.value })}
+            />
+            <span className="text-slate-600">–</span>
+            <input
+              id="f-to"
+              type="date"
+              className="input"
+              aria-label="To"
+              value={filters.to}
+              min={filters.from || undefined}
+              onChange={(e) => setFilters({ to: e.target.value })}
+            />
+          </Field>
 
-      <div>
-        <label className="label" htmlFor="f-to">
-          To
-        </label>
-        <input
-          id="f-to"
-          type="date"
-          className="input"
-          value={filters.to}
-          min={filters.from || undefined}
-          onChange={(e) => setFilters({ to: e.target.value })}
-        />
-      </div>
+          <Field label="R">
+            <input
+              type="number"
+              step="any"
+              className="input w-14"
+              placeholder="min"
+              aria-label="R min"
+              value={filters.rMin}
+              onChange={(e) => setFilters({ rMin: e.target.value })}
+            />
+            <span className="text-slate-600">–</span>
+            <input
+              type="number"
+              step="any"
+              className="input w-14"
+              placeholder="max"
+              aria-label="R max"
+              value={filters.rMax}
+              onChange={(e) => setFilters({ rMax: e.target.value })}
+            />
+          </Field>
 
-      <div>
-        <label className="label">R range</label>
-        <div className="flex items-center gap-1">
-          <input
-            type="number"
-            step="any"
-            className="input w-16"
-            placeholder="min"
-            value={filters.rMin}
-            onChange={(e) => setFilters({ rMin: e.target.value })}
-          />
-          <span className="text-slate-600">–</span>
-          <input
-            type="number"
-            step="any"
-            className="input w-16"
-            placeholder="max"
-            value={filters.rMax}
-            onChange={(e) => setFilters({ rMax: e.target.value })}
-          />
-        </div>
-      </div>
-
-      <div className="ml-auto flex items-end gap-2">
-        <div>
-          <label className="label">Range preset</label>
-          <div className="flex flex-wrap gap-1">
+          <div className="ml-auto flex flex-wrap items-center gap-1">
             {PRESETS.map((p) => {
               const r = presetRange(p.key);
               const active = filters.from === r.from && filters.to === r.to;
@@ -222,12 +231,12 @@ export default function FilterBar() {
                 </button>
               );
             })}
+            <button className="btn px-2 py-1 text-[10px]" onClick={resetFilters}>
+              Reset
+            </button>
           </div>
-        </div>
-        <button className="btn" onClick={resetFilters}>
-          Reset
-        </button>
-      </div>
+        </>
+      )}
 
       {accountsError && (
         <span
