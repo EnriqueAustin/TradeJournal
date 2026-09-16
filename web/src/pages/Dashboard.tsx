@@ -182,6 +182,7 @@ function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['f
         isEmpty={!d || d.reviewed === 0}
         emptyMessage="No reviews yet — grade a trade and flag whether you followed your plan on its detail page."
         loadingLabel="Loading discipline…"
+        skeleton="tiles"
       >
         {d && (
           <div className="flex flex-wrap items-center gap-x-10 gap-y-4">
@@ -355,6 +356,7 @@ export default function Dashboard() {
         error={summary.error}
         onRetry={summary.reload}
         loadingLabel="Loading summary…"
+        skeleton="tiles"
       >
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatTile
@@ -421,6 +423,7 @@ export default function Dashboard() {
           isEmpty={!equity.data || equity.data.length === 0}
           emptyMessage="No closed trades in range."
           loadingLabel="Loading equity…"
+          skeleton="chart"
         >
           {equity.data && <EquityCurve data={equity.data} unit={unit} />}
         </AsyncBoundary>
@@ -455,6 +458,7 @@ export default function Dashboard() {
             error={calendar.error}
             onRetry={calendar.reload}
             loadingLabel="Loading calendar…"
+            skeleton="table"
           >
             <Calendar
               month={month}
@@ -479,6 +483,7 @@ export default function Dashboard() {
             isEmpty={!session.data || session.data.length === 0}
             emptyMessage={`No session data for ${monthLabel}.`}
             loadingLabel="Loading sessions…"
+            skeleton="table"
           >
             {session.data && (
               <SessionHeatmap data={session.data} currency={currency} month={month} />
@@ -504,6 +509,7 @@ export default function Dashboard() {
           isEmpty={!hourly.data || hourly.data.length === 0}
           emptyMessage="No hourly data in range."
           loadingLabel="Loading hourly…"
+          skeleton="chart"
         >
           {hourly.data && <HourlyBars data={hourly.data} />}
         </AsyncBoundary>

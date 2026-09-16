@@ -580,6 +580,7 @@ export default function Risk() {
           error={prop.error}
           onRetry={prop.reload}
           loadingLabel="Loading prop guardrails…"
+          skeleton="tiles"
         >
           {p && (
             <div className="flex flex-col gap-4">
@@ -721,6 +722,7 @@ export default function Risk() {
             error={adh.error}
             onRetry={adh.reload}
             loadingLabel="Loading adherence…"
+            skeleton="table"
           >
             {adh.data && (
               <div className="flex flex-col gap-4">
@@ -805,6 +807,7 @@ export default function Risk() {
             error={streaks.error}
             onRetry={streaks.reload}
             loadingLabel="Loading streaks…"
+            skeleton="tiles"
           >
             {streaks.data && (
               <div className="flex flex-col gap-4">
@@ -927,6 +930,7 @@ export default function Risk() {
           isEmpty={!!tilt.data && tilt.data.count === 0}
           emptyMessage="No rapid re-entries after losses. Clean discipline."
           loadingLabel="Loading tilt analysis…"
+          skeleton="table"
         >
           {tilt.data && tilt.data.count > 0 && (
             <div className="flex flex-col gap-3">
