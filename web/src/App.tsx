@@ -9,8 +9,7 @@ import Playbook from './pages/Playbook';
 import Analytics from './pages/Analytics';
 import Risk from './pages/Risk';
 import Replay from './pages/Replay';
-import Backtest from './pages/Backtest';
-import BacktestStudio from './pages/BacktestStudio';
+import BacktestHub from './pages/BacktestHub';
 import Portfolio from './pages/Portfolio';
 import CalendarPage from './pages/Calendar';
 import Journal from './pages/Journal';
@@ -32,8 +31,9 @@ export default function App() {
         <Route path="calendar" element={<CalendarPage />} />
         <Route path="portfolio" element={<Portfolio />} />
         <Route path="replay" element={<Replay />} />
-        <Route path="backtest" element={<Backtest />} />
-        <Route path="studio" element={<BacktestStudio />} />
+        <Route path="backtest" element={<BacktestHub />} />
+        <Route path="studio" element={<Navigate to="/backtest" replace />} />
+        {/* Signal is parked: route kept, hidden from the sidebar and palette. */}
         <Route path="research" element={<Signal />} />
         <Route path="import" element={<Import />} />
         <Route path="accounts" element={<Accounts />} />
