@@ -18,10 +18,10 @@ export default function OptimizerHeatmap({ data }: { data: OptimizerStats }) {
     const norm = Math.max(-1, Math.min(1, r / maxAbs));
     if (norm >= 0) {
       const a = 0.08 + norm * 0.55;
-      return { backgroundColor: `rgba(16,185,129,${a.toFixed(3)})` };
+      return { backgroundColor: `rgb(var(--c-green) / ${a.toFixed(3)})` };
     }
     const a = 0.08 + Math.abs(norm) * 0.55;
-    return { backgroundColor: `rgba(239,68,68,${a.toFixed(3)})` };
+    return { backgroundColor: `rgb(var(--c-red) / ${a.toFixed(3)})` };
   };
 
   const cellAt = (sl: number, tp: number) =>
@@ -112,7 +112,7 @@ export default function OptimizerHeatmap({ data }: { data: OptimizerStats }) {
                       <div className="font-medium text-slate-100">
                         {formatNumber(c.total_r, 1)}
                       </div>
-                      <div className="text-[10px] text-slate-400">
+                      <div className="text-[11px] text-slate-400">
                         {formatPct(c.win_rate)}
                       </div>
                     </td>

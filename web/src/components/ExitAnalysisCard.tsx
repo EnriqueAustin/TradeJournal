@@ -36,7 +36,7 @@ export default function ExitAnalysisCard({
         <h2 className="text-sm font-semibold text-slate-200">Exit Analysis</h2>
         {a && (
           <span
-            className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase text-slate-500"
+            className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] uppercase text-slate-500"
             title="Bar series used — S5 when stored for the whole window, else M1"
           >
             {a.tf} bars

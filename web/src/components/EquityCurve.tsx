@@ -7,6 +7,7 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts';
+import { useChartTheme, lwcThemeOptions } from '../store/theme';
 import type { EquityPoint } from '../types';
 
 export default function EquityCurve({
@@ -21,6 +22,7 @@ export default function EquityCurve({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const ct = useChartTheme();
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
 
   // Create chart once
@@ -69,6 +71,11 @@ export default function EquityCurve({
       seriesRef.current = null;
     };
   }, []);
+
+  // Canvas charts don't see CSS vars — push the palette on mount and on toggle.
+  useEffect(() => {
+    chartRef.current?.applyOptions(lwcThemeOptions(ct));
+  }, [ct]);
 
   // Update data
   useEffect(() => {

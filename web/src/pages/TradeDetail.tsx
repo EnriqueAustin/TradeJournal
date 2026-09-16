@@ -1,77 +1,26 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { useFilters } from '../store/FilterContext';
 import { AsyncBoundary } from '../components/states';
-import CandleChart from '../components/CandleChart';
-import { buildMarkers, buildPriceLines, buildPositionBox } from '../utils/replay';
-import { newsToMarkers, currenciesForInstrument } from '../utils/news';
-import NewsPanel from '../components/NewsPanel';
 import SocialShareModal from '../components/SocialShareModal';
 import CustomFieldsCard from '../components/CustomFieldsCard';
 import ExitAnalysisCard from '../components/ExitAnalysisCard';
 import ContextTab from '../features/signal/panels/ContextTab';
-import type {
-  TradeDetail as TTradeDetail,
-  Note as TNote,
-  TagCategory,
-  ReplayResponse,
-  ReplayFrame,
-  NewsEvent,
-  WickLevel,
-  WickSession,
-} from '../types';
-import {
-  formatMoney,
-  formatR,
-  formatNumber,
-  formatDateTime,
-  formatDuration,
-  signClass,
-  sessionLabel,
-} from '../utils/format';
-
-const TAG_CATEGORIES: TagCategory[] = [
-  'setup',
-  'session',
-  'emotion',
-  'mistake',
-  'grade',
-];
-
-// Marks an MAE/MFE value that was derived from price bars, not entered by hand.
-function AutoMark() {
-  return (
-    <span
-      className="ml-1 rounded bg-slate-800 px-1 text-[10px] uppercase text-slate-500"
-      title="Auto-derived from stored price bars (S5 when available, else M1)"
-    >
-      auto
-    </span>
-  );
-}
-
-function Field({
-  label,
-  children,
-  className = '',
-}: {
-  label: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={className}>
-      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className={`num mt-0.5 text-sm ${className ? '' : 'text-slate-200'}`}>
-        {children}
-      </div>
-    </div>
-  );
-}
+import TradeChartCard from '../components/trade/TradeChartCard';
+import PartialsPanel from '../components/trade/PartialsPanel';
+import ScreenshotsPanel from '../components/trade/ScreenshotsPanel';
+import TagsPanel from '../components/trade/TagsPanel';
+import WickSetupPanel from '../components/trade/WickSetupPanel';
+import ReviewPanel from '../components/trade/ReviewPanel';
+import NotesPanel from '../components/trade/NotesPanel';
+import KeyStatsCard from '../components/trade/KeyStatsCard';
+import RiskLevelsCard from '../components/trade/RiskLevelsCard';
+import { useTradeNeighbors, type TradeNeighbors } from '../components/trade/useTradeNeighbors';
+import { isTypingTarget } from '../utils/tradeNav';
+import type { TradeDetail as TTradeDetail, ReplayFrame } from '../types';
+import { sessionLabel } from '../utils/format';
 
 export default function TradeDetail() {
   const { id } = useParams<{ id: string }>();
@@ -85,6 +34,27 @@ export default function TradeDetail() {
   const [loadingShare, setLoadingShare] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
+
+  // The fetched trade can lag the URL for a moment while stepping; only trust
+  // it once it matches, so the neighbours are computed for the right trade.
+  const trade = data && data.id === tradeId ? data : null;
+  const neighbors = useTradeNeighbors(tradeId, trade?.account_id);
+
+  // ← / → step through trades (ignored while typing or with a modal open).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (showShareModal || isTypingTarget(e)) return;
+      if (e.key === 'ArrowLeft' && neighbors.prevId != null) {
+        e.preventDefault();
+        navigate(`/trades/${neighbors.prevId}`);
+      } else if (e.key === 'ArrowRight' && neighbors.nextId != null) {
+        e.preventDefault();
+        navigate(`/trades/${neighbors.nextId}`);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [neighbors.prevId, neighbors.nextId, showShareModal, navigate]);
 
   // Deleting is irreversible and cascades to notes/tags/screenshots, so confirm
   // first, then return to the list.
@@ -119,13 +89,16 @@ export default function TradeDetail() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <Link
-          to="/trades"
-          className="text-sm text-cyan-400 hover:text-cyan-300"
-        >
-          ← Back to trades
-        </Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-4">
+          <Link
+            to="/trades"
+            className="text-sm text-cyan-400 hover:text-cyan-300"
+          >
+            ← Back to trades
+          </Link>
+          <PrevNext neighbors={neighbors} />
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={openShareModal}
@@ -153,9 +126,11 @@ export default function TradeDetail() {
         onRetry={reload}
         loadingLabel="Loading trade…"
       >
-        {data && (
+        {trade && (
           <TradeBody
-            trade={data}
+            // Remount per trade so panel-local drafts never leak across trades.
+            key={trade.id}
+            trade={trade}
             onChanged={reload}
             onOpenShare={openShareModal}
           />
@@ -173,6 +148,43 @@ export default function TradeDetail() {
   );
 }
 
+function PrevNext({ neighbors }: { neighbors: TradeNeighbors }) {
+  const { prevId, nextId, position, total, mode } = neighbors;
+  const scope =
+    mode === 'list'
+      ? 'in the Trades list order (filters + sort)'
+      : 'by entry time in this account';
+  const cls =
+    'btn px-2 py-0.5 text-xs disabled:pointer-events-none';
+  return (
+    <div className="flex items-center gap-1.5">
+      {prevId != null ? (
+        <Link to={`/trades/${prevId}`} className={cls} title={`Previous trade ${scope} (←)`}>
+          ← Prev
+        </Link>
+      ) : (
+        <button className={cls} disabled>
+          ← Prev
+        </button>
+      )}
+      {position != null && (
+        <span className="num px-1 text-xs text-slate-500" title={`Position ${scope}`}>
+          {position} / {total}
+        </span>
+      )}
+      {nextId != null ? (
+        <Link to={`/trades/${nextId}`} className={cls} title={`Next trade ${scope} (→)`}>
+          Next →
+        </Link>
+      ) : (
+        <button className={cls} disabled>
+          Next →
+        </button>
+      )}
+    </div>
+  );
+}
+
 function TradeBody({
   trade,
   onChanged,
@@ -183,65 +195,15 @@ function TradeBody({
   onOpenShare: () => void;
 }) {
   const { setups } = useFilters();
-  const [entry, setEntry] = useState(trade.entry_price?.toString() ?? '');
-  const [stop, setStop] = useState(trade.stop_price?.toString() ?? '');
-  const [target, setTarget] = useState(trade.target_price?.toString() ?? '');
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [saveErr, setSaveErr] = useState<string | null>(null);
-  const [setupSaving, setSetupSaving] = useState(false);
   const setupName = setups.find((s) => s.id === trade.setup_id)?.name ?? null;
   const [activeTab, setActiveTab] = useState<'details' | 'context'>('details');
 
-  useEffect(() => {
-    setEntry(trade.entry_price?.toString() ?? '');
-    setStop(trade.stop_price?.toString() ?? '');
-    setTarget(trade.target_price?.toString() ?? '');
-  }, [trade.id, trade.entry_price, trade.stop_price, trade.target_price]);
-
-  const saveSetup = async (value: string) => {
-    setSetupSaving(true);
-    setSaveErr(null);
-    try {
-      await api.patchTrade(trade.id, {
-        setup_id: value === '' ? null : Number(value),
-      });
-      onChanged();
-    } catch (e: any) {
-      setSaveErr(e?.message || 'Failed to save setup');
-    } finally {
-      setSetupSaving(false);
-    }
-  };
-
-  const saveLevels = async () => {
-    setSaving(true);
-    setSaveErr(null);
-    setSaveMsg(null);
-    try {
-      await api.patchTrade(trade.id, {
-        // Entry only sent when it's a real, non-zero correction — guards the
-        // 8 corrupt entry_price=0 imports without touching good rows.
-        ...(entry !== '' && Number(entry) > 0 ? { entry_price: Number(entry) } : {}),
-        stop_price: stop === '' ? null : Number(stop),
-        target_price: target === '' ? null : Number(target),
-      });
-      setSaveMsg('Saved');
-      onChanged();
-    } catch (e: any) {
-      setSaveErr(e?.message || 'Failed to save');
-    } finally {
-      setSaving(false);
-      setTimeout(() => setSaveMsg(null), 2500);
-    }
-  };
-
   return (
-    <div className="flex flex-col gap-5">
-      {/* Header */}
-      <div className="card p-5">
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_360px]">
+      {/* Main column: header, chart, executions, exit analysis, notes, screenshots */}
+      <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-2xl font-semibold text-slate-100">
               {trade.instrument}
             </h1>
@@ -266,1287 +228,53 @@ function TradeBody({
               </span>
             )}
           </div>
-          <div className="text-right">
-            <div className={`num text-2xl font-semibold ${signClass(trade.net_pnl)}`}>
-              {formatMoney(trade.net_pnl)}
-            </div>
-            <div className={`num text-sm ${signClass(trade.r_multiple)}`}>
-              {formatR(trade.r_multiple)}
-              {trade.r_derived ? (
-                <span
-                  className="ml-1 text-slate-500"
-                  title="Derived from the account's default risk — no stop was recorded"
-                >
-                  ~
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          <Field label="Entry Time">{formatDateTime(trade.entry_time)}</Field>
-          <Field label="Exit Time">{formatDateTime(trade.exit_time)}</Field>
-          <Field label="Hold Time">{formatDuration(trade.hold_time_sec)}</Field>
-          <Field label="Size">{formatNumber(trade.size, 2)}</Field>
-          <Field label="Entry Price">{formatNumber(trade.entry_price, 2)}</Field>
-          <Field label="Exit Price">{formatNumber(trade.exit_price, 2)}</Field>
-          <Field label="Gross P&L">
-            <span className={signClass(trade.gross_pnl)}>
-              {formatMoney(trade.gross_pnl)}
-            </span>
-          </Field>
-          <Field label="Commission">{formatMoney(trade.commission)}</Field>
-          <Field label="Swap">{formatMoney(trade.swap)}</Field>
-          <Field label="MAE">
-            {trade.mae == null ? '—' : formatNumber(trade.mae, 2)}
-            {trade.mae != null && trade.mae_auto ? <AutoMark /> : null}
-          </Field>
-          <Field label="MFE">
-            {trade.mfe == null ? '—' : formatNumber(trade.mfe, 2)}
-            {trade.mfe != null && trade.mfe_auto ? <AutoMark /> : null}
-          </Field>
-          <Field label="Source">
-            <span className="uppercase">{trade.source}</span>
-          </Field>
-        </div>
-      </div>
-
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b border-slate-700">
-        <button
-          className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'details' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'}`}
-          onClick={() => setActiveTab('details')}
-        >
-          Details
-        </button>
-        <button
-          className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === 'context' ? 'text-amber-400 border-b-2 border-amber-400' : 'text-slate-400 hover:text-slate-200'}`}
-          onClick={() => setActiveTab('context')}
-        >
-          Market Context
-        </button>
-      </div>
-
-      {activeTab === 'context' ? (
-        <ContextTab tradeId={trade.id} instrument={trade.instrument} entryPrice={trade.entry_price} />
-      ) : (
-      <>
-      {/* Where price went after the exit (self-contained, from stored bars) */}
-      <ExitAnalysisCard
-        tradeId={trade.id}
-        refreshKey={`${trade.exit_price}|${trade.stop_price}|${trade.target_price}|${trade.direction}`}
-      />
-
-      {/* Post-trade review — grade + did-you-follow-the-plan */}
-      <ReviewPanel trade={trade} onChanged={onChanged} />
-
-      {/* Chart with position indicator */}
-      <TradeChartCard trade={trade} onChanged={onChanged} onOpenShare={onOpenShare} />
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {/* Edit stop / target */}
-        <div className="card p-5">
-          <h2 className="mb-3 text-sm font-semibold text-slate-200">
-            Risk Levels
-          </h2>
-          <div className="mb-4">
-            <label className="label" htmlFor="td-setup">
-              Setup
-            </label>
-            <select
-              id="td-setup"
-              className="input w-full max-w-xs"
-              value={trade.setup_id == null ? '' : String(trade.setup_id)}
-              disabled={setupSaving}
-              onChange={(e) => saveSetup(e.target.value)}
-            >
-              <option value="">— Unassigned —</option>
-              {setups.map((s) => (
-                <option key={s.id} value={String(s.id)}>
-                  {s.name}
-                  {s.instrument ? ` (${s.instrument})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="label" htmlFor="entry">
-                Entry Price
-              </label>
-              <input
-                id="entry"
-                type="number"
-                step="any"
-                className="input w-36"
-                value={entry}
-                onChange={(e) => setEntry(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="stop">
-                Stop Price
-              </label>
-              <input
-                id="stop"
-                type="number"
-                step="any"
-                className="input w-36"
-                value={stop}
-                onChange={(e) => setStop(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="target">
-                Target Price
-              </label>
-              <input
-                id="target"
-                type="number"
-                step="any"
-                className="input w-36"
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-              />
-            </div>
+          <div className="flex gap-1 border-b border-slate-700">
             <button
-              className="btn btn-primary"
-              onClick={saveLevels}
-              disabled={saving}
+              className={`px-3 py-1.5 text-sm font-medium transition-colors ${activeTab === 'details' ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'}`}
+              onClick={() => setActiveTab('details')}
             >
-              {saving ? 'Saving…' : 'Save'}
+              Details
             </button>
-            {saveMsg && (
-              <span className="text-sm text-emerald-400">{saveMsg}</span>
-            )}
-            {saveErr && <span className="text-sm text-red-400">{saveErr}</span>}
+            <button
+              className={`px-3 py-1.5 text-sm font-medium transition-colors ${activeTab === 'context' ? 'text-amber-400 border-b-2 border-amber-400' : 'text-slate-400 hover:text-slate-200'}`}
+              onClick={() => setActiveTab('context')}
+            >
+              Market Context
+            </button>
           </div>
-          {trade.stop_price == null && (
-            <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-300">
-              No stop imported. MT5 statements only keep the <em>final</em> stop —
-              if you trailed it to break-even or into profit, that's on the wrong
-              side of entry and gets dropped, so the original risk stop is lost.
-              Enter the stop you actually used at entry to unlock R.
-            </p>
-          )}
-          <p className="mt-2 text-xs text-slate-500">
-            R multiple recomputes from stop distance when the trade is refetched.
-            Fix a bad-import entry price here (e.g. Match-Trader rows that came in
-            at 0) to unlock replay and R — P&amp;L is left untouched.
-          </p>
         </div>
 
-        {/* Tags */}
-        <TagsPanel trade={trade} onChanged={onChanged} />
-      </div>
-
-      {/* Wick-fill setup tags */}
-      <WickSetupPanel trade={trade} onChanged={onChanged} />
-
-      {/* Partials / executions */}
-      <PartialsPanel trade={trade} />
-
-      {/* Custom fields */}
-      <CustomFieldsCard tradeId={trade.id} account={trade.account_id} />
-
-      {/* Notes */}
-      <NotesPanel trade={trade} onChanged={onChanged} />
-
-      {/* Screenshots */}
-      <ScreenshotsPanel trade={trade} onChanged={onChanged} />
-      </>
-      )}
-    </div>
-  );
-}
-
-// Entry TFs (15m/30m) plus the intraday confirmation TFs (1h/2h/4h) the strategy
-// leans on; 5m is the scalp floor. Higher confirmations aggregate from stored M1.
-const CHART_TFS = ['M5', 'M15', 'M30', 'H1', 'H2', 'H4'];
-
-function TradeChartCard({
-  trade,
-  onChanged,
-  onOpenShare,
-}: {
-  trade: TTradeDetail;
-  onChanged: () => void;
-  onOpenShare: () => void;
-}) {
-  const [tf, setTf] = useState(trade.preferred_tf || 'M30');
-  const [refetching, setRefetching] = useState(false);
-  const [showBox, setShowBox] = useState(true);
-
-  // Keep local TF in sync if the trade's stored preference changes elsewhere.
-  useEffect(() => {
-    setTf(trade.preferred_tf || 'M30');
-  }, [trade.id, trade.preferred_tf]);
-
-  const { data, loading, error, reload } = useApi<ReplayResponse>(
-    () => api.getReplay(trade.id, [tf]),
-    [trade.id, tf]
-  );
-
-  const refetchBars = async () => {
-    setRefetching(true);
-    try {
-      await api.refetchTradeBars(trade.id);
-      reload();
-    } catch {
-      /* non-fatal — leave the current chart as-is */
-    } finally {
-      setRefetching(false);
-    }
-  };
-
-  const frame = data?.frames.find((f) => f.tf === tf) ?? data?.frames[0];
-
-  // Economic-calendar window: the span covered by the loaded bars.
-  const [from, to] = useMemo(() => {
-    const bars = frame?.bars ?? [];
-    if (bars.length === 0) return [null, null] as const;
-    const times = bars.map((b) => b.t).sort();
-    return [times[0], times[times.length - 1]] as const;
-  }, [frame]);
-
-  const currencies = useMemo(
-    () => currenciesForInstrument(trade.instrument)?.join(',') ?? undefined,
-    [trade.instrument]
-  );
-
-  const [refreshing, setRefreshing] = useState(false);
-  const news = useApi<NewsEvent[]>(
-    () =>
-      from && to
-        ? api.getNews({ from, to, impact: 'high,medium', currency: currencies })
-        : Promise.resolve([]),
-    [from, to, currencies]
-  );
-  const newsStatus = useApi(() => api.getNewsStatus(), []);
-
-  const refreshNews = async () => {
-    setRefreshing(true);
-    try {
-      await api.refreshNews();
-      news.reload();
-      newsStatus.reload();
-    } catch {
-      /* non-fatal — keep whatever is cached */
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  const newsMarkers = useMemo(
-    () => newsToMarkers(news.data ?? [], 'medium'),
-    [news.data]
-  );
-
-  const tradeMarkers =
-    data && frame ? buildMarkers(frame.bars, data.markers, data.direction) : [];
-  // lightweight-charts requires markers in ascending time order; trade and news
-  // markers interleave, so sort the merged set before handing it to the chart.
-  const markers = [...tradeMarkers, ...newsMarkers].sort(
-    (a, b) => (a.time as number) - (b.time as number)
-  );
-  const priceLines = data ? buildPriceLines(data.markers) : [];
-  const positionBox =
-    data && frame ? buildPositionBox(frame.bars, data.markers, data.direction) : null;
-
-  const changeTf = async (next: string) => {
-    setTf(next);
-    try {
-      await api.patchTrade(trade.id, { preferred_tf: next });
-      onChanged();
-    } catch {
-      /* non-fatal — chart still shows the chosen TF this session */
-    }
-  };
-
-  return (
-    <>
-    <div className="card p-5">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slate-200">Chart</h2>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            {CHART_TFS.map((t) => (
-              <button
-                key={t}
-                className={`btn px-2 py-0.5 text-xs ${
-                  t === tf ? 'border-cyan-500 text-cyan-300' : ''
-                }`}
-                onClick={() => changeTf(t)}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-          <button
-            className={`btn text-xs ${showBox ? 'border-cyan-500 text-cyan-300' : ''}`}
-            onClick={() => setShowBox((v) => !v)}
-            title="Show / hide the position indicator"
-          >
-            ◱ Box
-          </button>
-          <button
-            className="btn text-xs"
-            onClick={refetchBars}
-            disabled={refetching}
-            title="Re-pull price bars around this trade from OANDA"
-          >
-            {refetching ? 'Fetching…' : '↻ Bars'}
-          </button>
-          <button
-            onClick={onOpenShare}
-            className="btn text-xs bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border-cyan-500/40"
-            title="Generate social share graphic"
-          >
-            📸 Share Card
-          </button>
-          <Link to={`/replay?trade=${trade.id}`} className="btn text-xs">
-            Full replay →
-          </Link>
-        </div>
-      </div>
-      <AsyncBoundary
-        loading={loading}
-        error={error}
-        onRetry={reload}
-        loadingLabel="Loading chart…"
-      >
-        {!frame || frame.bars.length === 0 ? (
-          <div className="flex h-[320px] items-center justify-center text-sm text-slate-500">
-            No {tf} bars for {trade.instrument}. Import bars to see the chart.
-          </div>
+        {activeTab === 'context' ? (
+          <ContextTab tradeId={trade.id} instrument={trade.instrument} entryPrice={trade.entry_price} />
         ) : (
-          <CandleChart
-            bars={frame.bars}
-            markers={markers}
-            priceLines={priceLines}
-            positionBox={showBox ? positionBox : null}
-            height={340}
-          />
-        )}
-      </AsyncBoundary>
-    </div>
-    <NewsPanel
-      events={news.data ?? []}
-      status={newsStatus.data}
-      onRefresh={refreshNews}
-      refreshing={refreshing}
-      entryTime={trade.entry_time}
-      exitTime={trade.exit_time}
-      emptyHint={
-        news.error
-          ? 'Could not load news for this window.'
-          : undefined
-      }
-    />
-    </>
-  );
-}
+          <>
+            {/* Chart with position indicator (+ news around the trade) */}
+            <TradeChartCard trade={trade} onChanged={onChanged} onOpenShare={onOpenShare} />
 
-// Breaks a trade into its entry fill(s) and each partial close, showing every
-// partial's own price / size / P&L and how much position was left running.
-function PartialsPanel({ trade }: { trade: TTradeDetail }) {
-  const [open, setOpen] = useState<Set<number>>(new Set());
-  const toggle = (id: number) =>
-    setOpen((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+            {/* Partials / executions */}
+            <PartialsPanel trade={trade} />
 
-  const execs = [...trade.executions].sort((a, b) =>
-    a.exec_time.localeCompare(b.exec_time)
-  );
-  const entries = execs.filter((e) => e.side === 'in');
-  const exits = execs.filter((e) => e.side === 'out');
-  const entrySize = entries.reduce((s, e) => s + e.size, 0);
-
-  // Running remaining size after each partial exit (in exit order).
-  let remaining = entrySize;
-  const rows = exits.map((ex, i) => {
-    remaining = Math.max(0, remaining - ex.size);
-    return { ex, n: i + 1, remaining, pctClosed: entrySize ? ex.size / entrySize : 0 };
-  });
-
-  const hasPnl = exits.some((e) => e.profit != null);
-
-  return (
-    <div className="card p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-200">
-          Partials & Executions
-        </h2>
-        <span className="text-xs text-slate-500">
-          {exits.length} {exits.length === 1 ? 'close' : 'closes'} ·{' '}
-          {formatNumber(entrySize, 2)} entered
-        </span>
-      </div>
-
-      {execs.length === 0 ? (
-        <p className="text-sm text-slate-500">No executions recorded.</p>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {/* Entry summary */}
-          <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-sm">
-            <span className="flex items-center gap-2">
-              <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-400">
-                entry
-              </span>
-              <span className="text-slate-300">
-                {formatNumber(entrySize, 2)} @{' '}
-                {formatNumber(trade.entry_price, 2)}
-              </span>
-            </span>
-            <span className="num text-xs text-slate-500">
-              {formatDateTime(entries[0]?.exec_time ?? trade.entry_time)}
-            </span>
-          </div>
-
-          {/* Each partial close */}
-          {rows.map(({ ex, n, remaining, pctClosed }) => {
-            const isOpen = open.has(ex.id);
-            const flat = remaining <= 1e-9;
-            return (
-              <div
-                key={ex.id}
-                className="rounded-lg border border-slate-800 bg-slate-900/40"
-              >
-                <button
-                  onClick={() => toggle(ex.id)}
-                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-800/40"
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="text-slate-500">{isOpen ? '▾' : '▸'}</span>
-                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-400">
-                      partial {n}/{exits.length}
-                    </span>
-                    <span className="num text-slate-300">
-                      {formatNumber(ex.size, 2)} @ {formatNumber(ex.price, 2)}
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      ({(pctClosed * 100).toFixed(0)}%)
-                    </span>
-                  </span>
-                  <span className="flex items-center gap-3">
-                    {ex.profit != null && (
-                      <span className={`num font-medium ${signClass(ex.profit)}`}>
-                        {formatMoney(ex.profit)}
-                      </span>
-                    )}
-                    <span className="num text-xs text-slate-500">
-                      {flat ? 'closed' : `${formatNumber(remaining, 2)} left`}
-                    </span>
-                  </span>
-                </button>
-                {isOpen && (
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-800 px-3 py-2 text-xs sm:grid-cols-4">
-                    <Detail label="Time" value={formatDateTime(ex.exec_time)} />
-                    <Detail label="Price" value={formatNumber(ex.price, 2)} />
-                    <Detail label="Size" value={formatNumber(ex.size, 2)} />
-                    <Detail
-                      label="Remaining"
-                      value={flat ? '0 (flat)' : formatNumber(remaining, 2)}
-                    />
-                    {ex.profit != null && (
-                      <Detail
-                        label="P&L"
-                        value={formatMoney(ex.profit)}
-                        className={signClass(ex.profit)}
-                      />
-                    )}
-                    {ex.commission != null && (
-                      <Detail label="Commission" value={formatMoney(ex.commission)} />
-                    )}
-                    {ex.swap != null && ex.swap !== 0 && (
-                      <Detail label="Swap" value={formatMoney(ex.swap)} />
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {hasPnl && (
-            <div className="mt-1 flex items-center justify-between px-3 text-xs text-slate-500">
-              <span>Sum of partials (gross)</span>
-              <span className={`num ${signClass(trade.gross_pnl)}`}>
-                {formatMoney(exits.reduce((s, e) => s + (e.profit ?? 0), 0))}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Detail({
-  label,
-  value,
-  className = '',
-}: {
-  label: string;
-  value: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className={`num text-slate-300 ${className}`}>{value}</div>
-    </div>
-  );
-}
-
-function ScreenshotsPanel({
-  trade,
-  onChanged,
-}: {
-  trade: TTradeDetail;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const uploadMany = async (files: FileList | File[]) => {
-    const list = Array.from(files).filter((f) => f.type.startsWith('image/'));
-    if (!list.length) {
-      setErr('Only image files are supported.');
-      return;
-    }
-    setBusy(true);
-    setErr(null);
-    try {
-      for (const f of list) await api.uploadScreenshot(trade.id, f);
-      onChanged();
-    } catch (e: any) {
-      setErr(e?.message || 'Upload failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async (sid: number) => {
-    setErr(null);
-    try {
-      await api.deleteScreenshot(trade.id, sid);
-      onChanged();
-    } catch (e: any) {
-      setErr(e?.message || 'Delete failed');
-    }
-  };
-
-  return (
-    <div className="card p-5">
-      <h2 className="mb-3 text-sm font-semibold text-slate-200">
-        Screenshots ({trade.screenshots.length})
-      </h2>
-      <label
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          if (e.dataTransfer.files?.length) uploadMany(e.dataTransfer.files);
-        }}
-        className={`mb-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center transition ${
-          dragOver
-            ? 'border-cyan-400 bg-cyan-500/5'
-            : 'border-slate-700 hover:border-slate-600'
-        }`}
-      >
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          disabled={busy}
-          onChange={(e) => {
-            if (e.target.files?.length) uploadMany(e.target.files);
-            e.target.value = '';
-          }}
-        />
-        <p className="text-sm text-slate-300">
-          {busy ? 'Uploading…' : 'Drop images here or click to upload'}
-        </p>
-        <p className="mt-1 text-xs text-slate-500">PNG, JPG, WebP, GIF · up to 10 MB each</p>
-      </label>
-      {err && <p className="mb-3 text-sm text-red-400">{err}</p>}
-      {trade.screenshots.length === 0 ? (
-        <p className="text-sm text-slate-500">No screenshots attached.</p>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {trade.screenshots.map((sc) => (
-            <div
-              key={sc.id}
-              className="group relative overflow-hidden rounded-lg border border-slate-800"
-            >
-              <a href={sc.url} target="_blank" rel="noreferrer" className="block">
-                <img
-                  src={sc.url}
-                  alt={`Screenshot ${sc.id}`}
-                  className="aspect-video w-full bg-slate-800 object-cover transition group-hover:opacity-80"
-                  loading="lazy"
-                />
-              </a>
-              <button
-                onClick={() => remove(sc.id)}
-                className="absolute right-1.5 top-1.5 rounded bg-slate-900/80 px-2 py-0.5 text-xs text-slate-300 opacity-0 transition hover:text-red-400 group-hover:opacity-100"
-                aria-label="Delete screenshot"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TagsPanel({
-  trade,
-  onChanged,
-}: {
-  trade: TTradeDetail;
-  onChanged: () => void;
-}) {
-  const [category, setCategory] = useState<TagCategory>('setup');
-  const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const add = async () => {
-    if (!name.trim()) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      await api.addTag(trade.id, category, name.trim());
-      setName('');
-      onChanged();
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to add tag');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async (tagId: number) => {
-    setErr(null);
-    try {
-      await api.removeTag(trade.id, tagId);
-      onChanged();
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to remove tag');
-    }
-  };
-
-  return (
-    <div className="card p-5">
-      <h2 className="mb-3 text-sm font-semibold text-slate-200">Tags</h2>
-      <div className="mb-3 flex flex-wrap gap-2">
-        {trade.tags.length === 0 && (
-          <span className="text-sm text-slate-500">No tags yet.</span>
-        )}
-        {trade.tags.map((tag) => (
-          <span
-            key={tag.id}
-            className="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-xs text-slate-200"
-          >
-            <span className="text-slate-500">{tag.category}:</span>
-            {tag.name}
-            <button
-              onClick={() => remove(tag.id)}
-              className="text-slate-500 hover:text-red-400"
-              aria-label="Remove tag"
-            >
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-      <div className="flex flex-wrap items-end gap-2">
-        <div>
-          <label className="label" htmlFor="tag-cat">
-            Category
-          </label>
-          <select
-            id="tag-cat"
-            className="input capitalize"
-            value={category}
-            onChange={(e) => setCategory(e.target.value as TagCategory)}
-          >
-            {TAG_CATEGORIES.map((c) => (
-              <option key={c} value={c} className="capitalize">
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex-1">
-          <label className="label" htmlFor="tag-name">
-            Name
-          </label>
-          <input
-            id="tag-name"
-            className="input w-full"
-            value={name}
-            placeholder="e.g. breakout"
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && add()}
-          />
-        </div>
-        <button className="btn" onClick={add} disabled={busy || !name.trim()}>
-          Add
-        </button>
-      </div>
-      {err && <p className="mt-2 text-sm text-red-400">{err}</p>}
-    </div>
-  );
-}
-
-const WICK_LEVELS: { value: WickLevel; label: string }[] = [
-  { value: 'asian_high', label: 'Asian High' },
-  { value: 'asian_low', label: 'Asian Low' },
-  { value: 'london_high', label: 'London High' },
-  { value: 'london_low', label: 'London Low' },
-  { value: 'pdh', label: 'Prev Day High' },
-  { value: 'pdl', label: 'Prev Day Low' },
-  { value: 'ny_open', label: 'NY Open' },
-  { value: 'equal_highs', label: 'Equal Highs' },
-  { value: 'equal_lows', label: 'Equal Lows' },
-  { value: 'other', label: 'Other' },
-];
-const WICK_SESSIONS: { value: WickSession; label: string }[] = [
-  { value: 'asia', label: 'Asia' },
-  { value: 'london', label: 'London' },
-  { value: 'ny', label: 'New York' },
-  { value: 'off', label: 'Off-hours' },
-];
-
-// Structured "Wicks Don't Lie" setup tagging: which liquidity the entry swept,
-// the session, how much of the wick filled, and whether it faked out first.
-// Feeds the Wick-Fill Edge breakdown on Analytics.
-function WickSetupPanel({
-  trade,
-  onChanged,
-}: {
-  trade: TTradeDetail;
-  onChanged: () => void;
-}) {
-  const w = trade.wick;
-  const [swept, setSwept] = useState<string>(w?.swept_level ?? '');
-  const [session, setSession] = useState<string>(w?.strat_session ?? '');
-  const [fill, setFill] = useState<string>(w?.fill_pct != null ? String(w.fill_pct) : '');
-  const [fakeout, setFakeout] = useState<boolean>(w?.fakeout === 1);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [detecting, setDetecting] = useState(false);
-
-  useEffect(() => {
-    setSwept(trade.wick?.swept_level ?? '');
-    setSession(trade.wick?.strat_session ?? '');
-    setFill(trade.wick?.fill_pct != null ? String(trade.wick.fill_pct) : '');
-    setFakeout(trade.wick?.fakeout === 1);
-  }, [trade.id, trade.wick]);
-
-  // Auto-detect the swept level + session from the trade's entry context and
-  // prefill the form (does not save — you review, then Save).
-  const autoDetect = async () => {
-    setDetecting(true);
-    setErr(null);
-    setMsg(null);
-    try {
-      const r = await api.suggestWick(trade.id);
-      if (r.suggestion.strat_session) setSession(r.suggestion.strat_session);
-      if (r.suggestion.swept_level) setSwept(r.suggestion.swept_level);
-      if (r.suggestion.matched && r.detail) {
-        setMsg(`Detected: swept ${r.detail.level} @ ${r.detail.price}`);
-      } else if (r.suggestion.strat_session) {
-        setMsg(`Session set to ${r.suggestion.strat_session} — no clear sweep at entry, pick the level.`);
-      } else {
-        setMsg('Not enough data near entry to detect.');
-      }
-    } catch (e: any) {
-      setErr(e?.message || 'Detect failed');
-    } finally {
-      setDetecting(false);
-      setTimeout(() => setMsg(null), 4000);
-    }
-  };
-
-  const save = async () => {
-    setSaving(true);
-    setErr(null);
-    setMsg(null);
-    try {
-      await api.saveWick(trade.id, {
-        swept_level: (swept || null) as WickLevel | null,
-        strat_session: (session || null) as WickSession | null,
-        fill_pct: fill === '' ? null : Number(fill),
-        fakeout: fakeout ? 1 : 0,
-      });
-      setMsg('Saved');
-      onChanged();
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to save');
-    } finally {
-      setSaving(false);
-      setTimeout(() => setMsg(null), 2500);
-    }
-  };
-
-  return (
-    <div className="card p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-200">Wick-Fill Setup</h2>
-        <button
-          className="btn text-xs"
-          onClick={autoDetect}
-          disabled={detecting}
-          title="Detect swept level & session from the entry"
-        >
-          {detecting ? 'Detecting…' : '✨ Auto-detect'}
-        </button>
-      </div>
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <label className="label" htmlFor="wick-level">Liquidity Swept</label>
-          <select
-            id="wick-level"
-            className="input"
-            value={swept}
-            onChange={(e) => setSwept(e.target.value)}
-          >
-            <option value="">— none —</option>
-            {WICK_LEVELS.map((l) => (
-              <option key={l.value} value={l.value}>{l.label}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="wick-session">Session</label>
-          <select
-            id="wick-session"
-            className="input"
-            value={session}
-            onChange={(e) => setSession(e.target.value)}
-          >
-            <option value="">— none —</option>
-            {WICK_SESSIONS.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="wick-fill">Wick Fill %</label>
-          <input
-            id="wick-fill"
-            type="number"
-            min={0}
-            max={100}
-            step="any"
-            className="input w-28"
-            value={fill}
-            onChange={(e) => setFill(e.target.value)}
-          />
-        </div>
-        <label className="flex items-center gap-2 pb-2 text-sm text-slate-400">
-          <input
-            type="checkbox"
-            checked={fakeout}
-            onChange={(e) => setFakeout(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-600 bg-slate-800"
-          />
-          Faked out first
-        </label>
-        <button className="btn btn-primary" onClick={save} disabled={saving}>
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        {msg && <span className="text-sm text-emerald-400">{msg}</span>}
-        {err && <span className="text-sm text-red-400">{err}</span>}
-      </div>
-    </div>
-  );
-}
-
-const GRADES = ['A', 'B', 'C', 'D', 'F'] as const;
-const gradeColor = (g: string, on: boolean) => {
-  if (!on) return 'border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200';
-  if (g === 'A' || g === 'B') return 'border-emerald-500 bg-emerald-500/15 text-emerald-300';
-  if (g === 'C') return 'border-amber-500 bg-amber-500/15 text-amber-300';
-  return 'border-red-500 bg-red-500/15 text-red-300';
-};
-
-// One-tap post-trade review: grade (stored as a 'grade' tag so Report Card and
-// the Leak Finder keep working) + a followed-plan flag (trades.followed_plan,
-// which drives the Dashboard discipline card). No note body required.
-function ReviewPanel({
-  trade,
-  onChanged,
-}: {
-  trade: TTradeDetail;
-  onChanged: () => void;
-}) {
-  const { setups } = useFilters();
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const gradeTag = trade.tags.find((t) => t.category === 'grade') ?? null;
-  const grade = gradeTag?.name ?? null;
-  const followed = trade.followed_plan;
-
-  // Structured criteria for the trade's setup, scored per criterion.
-  const setup = setups.find((s) => s.id === trade.setup_id) ?? null;
-  const criteria: string[] = (() => {
-    if (!setup?.criteria_json) return [];
-    try {
-      const a = JSON.parse(setup.criteria_json);
-      return Array.isArray(a) ? a.map(String) : [];
-    } catch {
-      return [];
-    }
-  })();
-  const metSet = new Set((trade.criteria ?? []).filter((c) => c.met).map((c) => c.criterion));
-  const toggleCriterion = (criterion: string) =>
-    run(() => api.setTradeCriterion(trade.id, criterion, !metSet.has(criterion)));
-
-  const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    setErr(null);
-    try {
-      await fn();
-      onChanged();
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to save review');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const setGrade = (g: string) =>
-    run(async () => {
-      // Grade is single-valued: drop any existing grade tag first.
-      if (gradeTag) await api.removeTag(trade.id, gradeTag.id);
-      if (g !== grade) await api.addTag(trade.id, 'grade', g);
-    });
-
-  const setFollowed = (v: 0 | 1 | null) =>
-    run(() => api.patchTrade(trade.id, { followed_plan: v }));
-
-  const beOverride = trade.be_override ?? null;
-  const setBe = (v: 0 | 1 | null) => run(() => api.patchTrade(trade.id, { be_override: v }));
-
-  return (
-    <div className="card p-5">
-      <h2 className="mb-3 text-sm font-semibold text-slate-200">Post-trade Review</h2>
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
-        <div>
-          <div className="label mb-1.5">Grade</div>
-          <div className="flex gap-1.5">
-            {GRADES.map((g) => (
-              <button
-                key={g}
-                type="button"
-                disabled={busy}
-                onClick={() => setGrade(g)}
-                className={`h-9 w-9 rounded-lg border text-sm font-semibold transition ${gradeColor(
-                  g,
-                  grade === g
-                )}`}
-              >
-                {g}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <div className="label mb-1.5">Did you follow your plan?</div>
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setFollowed(followed === 1 ? null : 1)}
-              className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                followed === 1
-                  ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
-                  : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              ✓ Followed
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setFollowed(followed === 0 ? null : 0)}
-              className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                followed === 0
-                  ? 'border-red-500 bg-red-500/15 text-red-300'
-                  : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              ✗ Broke plan
-            </button>
-          </div>
-        </div>
-        <div>
-          <div className="label mb-1.5">
-            Break-even{' '}
-            <span className="font-normal normal-case text-slate-500">
-              ({trade.is_be ? 'counted as BE' : 'counted as win/loss'})
-            </span>
-          </div>
-          <div className="flex gap-1.5">
-            {([
-              [null, 'Auto'],
-              [1, 'BE'],
-              [0, 'Not BE'],
-            ] as const).map(([v, label]) => (
-              <button
-                key={label}
-                type="button"
-                disabled={busy}
-                onClick={() => setBe(v)}
-                title={
-                  v == null
-                    ? "BE when P&L is $0 or |R| is within the account's BE band"
-                    : undefined
-                }
-                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                  beOverride === v
-                    ? 'border-cyan-500 bg-cyan-500/15 text-cyan-300'
-                    : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {err && <span className="text-sm text-red-400">{err}</span>}
-      </div>
-
-      {criteria.length > 0 && (
-        <div className="mt-4">
-          <div className="label mb-1.5">
-            {setup?.name} criteria{' '}
-            <span className="text-slate-600">
-              ({metSet.size}/{criteria.length} met)
-            </span>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {criteria.map((c) => (
-              <label
-                key={c}
-                className="flex cursor-pointer items-center gap-2 rounded border border-slate-800 bg-slate-900/40 px-2.5 py-1.5 text-sm"
-              >
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-800"
-                  checked={metSet.has(c)}
-                  disabled={busy}
-                  onChange={() => toggleCriterion(c)}
-                />
-                <span className={metSet.has(c) ? 'text-slate-200' : 'text-slate-400'}>{c}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <p className="mt-3 text-xs text-slate-500">
-        Grade feeds the Report Card &amp; Leak Finder; the plan flag drives the
-        Dashboard discipline trend. Tap an active choice again to clear it.
-      </p>
-    </div>
-  );
-}
-
-// One note: read view with Edit/Delete, or an inline editor. Notes are editable
-// documents — a typo or a note on the wrong trade shouldn't be permanent.
-function NoteRow({ note, onChanged }: { note: TNote; onChanged: () => void }) {
-  const [editing, setEditing] = useState(false);
-  const [body, setBody] = useState(note.body);
-  const [rules, setRules] = useState<boolean | null>(
-    note.rules_followed == null ? null : !!note.rules_followed
-  );
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const save = async () => {
-    if (!body.trim()) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      await api.updateNote(note.id, {
-        body: body.trim(),
-        rules_followed: rules == null ? null : rules ? 1 : 0,
-      });
-      setEditing(false);
-      onChanged();
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to save note');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async () => {
-    if (!window.confirm('Delete this note? This cannot be undone.')) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      await api.deleteNote(note.id);
-      onChanged();
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to delete note');
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
-      <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
-        <span>
-          {formatDateTime(note.created_at)}
-          {note.updated_at && note.updated_at !== note.created_at ? ' · edited' : ''}
-        </span>
-        <div className="flex items-center gap-3">
-          {note.rules_followed != null && (
-            <span className={note.rules_followed ? 'text-emerald-400' : 'text-amber-400'}>
-              {note.rules_followed ? 'Rules followed' : 'Rules broken'}
-            </span>
-          )}
-          {!editing && (
-            <>
-              <button className="hover:text-slate-200" onClick={() => setEditing(true)}>
-                Edit
-              </button>
-              <button className="hover:text-red-400" onClick={remove} disabled={busy}>
-                Delete
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-      {editing ? (
-        <div className="flex flex-col gap-2">
-          <textarea
-            className="input min-h-[70px] w-full resize-y"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-          />
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 text-sm text-slate-400">
-              <input
-                type="checkbox"
-                checked={rules === true}
-                onChange={(e) => setRules(e.target.checked ? true : false)}
-                className="h-4 w-4 rounded border-slate-600 bg-slate-800"
-              />
-              Rules followed
-            </label>
-            <div className="flex gap-2">
-              <button
-                className="btn"
-                onClick={() => {
-                  setEditing(false);
-                  setBody(note.body);
-                }}
-                disabled={busy}
-              >
-                Cancel
-              </button>
-              <button className="btn btn-primary" onClick={save} disabled={busy || !body.trim()}>
-                {busy ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <p className="whitespace-pre-wrap text-sm text-slate-200">{note.body}</p>
-      )}
-      {err && <p className="mt-1 text-sm text-red-400">{err}</p>}
-    </div>
-  );
-}
-
-function NotesPanel({
-  trade,
-  onChanged,
-}: {
-  trade: TTradeDetail;
-  onChanged: () => void;
-}) {
-  const [body, setBody] = useState('');
-  const [rules, setRules] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const add = async () => {
-    if (!body.trim()) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      await api.addNote(trade.id, body.trim(), rules ? 1 : 0);
-      setBody('');
-      onChanged();
-    } catch (e: any) {
-      setErr(e?.message || 'Failed to add note');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="card p-5">
-      <h2 className="mb-3 text-sm font-semibold text-slate-200">
-        Notes ({trade.notes.length})
-      </h2>
-      <div className="mb-4 flex flex-col gap-3">
-        {trade.notes.length === 0 && (
-          <p className="text-sm text-slate-500">No notes yet.</p>
-        )}
-        {trade.notes.map((n) => (
-          <NoteRow key={n.id} note={n} onChanged={onChanged} />
-        ))}
-      </div>
-      <div className="flex flex-col gap-2">
-        <textarea
-          className="input min-h-[80px] w-full resize-y"
-          placeholder="Write a note about this trade…"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-        />
-        <div className="flex items-center justify-between">
-          <label className="flex items-center gap-2 text-sm text-slate-400">
-            <input
-              type="checkbox"
-              checked={rules}
-              onChange={(e) => setRules(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-600 bg-slate-800"
+            {/* Where price went after the exit (self-contained, from stored bars) */}
+            <ExitAnalysisCard
+              tradeId={trade.id}
+              refreshKey={`${trade.exit_price}|${trade.stop_price}|${trade.target_price}|${trade.direction}`}
             />
-            Rules followed
-          </label>
-          <button
-            className="btn btn-primary"
-            onClick={add}
-            disabled={busy || !body.trim()}
-          >
-            Add Note
-          </button>
-        </div>
-        {err && <p className="text-sm text-red-400">{err}</p>}
+
+            <NotesPanel trade={trade} onChanged={onChanged} />
+
+            <ScreenshotsPanel trade={trade} onChanged={onChanged} />
+          </>
+        )}
+      </div>
+
+      {/* Right rail: stats + review inputs, sticky while the main column scrolls */}
+      <div className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
+        <KeyStatsCard trade={trade} />
+        <ReviewPanel trade={trade} onChanged={onChanged} />
+        <RiskLevelsCard trade={trade} onChanged={onChanged} />
+        <TagsPanel trade={trade} onChanged={onChanged} />
+        <WickSetupPanel trade={trade} onChanged={onChanged} />
+        <CustomFieldsCard tradeId={trade.id} account={trade.account_id} />
       </div>
     </div>
   );

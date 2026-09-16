@@ -11,8 +11,10 @@ import HourlyBars from '../components/HourlyBars';
 import AiReviewPanel from '../components/AiReviewPanel';
 import LivePositions from '../components/LivePositions';
 import GoalsCard from '../components/GoalsCard';
+import RecentTradesCard from '../components/RecentTradesCard';
+import { EdgeScoreGauge } from '../components/ReportCard';
 import { AsyncBoundary } from '../components/states';
-import type { PropStats, EdgeScore } from '../types';
+import type { PropStats } from '../types';
 import { Link } from 'react-router-dom';
 import {
   formatMoney,
@@ -22,6 +24,8 @@ import {
   signClass,
   DISPLAY_TZ,
 } from '../utils/format';
+
+const RECENT_TRADES = 8;
 
 // UTC month, matching the server's realized-date buckets.
 function currentMonth(): string {
@@ -66,7 +70,7 @@ function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
     const color = pct >= 1 ? 'bg-red-500' : pct >= 0.8 ? 'bg-amber-500' : danger === false ? 'bg-cyan-500' : 'bg-emerald-500';
     return (
       <div className="min-w-[100px] flex-1">
-        <div className="mb-0.5 flex items-center justify-between text-[10px] text-slate-500">
+        <div className="mb-0.5 flex items-center justify-between text-[11px] text-slate-500">
           <span>{label}</span>
           <span className="num">{formatPct(pct)}</span>
         </div>
@@ -88,12 +92,12 @@ function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
             Equity {formatMoney(p.current_equity, currency)}
           </span>
           {p.dd_type && (
-            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">
+            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[11px]">
               {p.dd_type === 'trailing' ? 'trailing' : 'static'} DD
             </span>
           )}
           {p.phase > 0 && (
-            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">
+            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[11px]">
               Phase {p.phase}
             </span>
           )}
@@ -128,32 +132,15 @@ function UnitToggle({ unit, onChange }: { unit: 'money' | 'r'; onChange: (u: 'mo
   );
 }
 
-// Compact Edge Score badge (full breakdown lives on Analytics → Report Card).
-function EdgeScoreChip({ score }: { score: EdgeScore }) {
-  const col =
-    score.total >= 70
-      ? 'text-emerald-400 border-emerald-800/60 bg-emerald-950/30'
-      : score.total >= 55
-        ? 'text-amber-400 border-amber-800/60 bg-amber-950/30'
-        : score.total >= 40
-          ? 'text-orange-400 border-orange-800/60 bg-orange-950/30'
-          : 'text-red-400 border-red-800/60 bg-red-950/30';
-  return (
-    <Link
-      to="/analytics"
-      title="Edge Score — see the full Report Card on Analytics"
-      className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 ${col} transition hover:brightness-125`}
-    >
-      <span className="num text-2xl font-bold leading-none">{score.total}</span>
-      <span className="flex flex-col leading-tight">
-        <span className="text-[10px] uppercase tracking-wide opacity-70">Edge Score</span>
-        <span className="text-xs font-semibold">
-          Grade {score.grade}
-          {!score.reliable && <span className="ml-1 opacity-60">· early</span>}
-        </span>
-      </span>
-    </Link>
-  );
+// Edge Score tint by band — shared by the KPI tile and the side card.
+function edgeClass(total: number): string {
+  return total >= 70
+    ? 'text-emerald-400'
+    : total >= 55
+      ? 'text-amber-400'
+      : total >= 40
+        ? 'text-orange-400'
+        : 'text-red-400';
 }
 
 // Discipline card — how often the plan was followed and whether following it
@@ -187,7 +174,7 @@ function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['f
         {d && (
           <div className="flex flex-wrap items-center gap-x-10 gap-y-4">
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">
+              <div className="text-[11px] uppercase tracking-wide text-slate-500">
                 Plan followed
               </div>
               <div
@@ -206,7 +193,7 @@ function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['f
               </div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">
+              <div className="text-[11px] uppercase tracking-wide text-slate-500">
                 Avg P&L: followed vs broke
               </div>
               <div className="mt-1 flex items-center gap-3 text-sm">
@@ -222,7 +209,7 @@ function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['f
             </div>
             {d.graded > 0 && (
               <div>
-                <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">
+                <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">
                   Grades
                 </div>
                 <div className="flex items-end gap-1.5">
@@ -303,7 +290,8 @@ export default function Dashboard() {
   // Most recent trade matching the filters (trades sort newest-realized first).
   // The calendar + heatmap open on its month rather than the current one, which
   // is often empty; once the user picks a month by hand we stop following it.
-  const latest = useApi(() => api.getTrades(filters, 1, 0), [key]);
+  // Also feeds the Recent Trades widget.
+  const latest = useApi(() => api.getTrades(filters, RECENT_TRADES, 0), [key]);
   const lastTradeMonth = useMemo(() => {
     const t = latest.data?.rows[0];
     return (t?.exit_time ?? t?.entry_time ?? '').slice(0, 7);
@@ -327,21 +315,18 @@ export default function Dashboard() {
   const hourly = useApi(() => api.getHourly(filters), [key]);
   const prop = useApi(() => (isProp ? api.getProp(filters) : Promise.resolve(null)), [key, isProp]);
 
+
   const s = summary.data;
+  const score = reportCard.data?.score;
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-baseline gap-3">
           <h1 className="text-xl font-semibold text-slate-100">Dashboard</h1>
-          <p className="text-sm text-slate-500">
-            Performance across the selected filters.
-          </p>
+          <p className="text-sm text-slate-500">Performance across the selected filters.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <UnitToggle unit={unit} onChange={setUnit} />
-          {reportCard.data?.score && <EdgeScoreChip score={reportCard.data.score} />}
-        </div>
+        <UnitToggle unit={unit} onChange={setUnit} />
       </div>
 
       {/* Live open positions (rendered only when EA snapshot present) */}
@@ -350,7 +335,7 @@ export default function Dashboard() {
       {/* Prop status banner */}
       {isProp && prop.data && <PropBanner p={prop.data} currency={currency} />}
 
-      {/* Stat tiles */}
+      {/* KPI row */}
       <AsyncBoundary
         loading={summary.loading}
         error={summary.error}
@@ -358,7 +343,7 @@ export default function Dashboard() {
         loadingLabel="Loading summary…"
         skeleton="tiles"
       >
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
           <StatTile
             label={unit === 'r' ? 'Total R' : 'Net P&L'}
             value={unit === 'r' ? formatR(s?.total_r ?? null) : formatMoney(s?.net_pnl, currency)}
@@ -402,42 +387,71 @@ export default function Dashboard() {
                 : undefined
             }
           />
+          <Link
+            to="/analytics"
+            title="Edge Score — see the full Report Card on Analytics"
+            className="block transition hover:brightness-110"
+          >
+            <StatTile
+              label="Edge Score"
+              value={score ? score.total : '—'}
+              valueClass={score ? edgeClass(score.total) : 'text-slate-200'}
+              sub={score ? `Grade ${score.grade}${score.reliable ? '' : ' · early'}` : undefined}
+            />
+          </Link>
         </div>
       </AsyncBoundary>
 
-      {/* Goals */}
-      <GoalsCard account={filters.account ?? ''} currency={currency} />
+      {/* Equity curve (wide) + Edge Score / discipline rail */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <SectionCard title={unit === 'r' ? 'Cumulative P&L (R)' : 'Cumulative P&L'}>
+          <AsyncBoundary
+            loading={equity.loading}
+            error={equity.error}
+            onRetry={equity.reload}
+            isEmpty={!equity.data || equity.data.length === 0}
+            emptyMessage="No closed trades in range."
+            loadingLabel="Loading equity…"
+            skeleton="chart"
+          >
+            {equity.data && <EquityCurve data={equity.data} unit={unit} className="h-72" />}
+          </AsyncBoundary>
+        </SectionCard>
 
-      {/* Discipline — plan adherence + grades */}
-      <DisciplineCard filters={filters} />
+        <div className="grid grid-cols-1 content-start gap-4 lg:grid-cols-2 xl:grid-cols-1">
+          <SectionCard
+            title="Edge Score"
+            right={
+              <Link to="/analytics" className="text-xs text-cyan-400 hover:underline">
+                Report card →
+              </Link>
+            }
+          >
+            <AsyncBoundary
+              loading={reportCard.loading}
+              error={reportCard.error}
+              onRetry={reportCard.reload}
+              isEmpty={!score}
+              emptyMessage="Not enough trades to score yet."
+              loadingLabel="Loading score…"
+              skeleton="tiles"
+            >
+              {score && <EdgeScoreGauge score={score} />}
+            </AsyncBoundary>
+          </SectionCard>
+          <DisciplineCard filters={filters} />
+        </div>
+      </div>
 
-      {/* Equity curve */}
-      <SectionCard
-        title={unit === 'r' ? 'Equity Curve (R)' : 'Equity Curve'}
-        right={<UnitToggle unit={unit} onChange={setUnit} />}
-      >
-        <AsyncBoundary
-          loading={equity.loading}
-          error={equity.error}
-          onRetry={equity.reload}
-          isEmpty={!equity.data || equity.data.length === 0}
-          emptyMessage="No closed trades in range."
-          loadingLabel="Loading equity…"
-          skeleton="chart"
-        >
-          {equity.data && <EquityCurve data={equity.data} unit={unit} />}
-        </AsyncBoundary>
-      </SectionCard>
-
-      {/* Calendar + Sessions */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+      {/* Calendar + recent trades */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <SectionCard
           title="Monthly P&L"
           right={
             <div className="flex items-center gap-2">
               {lastTradeMonth && month !== lastTradeMonth && (
                 <button
-                  className="btn px-2 py-1 text-[10px]"
+                  className="btn px-2 py-1 text-[11px]"
                   onClick={() => pickMonth(lastTradeMonth)}
                   title="Jump to the month of the most recent trade matching the filters"
                 >
@@ -469,6 +483,28 @@ export default function Dashboard() {
         </SectionCard>
 
         <SectionCard
+          title="Recent Trades"
+          right={
+            <Link to="/trades" className="text-xs text-cyan-400 hover:underline">
+              All trades →
+            </Link>
+          }
+        >
+          <AsyncBoundary
+            loading={latest.loading}
+            error={latest.error}
+            onRetry={latest.reload}
+            loadingLabel="Loading trades…"
+            skeleton="table"
+          >
+            <RecentTradesCard rows={latest.data?.rows ?? []} currency={currency} />
+          </AsyncBoundary>
+        </SectionCard>
+      </div>
+
+      {/* Session heatmap + hourly P&L + sessions clock */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <SectionCard
           title="Session Heatmap"
           right={
             <span className="text-xs text-slate-500" title="Follows the Monthly P&L month">
@@ -490,33 +526,35 @@ export default function Dashboard() {
             )}
           </AsyncBoundary>
         </SectionCard>
+
+        <SectionCard title="Hourly P&L (UTC)">
+          <AsyncBoundary
+            loading={hourly.loading}
+            error={hourly.error}
+            onRetry={hourly.reload}
+            isEmpty={!hourly.data || hourly.data.length === 0}
+            emptyMessage="No hourly data in range."
+            loadingLabel="Loading hourly…"
+            skeleton="chart"
+          >
+            {hourly.data && <HourlyBars data={hourly.data} />}
+          </AsyncBoundary>
+        </SectionCard>
+
+        <SectionCard
+          title="Sessions"
+          className="lg:col-span-2"
+          right={<span className="text-[11px] text-slate-500">local · {DISPLAY_TZ.split('/')[1]?.replace('_', ' ')}</span>}
+        >
+          <SessionsClock />
+        </SectionCard>
       </div>
 
-      {/* Market sessions clock */}
-      <SectionCard
-        title="Sessions"
-        right={<span className="text-[10px] text-slate-500">local · {DISPLAY_TZ.split('/')[1]?.replace('_', ' ')}</span>}
-      >
-        <SessionsClock />
-      </SectionCard>
-
-      {/* Hourly */}
-      <SectionCard title="Hourly P&L (UTC)">
-        <AsyncBoundary
-          loading={hourly.loading}
-          error={hourly.error}
-          onRetry={hourly.reload}
-          isEmpty={!hourly.data || hourly.data.length === 0}
-          emptyMessage="No hourly data in range."
-          loadingLabel="Loading hourly…"
-          skeleton="chart"
-        >
-          {hourly.data && <HourlyBars data={hourly.data} />}
-        </AsyncBoundary>
-      </SectionCard>
-
-      {/* AI Review */}
-      <AiReviewPanel />
+      {/* Goals + AI review */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <GoalsCard account={filters.account ?? ''} currency={currency} />
+        <AiReviewPanel />
+      </div>
     </div>
   );
 }

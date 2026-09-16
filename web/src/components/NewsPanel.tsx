@@ -87,7 +87,7 @@ export default function NewsPanel({
                     <td className="py-1.5 align-top text-slate-200">
                       {e.title}
                       {duringTrade && (
-                        <span className="ml-2 rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
+                        <span className="ml-2 rounded bg-amber-900/50 px-1.5 py-0.5 text-[11px] font-medium text-amber-300">
                           during trade
                         </span>
                       )}

@@ -37,7 +37,7 @@ function Meter({
     p >= 1 ? 'bg-red-500' : p >= 0.8 ? 'bg-amber-400' : 'bg-emerald-500';
   return (
     <div className="min-w-[120px]">
-      <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide text-slate-500">
+      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-500">
         <span>{label}</span>
         <span className="num text-slate-400">{formatPct(pct)}</span>
       </div>
@@ -47,7 +47,7 @@ function Meter({
           style={{ width: `${(p * 100).toFixed(1)}%` }}
         />
       </div>
-      <div className="num mt-0.5 text-[10px] text-slate-500">
+      <div className="num mt-0.5 text-[11px] text-slate-500">
         {formatMoney(used, currency)} / {formatMoney(limit, currency)}
       </div>
     </div>
@@ -87,22 +87,22 @@ function AccountRow({ a, onOpen }: { a: PortfolioAccount; onOpen: () => void }) 
           </span>
           <div className="flex flex-wrap gap-1">
             {a.dd_type && (
-              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-400">
                 {a.dd_type === 'trailing' ? 'trailing' : 'static'} DD
               </span>
             )}
             {a.phase > 0 && (
-              <span className="rounded bg-indigo-900/50 px-1.5 py-0.5 text-[10px] text-indigo-300">
+              <span className="rounded bg-indigo-900/50 px-1.5 py-0.5 text-[11px] text-indigo-300">
                 Phase {a.phase}
               </span>
             )}
             {a.phase === 0 && a.profit_split != null && (
-              <span className="rounded bg-emerald-900/50 px-1.5 py-0.5 text-[10px] text-emerald-300">
+              <span className="rounded bg-emerald-900/50 px-1.5 py-0.5 text-[11px] text-emerald-300">
                 Funded {a.profit_split}%
               </span>
             )}
             {a.weekend_hold === false && (
-              <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300">
+              <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[11px] text-amber-300">
                 No wknd
               </span>
             )}
@@ -131,14 +131,14 @@ function AccountRow({ a, onOpen }: { a: PortfolioAccount; onOpen: () => void }) 
       <td className="num px-4 py-3 text-right">
         <div className={`font-semibold ${roomClass(a.day_loss_room, a.day_loss_limit)}`}>
           {a.day_loss_room == null ? '—' : formatMoney(Math.max(0, a.day_loss_room), a.currency)}
-          <span className="ml-1 text-[10px] font-normal uppercase text-slate-500">today</span>
+          <span className="ml-1 text-[11px] font-normal uppercase text-slate-500">today</span>
         </div>
         <div className={`text-xs ${roomClass(a.dd_room, a.max_dd_limit)}`}>
           {a.dd_room == null ? '—' : formatMoney(Math.max(0, a.dd_room), a.currency)}
-          <span className="ml-1 text-[10px] uppercase text-slate-500">to DD</span>
+          <span className="ml-1 text-[11px] uppercase text-slate-500">to DD</span>
         </div>
         {a.dd_floor != null && (
-          <div className="text-[10px] text-slate-500">
+          <div className="text-[11px] text-slate-500">
             floor {formatMoney(a.dd_floor, a.currency)}
           </div>
         )}
@@ -174,7 +174,7 @@ function AccountRow({ a, onOpen }: { a: PortfolioAccount; onOpen: () => void }) 
         <div className="flex flex-col gap-1.5 min-w-[100px]">
           {a.consistency_pct != null && (
             <div>
-              <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide text-slate-500">
+              <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-500">
                 <span>Consistency</span>
                 <span className="num text-slate-400">
                   {a.best_day_pct_of_total != null ? `${(a.best_day_pct_of_total * 100).toFixed(1)}%` : '—'} / {a.consistency_pct}%
@@ -189,7 +189,7 @@ function AccountRow({ a, onOpen }: { a: PortfolioAccount; onOpen: () => void }) 
             </div>
           )}
           {a.min_trading_days != null && a.min_trading_days > 0 && (
-            <div className="flex items-center justify-between text-[10px]">
+            <div className="flex items-center justify-between text-[11px]">
               <span className="uppercase tracking-wide text-slate-500">Min days</span>
               <span className={`num font-medium ${a.trading_days_count >= a.min_trading_days ? 'text-emerald-400' : 'text-slate-400'}`}>
                 {a.trading_days_count}/{a.min_trading_days}

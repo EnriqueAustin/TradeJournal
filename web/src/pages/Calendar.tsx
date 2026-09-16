@@ -103,7 +103,7 @@ function ActualCell({ e }: { e: NewsEvent }) {
   return (
     <span className={`font-semibold ${cls}`}>
       {e.actual}
-      {dir && <span className="ml-1 text-[10px]">{dir === 'up' ? '▲' : '▼'}</span>}
+      {dir && <span className="ml-1 text-[11px]">{dir === 'up' ? '▲' : '▼'}</span>}
     </span>
   );
 }
@@ -144,7 +144,7 @@ function EventRow({ e, isNext }: { e: NewsEvent; isNext: boolean }) {
             title="Open on ForexFactory"
           >
             {e.title}
-            <span className="text-[10px] text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">
+            <span className="text-[11px] text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">
               ↗
             </span>
           </a>
@@ -187,7 +187,7 @@ function DaySection({
         <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
           {weekdayLabel(dayKey)}
           {isToday && (
-            <span className="rounded bg-indigo-600/30 px-1.5 py-0.5 text-[10px] font-medium text-indigo-200">
+            <span className="rounded bg-indigo-600/30 px-1.5 py-0.5 text-[11px] font-medium text-indigo-200">
               Today
             </span>
           )}
@@ -213,7 +213,7 @@ function DaySection({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px]">
             <thead>
-              <tr className="text-left text-[10px] uppercase tracking-wide text-slate-600">
+              <tr className="text-left text-[11px] uppercase tracking-wide text-slate-600">
                 <th className="px-0 py-1 pl-4 font-medium">Time</th>
                 <th className="py-1 font-medium"></th>
                 <th className="py-1 font-medium">Ccy</th>
@@ -241,7 +241,7 @@ function NextEventBanner({ event, now }: { event: NewsEvent; now: number }) {
   const ms = new Date(event.dt).getTime() - now;
   return (
     <div className="card flex flex-wrap items-center gap-x-4 gap-y-1 border-indigo-500/30 bg-indigo-500/5 px-4 py-2.5">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-300">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-300">
         Next up
       </span>
       <span className="flex items-center gap-2 text-sm text-slate-200">
