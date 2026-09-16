@@ -8,7 +8,18 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { PORT, EA_TOKEN } from './env.js';
-import { db, migrate } from './db.js';
+import { db, dbPath, migrate, getSetting, setSetting } from './db.js';
+import {
+  createBackup,
+  listBackups,
+  lastBackupTime,
+  isValidBackupName,
+  resolveBackupDir,
+  resolveBackupKeep,
+  exportAll,
+  startBackupScheduler,
+} from './backup.js';
+import { createImportWatcher } from './importWatch.js';
 import { listGoals, createGoal, deleteGoal } from './goals.js';
 import { migrateResearch } from './research/schema.js';
 import { researchRouter } from './research/routes.js';
@@ -1844,68 +1855,192 @@ async function autoFetchBarsForTrades(trades) {
   return out;
 }
 
+// Shared import pipeline for the upload endpoint and the watch folder: parse,
+// broker-time → UTC, dedupe by (account, ext_id), insert, then best-effort bar
+// fetch + MAE/MFE. Throws an Error with .status = 400 on a bad account.
+function importError(msg) {
+  return Object.assign(new Error(msg), { status: 400 });
+}
+
+async function importTradesFromBuffer(buffer, { filename, mimetype, accountId } = {}) {
+  let acct = accountId ? Number(accountId) : null;
+  if (!acct) acct = db.prepare('SELECT id FROM accounts ORDER BY id LIMIT 1').get()?.id;
+  if (!acct || !accountExists(acct)) throw importError('valid account is required');
+
+  const { trades } = parseImport(buffer, { filename, mimetype, accountId: acct });
+
+  // Broker server time → true UTC (so trades align with UTC price bars).
+  const brokerTz = db.prepare('SELECT broker_tz FROM accounts WHERE id = ?').get(acct)?.broker_tz;
+  for (const t of trades) brokerTimesToUtc(t, brokerTz);
+
+  let inserted = 0;
+  let skipped = 0;
+  const insertedIds = [];
+  const tx = db.transaction((list) => {
+    for (const t of list) {
+      if (
+        t.ext_id != null &&
+        db
+          .prepare('SELECT 1 FROM trades WHERE account_id = ? AND ext_id = ?')
+          .get(t.account_id, t.ext_id)
+      ) {
+        skipped++;
+        continue;
+      }
+      insertedIds.push(insertTradeTx(t));
+      inserted++;
+    }
+  });
+  tx(trades);
+
+  // Best-effort: pull M1 bars around the imported trades so Replay works.
+  let bars = null;
+  try {
+    bars = await autoFetchBarsForTrades(trades);
+  } catch {
+    /* never fail an import over bars */
+  }
+
+  // Now that bars are stored, derive MAE/MFE for the new trades.
+  let excursions = 0;
+  try {
+    excursions = refreshExcursionsByIds(insertedIds);
+  } catch {
+    /* best-effort */
+  }
+
+  return { inserted, skipped, account_id: acct, bars, excursions };
+}
+
 app.post('/api/import', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'file is required' });
-    let accountId = req.body.account ? Number(req.body.account) : null;
-    if (!accountId) {
-      accountId = db.prepare('SELECT id FROM accounts ORDER BY id LIMIT 1').get()?.id;
-    }
-    if (!accountId || !accountExists(accountId))
-      return res.status(400).json({ error: 'valid account is required' });
-
-    const { trades } = parseImport(req.file.buffer, {
+    const result = await importTradesFromBuffer(req.file.buffer, {
       filename: req.file.originalname,
       mimetype: req.file.mimetype,
-      accountId,
+      accountId: req.body.account,
     });
-
-    // Broker server time → true UTC (so trades align with UTC price bars).
-    const brokerTz = db
-      .prepare('SELECT broker_tz FROM accounts WHERE id = ?')
-      .get(accountId)?.broker_tz;
-    for (const t of trades) brokerTimesToUtc(t, brokerTz);
-
-    let inserted = 0;
-    let skipped = 0;
-    const insertedIds = [];
-    const tx = db.transaction((list) => {
-      for (const t of list) {
-        if (
-          t.ext_id != null &&
-          db
-            .prepare('SELECT 1 FROM trades WHERE account_id = ? AND ext_id = ?')
-            .get(t.account_id, t.ext_id)
-        ) {
-          skipped++;
-          continue;
-        }
-        insertedIds.push(insertTradeTx(t));
-        inserted++;
-      }
-    });
-    tx(trades);
-
-    // Best-effort: pull M1 bars around the imported trades so Replay works.
-    let bars = null;
-    try {
-      bars = await autoFetchBarsForTrades(trades);
-    } catch {
-      /* never fail an import over bars */
-    }
-
-    // Now that bars are stored, derive MAE/MFE for the new trades.
-    let excursions = 0;
-    try {
-      excursions = refreshExcursionsByIds(insertedIds);
-    } catch {
-      /* best-effort */
-    }
-
-    res.json({ inserted, skipped, account_id: accountId, bars, excursions });
+    res.json(result);
   } catch (err) {
-    res.status(500).json({ error: String(err.message || err) });
+    res.status(err.status || 500).json({ error: String(err.message || err) });
   }
+});
+
+// ---------- Watch-folder auto-import ----------
+// Config: env IMPORT_WATCH_DIR / IMPORT_WATCH_ACCOUNT override the values saved
+// from the Import page (app_settings). Files named `acc<id>_…` route to that
+// account; others go to the configured account (or the first account).
+function importWatchConfig() {
+  const envDir = process.env.IMPORT_WATCH_DIR || '';
+  const envAcct = process.env.IMPORT_WATCH_ACCOUNT || '';
+  const dir = envDir || getSetting('import_watch_dir') || null;
+  const acctRaw = envAcct || getSetting('import_watch_account') || null;
+  const accountId = acctRaw && Number(acctRaw) > 0 ? Number(acctRaw) : null;
+  return {
+    dir,
+    accountId,
+    dir_source: envDir ? 'env' : dir ? 'settings' : null,
+    account_source: envAcct ? 'env' : accountId ? 'settings' : null,
+  };
+}
+
+const importWatcher = createImportWatcher({
+  getConfig: importWatchConfig,
+  importFile: (buffer, { filename, accountId }) =>
+    importTradesFromBuffer(buffer, { filename, accountId }),
+  intervalMs: Math.max(5, Number(process.env.IMPORT_WATCH_SEC) || 30) * 1000,
+});
+
+function importWatchStatus() {
+  const cfg = importWatchConfig();
+  return {
+    enabled: !!cfg.dir,
+    dir: cfg.dir,
+    dir_source: cfg.dir_source,
+    account_id: cfg.accountId,
+    account_source: cfg.account_source,
+    dir_exists: cfg.dir ? fs.existsSync(cfg.dir) : false,
+    ...importWatcher.status(),
+  };
+}
+
+app.get('/api/import/watch', (_req, res) => res.json(importWatchStatus()));
+
+// Save dir/account from the UI. Empty values clear the setting.
+app.put('/api/import/watch', (req, res) => {
+  const body = req.body || {};
+  if ('dir' in body) {
+    const dir = typeof body.dir === 'string' ? body.dir.trim() : '';
+    if (dir) {
+      if (!path.isAbsolute(dir)) return res.status(400).json({ error: 'dir must be an absolute path' });
+      let st = null;
+      try {
+        st = fs.statSync(dir);
+      } catch {
+        /* missing */
+      }
+      if (!st || !st.isDirectory()) return res.status(400).json({ error: `directory not found: ${dir}` });
+    }
+    setSetting('import_watch_dir', dir || null);
+  }
+  if ('account_id' in body) {
+    const id = body.account_id == null || body.account_id === '' ? null : Number(body.account_id);
+    if (id != null && !accountExists(id)) return res.status(400).json({ error: 'unknown account' });
+    setSetting('import_watch_account', id);
+  }
+  res.json(importWatchStatus());
+});
+
+app.post('/api/import/watch/scan', async (_req, res) => {
+  try {
+    const r = await importWatcher.scanOnce();
+    res.json({ ...r, status: importWatchStatus() });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// ---------- Backups & export ----------
+// Restore is intentionally manual (README "Backups & restore").
+const backupDir = resolveBackupDir(dbPath);
+const backupKeep = resolveBackupKeep();
+const backupAuto = process.env.BACKUP_AUTO !== '0';
+const runBackup = () => createBackup({ db, dir: backupDir, screenshotsDir, keep: backupKeep });
+
+app.post('/api/backup', async (_req, res) => {
+  try {
+    res.json(await runBackup());
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+app.get('/api/backups', (_req, res) => {
+  res.json({
+    dir: backupDir,
+    keep: backupKeep,
+    auto: backupAuto,
+    last_backup: lastBackupTime(backupDir),
+    backups: listBackups(backupDir),
+  });
+});
+
+app.get('/api/backups/:name/download', (req, res) => {
+  const { name } = req.params;
+  if (!isValidBackupName(name)) return res.status(400).json({ error: 'invalid backup name' });
+  const file = path.join(backupDir, name);
+  // Belt and braces: the name regex already forbids separators and `..`.
+  if (path.dirname(file) !== backupDir || !fs.existsSync(file)) {
+    return res.status(404).json({ error: 'backup not found' });
+  }
+  res.download(file, name);
+});
+
+app.get('/api/export/all', (_req, res) => {
+  const data = exportAll(db);
+  const day = data.exported_at.slice(0, 10);
+  res.setHeader('Content-Disposition', `attachment; filename="trade-journal-export-${day}.json"`);
+  res.json(data);
 });
 
 // ---------- Phase 3: Price bars ----------
@@ -2730,6 +2865,15 @@ initResearchWs(server);
 
 server.listen(PORT, () => {
   console.log(`Trade Journal API listening on http://localhost:${PORT}`);
+  if (backupAuto) {
+    startBackupScheduler({ dir: backupDir, run: runBackup });
+    console.log(`[backup] daily auto-backup -> ${backupDir} (keep ${backupKeep})`);
+  } else {
+    console.log('[backup] auto-backup disabled (BACKUP_AUTO=0)');
+  }
+  importWatcher.start();
+  const watchCfg = importWatchConfig();
+  if (watchCfg.dir) console.log(`[watch] polling ${watchCfg.dir} for import files`);
   const newsSec = Number(process.env.NEWS_REFRESH_SEC ?? 300);
   if (newsSec > 0) startNewsScheduler(newsSec);
   else console.log('[news] server-side polling disabled (NEWS_REFRESH_SEC=0)');
