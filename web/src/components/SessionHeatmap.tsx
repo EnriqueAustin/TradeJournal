@@ -17,12 +17,29 @@ function cellStyle(pnl: number, max: number): React.CSSProperties {
   return { background: `rgba(${color},${alpha.toFixed(3)})` };
 }
 
+// Narrow a from/to range to one YYYY-MM month (intersected with any existing
+// range), so the drilldown lists the same trades the month-scoped cell counts.
+function monthRange(month: string, from: string, to: string) {
+  const [y, m] = month.split('-').map(Number);
+  if (!y || !m) return { from, to };
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const mFrom = `${y}-${pad(m)}-01`;
+  const mTo = `${y}-${pad(m)}-${pad(new Date(Date.UTC(y, m, 0)).getUTCDate())}`;
+  return {
+    from: from && from > mFrom ? from : mFrom,
+    to: to && to < mTo ? to : mTo,
+  };
+}
+
 export default function SessionHeatmap({
   data,
   currency = 'USD',
+  month,
 }: {
   data: SessionStat[];
   currency?: string;
+  // YYYY-MM the data is scoped to; the drilldown is narrowed to match.
+  month?: string;
 }) {
   const { instruments, grid, max } = useMemo(() => {
     const instr = Array.from(new Set(data.map((d) => d.instrument))).sort();
@@ -135,7 +152,12 @@ export default function SessionHeatmap({
       {open && (
         <TradesDrilldownModal
           title={`${sessionLabel(open.session)} · ${open.instrument}`}
-          filters={{ ...filters, session: open.session, instrument: open.instrument }}
+          filters={{
+            ...filters,
+            ...(month ? monthRange(month, filters.from, filters.to) : {}),
+            session: open.session,
+            instrument: open.instrument,
+          }}
           currency={currency}
           timelineSession={open.session}
           onClose={() => setOpen(null)}

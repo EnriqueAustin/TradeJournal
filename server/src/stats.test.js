@@ -14,7 +14,7 @@ const tmpDb = path.join(
 process.env.JOURNAL_DB = tmpDb;
 
 const { db, migrate } = await import('./db.js');
-const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency, missedStats, fieldStats, criteriaStats } =
+const { summary, equity, reportCard, tagStats, calendar, streaks, discipline, excursion, tradeEfficiency, missedStats, fieldStats, criteriaStats, propStats } =
   await import('./stats.js');
 
 migrate();
@@ -287,4 +287,43 @@ test('date filters are inclusive on both ends', () => {
 test.after(() => {
   db.close();
   fs.rmSync(path.dirname(tmpDb), { recursive: true, force: true });
+});
+
+test('propStats is account-wide: date/instrument filters do not change equity or DD', () => {
+  // cum P&L path: 100, 60, 110, 50, 75 → high-water 110, worst drop 60, never below start.
+  const all = propStats({ account: 1 });
+  const filtered = propStats({ account: 1, from: '2026-03-05', to: '2026-03-05', instrument: 'US100' });
+  assert.equal(all.current_equity, 10075);
+  assert.equal(filtered.current_equity, all.current_equity);
+  assert.equal(filtered.max_dd, all.max_dd);
+  assert.equal(filtered.trading_days_count, all.trading_days_count);
+});
+
+test('propStats drawdown: static counts only equity below start, trailing counts peak-to-trough', () => {
+  db.prepare("UPDATE accounts SET prop_dd_type = 'static' WHERE id = 1").run();
+  assert.equal(propStats({ account: 1 }).max_dd, 0);
+  db.prepare("UPDATE accounts SET prop_dd_type = 'trailing' WHERE id = 1").run();
+  assert.equal(propStats({ account: 1 }).max_dd, 60);
+  db.prepare('UPDATE accounts SET prop_dd_type = NULL WHERE id = 1').run();
+});
+
+test('propStats room: DD floor and cash left before breach', () => {
+  // cum path 100, 60, 110, 50, 75; limit 500.
+  db.prepare("UPDATE accounts SET prop_max_dd = 500, prop_dd_type = 'static' WHERE id = 1").run();
+  let p = propStats({ account: 1 });
+  assert.equal(p.dd_floor, 9500);
+  assert.equal(p.dd_room, 575);
+  db.prepare("UPDATE accounts SET prop_dd_type = 'trailing' WHERE id = 1").run();
+  p = propStats({ account: 1 });
+  assert.equal(p.dd_floor, 9610); // start + peak 110 − 500
+  assert.equal(p.dd_room, 465);
+  db.prepare('UPDATE accounts SET prop_max_dd = NULL, prop_dd_type = NULL WHERE id = 1').run();
+  assert.equal(propStats({ account: 1 }).dd_room, null);
+});
+
+test('summary largest win/loss only count real wins and losses', () => {
+  const losersOnly = summary({ account: 1, from: '2026-03-04', to: '2026-03-04' });
+  assert.equal(losersOnly.largest_win, 0);
+  assert.equal(losersOnly.largest_loss, -60);
+  assert.equal(losersOnly.profit_factor, 0);
 });

@@ -155,7 +155,7 @@ export const api = {
     request<Trade>('/trades', { method: 'POST', body: JSON.stringify(body) }),
   bulkTrades: (body: {
     ids: number[];
-    set?: { setup_id?: number | null; followed_plan?: number | null };
+    set?: { setup_id?: number | null; followed_plan?: number | null; be_override?: number | null };
     delete?: boolean;
   }) =>
     request<{ updated?: number; deleted?: number }>('/trades/bulk', {

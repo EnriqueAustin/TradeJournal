@@ -443,6 +443,21 @@ export default function Trades() {
                 Mark broke
               </button>
               <button
+                className="btn px-2 py-1 text-xs"
+                disabled={bulkBusy}
+                onClick={() => runBulk({ ids: ids(), set: { be_override: 1 } })}
+              >
+                Mark BE
+              </button>
+              <button
+                className="btn px-2 py-1 text-xs"
+                disabled={bulkBusy}
+                onClick={() => runBulk({ ids: ids(), set: { be_override: null } })}
+                title="Back to automatic BE detection (account R band / $0)"
+              >
+                Auto BE
+              </button>
+              <button
                 className="btn px-2 py-1 text-xs text-red-400"
                 disabled={bulkBusy}
                 onClick={() =>
@@ -554,9 +569,21 @@ export default function Trades() {
                     </td>
                     <td
                       className={`num px-4 py-2.5 text-right font-semibold ${
-                        t.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'
+                        t.is_be
+                          ? 'text-slate-300'
+                          : t.net_pnl >= 0
+                            ? 'text-emerald-400'
+                            : 'text-red-400'
                       }`}
                     >
+                      {t.is_be ? (
+                        <span
+                          className="mr-1.5 rounded bg-slate-600/40 px-1 py-0.5 text-[10px] font-semibold text-slate-300"
+                          title={t.be_override === 1 ? 'Marked break-even manually' : 'Break-even (within the account R band)'}
+                        >
+                          BE
+                        </span>
+                      ) : null}
                       {formatMoney(t.net_pnl, currency)}
                     </td>
                     <td
@@ -638,7 +665,7 @@ export default function Trades() {
                       Totals · {totals.count} trade{totals.count === 1 ? '' : 's'}
                       {totals.win_rate != null && (
                         <span className="ml-1 font-normal text-slate-500">
-                          ({formatPct(totals.win_rate)} win)
+                          ({formatPct(totals.win_rate)} win{totals.be ? ` · ${totals.be} BE` : ''})
                         </span>
                       )}
                     </td>

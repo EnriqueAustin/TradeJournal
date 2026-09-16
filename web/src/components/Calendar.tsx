@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CalendarDay } from '../types';
-import { formatMoney, formatR } from '../utils/format';
+import { formatDate, formatMoney, formatR } from '../utils/format';
+import { useFilters } from '../store/FilterContext';
 import DayTradesModal from './DayTradesModal';
+import TradesDrilldownModal from './TradesDrilldownModal';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -66,11 +68,9 @@ function moneySize(s: string, strong = false): string {
   return s.length <= 8 ? lg : s.length <= 10 ? md : sm;
 }
 
+// UTC, like the server's day buckets the cells are keyed by.
 function localTodayKey(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-    d.getDate()
-  ).padStart(2, '0')}`;
+  return new Date().toISOString().slice(0, 10);
 }
 
 interface WeekStat {
@@ -214,6 +214,12 @@ export default function Calendar({
 
   const today = localTodayKey();
   const [openDay, setOpenDay] = useState<string | null>(null);
+  const [openWeek, setOpenWeek] = useState<{
+    label: string;
+    from: string;
+    to: string;
+  } | null>(null);
+  const { filters } = useFilters();
 
   // Day columns + a slightly wider week block on the right.
   const gridCols = weekdaysOnly ? GRID_5 : GRID_7;
@@ -265,6 +271,7 @@ export default function Calendar({
             maxWeekAbs={maxWeekAbs}
             weekdaysOnly={weekdaysOnly}
             onOpenDay={setOpenDay}
+            onOpenWeek={setOpenWeek}
           />
         ))}
       </div>
@@ -331,6 +338,16 @@ export default function Calendar({
           onClose={() => setOpenDay(null)}
         />
       )}
+
+      {openWeek && (
+        <TradesDrilldownModal
+          title={`${openWeek.label} · ${formatDate(`${openWeek.from}T12:00:00Z`)} – ${formatDate(`${openWeek.to}T12:00:00Z`)}`}
+          filters={{ ...filters, from: openWeek.from, to: openWeek.to }}
+          currency={currency}
+          dayBreakdown
+          onClose={() => setOpenWeek(null)}
+        />
+      )}
     </div>
   );
 }
@@ -344,6 +361,7 @@ function WeekRow({
   maxWeekAbs,
   weekdaysOnly,
   onOpenDay,
+  onOpenWeek,
 }: {
   week: { cells: (CalendarDay | null)[]; stat: WeekStat };
   label: string;
@@ -353,9 +371,18 @@ function WeekRow({
   maxWeekAbs: number;
   weekdaysOnly: boolean;
   onOpenDay: (day: string) => void;
+  onOpenWeek: (w: { label: string; from: string; to: string }) => void;
 }) {
   const { stat } = week;
   const active = stat.days_traded > 0;
+  // The row's in-month days (all seven, weekend included, matching `stat`).
+  const inMonth = week.cells.filter((c): c is CalendarDay => c !== null);
+  const openWeek = () =>
+    onOpenWeek({
+      label,
+      from: inMonth[0].day,
+      to: inMonth[inMonth.length - 1].day,
+    });
   // Drop the Sat/Sun columns only from the render — `stat` still sums all seven
   // so a weekend trade never silently vanishes from the week's P&L.
   const shown = weekdaysOnly ? week.cells.slice(0, 5) : week.cells;
@@ -379,6 +406,19 @@ function WeekRow({
 
       {/* Week block — the row's P&L, sitting beside the days it came from. */}
       <div
+        onClick={active ? openWeek : undefined}
+        role={active ? 'button' : undefined}
+        tabIndex={active ? 0 : undefined}
+        onKeyDown={
+          active
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openWeek();
+                }
+              }
+            : undefined
+        }
         title={
           active
             ? `${label} · ${formatMoney(stat.net_pnl, currency)} · ${stat.days_traded} days · ${stat.trade_count} trades`
@@ -386,6 +426,10 @@ function WeekRow({
         }
         style={{ ...(active ? heat(stat.net_pnl, maxWeekAbs, true) : {}), ...WEEK_DIVIDER }}
         className={`${WEEK_COL_GAP} flex flex-col justify-center gap-0.5 rounded-lg border pl-2.5 pr-2 py-1.5 ${
+          active
+            ? 'cursor-pointer transition hover:ring-2 hover:ring-cyan-500/60 focus:outline-none focus:ring-2 focus:ring-cyan-500'
+            : ''
+        } ${
           !active
             ? 'border-slate-800/50 bg-slate-900/20'
             : // A week that nets exactly zero gets no heat style, so it needs an

@@ -65,7 +65,7 @@ export function buildFilter(q, opts = {}) {
 export function summary(q, opts = {}) {
   const { where, params } = buildFilter(q, opts);
   const rows = db
-    .prepare(`SELECT net_pnl, gross_pnl, commission, swap, r_multiple FROM trades ${where}`)
+    .prepare(`SELECT net_pnl, gross_pnl, commission, swap, r_multiple, is_be FROM trades ${where}`)
     .all(params);
 
   const count = rows.length;
@@ -74,7 +74,8 @@ export function summary(q, opts = {}) {
     commission = 0,
     swap = 0;
   let wins = 0,
-    losses = 0;
+    losses = 0,
+    be_count = 0;
   let grossWins = 0,
     grossLosses = 0;
   let largest_win = null,
@@ -88,15 +89,19 @@ export function summary(q, opts = {}) {
     commission += t.commission || 0;
     swap += t.swap || 0;
     const n = t.net_pnl || 0;
-    if (n > 0) {
+    // A BE-classified trade (manual or within the R band) is neither win nor loss.
+    if (t.is_be) {
+      be_count++;
+    } else if (n > 0) {
       wins++;
       grossWins += n;
     } else if (n < 0) {
       losses++;
       grossLosses += n;
     }
-    if (largest_win === null || n > largest_win) largest_win = n;
-    if (largest_loss === null || n < largest_loss) largest_loss = n;
+    // Only real wins/losses qualify — an all-losing range has no largest win.
+    if (!t.is_be && n > 0 && (largest_win === null || n > largest_win)) largest_win = n;
+    if (!t.is_be && n < 0 && (largest_loss === null || n < largest_loss)) largest_loss = n;
     if (t.r_multiple !== null && t.r_multiple !== undefined) {
       rSum += t.r_multiple;
       rCount++;
@@ -118,6 +123,7 @@ export function summary(q, opts = {}) {
     largest_loss: largest_loss === null ? 0 : round(largest_loss),
     commission: round(commission),
     swap: round(swap),
+    be_count,
   };
 }
 
@@ -162,7 +168,7 @@ export function calendar(q) {
 export function sessionStats(q) {
   const { where, params } = buildFilter(q);
   const rows = db
-    .prepare(`SELECT session, instrument, net_pnl, r_multiple FROM trades ${where}`)
+    .prepare(`SELECT session, instrument, net_pnl, r_multiple, is_be FROM trades ${where}`)
     .all(params);
   const groups = new Map();
   for (const t of rows) {
@@ -180,7 +186,7 @@ export function sessionStats(q) {
     const g = groups.get(key);
     g.net_pnl += t.net_pnl || 0;
     g.trade_count++;
-    if ((t.net_pnl || 0) > 0) g.wins++;
+    if ((t.net_pnl || 0) > 0 && !t.is_be) g.wins++;
     if (t.r_multiple !== null && t.r_multiple !== undefined) {
       g.rSum += t.r_multiple;
       g.rCount++;
@@ -227,7 +233,7 @@ export function setupStats(q) {
   const { where, params } = buildFilter(q);
   const rows = db
     .prepare(
-      `SELECT t.setup_id, s.name AS setup_name, t.net_pnl, t.r_multiple
+      `SELECT t.setup_id, s.name AS setup_name, t.net_pnl, t.r_multiple, t.is_be
        FROM trades t LEFT JOIN setups s ON s.id = t.setup_id ${where}`
     )
     .all(params);
@@ -247,7 +253,7 @@ export function setupStats(q) {
     const g = groups.get(key);
     g.net_pnl += t.net_pnl || 0;
     g.trade_count++;
-    if ((t.net_pnl || 0) > 0) g.wins++;
+    if ((t.net_pnl || 0) > 0 && !t.is_be) g.wins++;
     if (t.r_multiple !== null && t.r_multiple !== undefined) {
       g.rSum += t.r_multiple;
       g.rCount++;
@@ -279,7 +285,7 @@ const HOLD_BUCKETS = [
 export function holdtime(q) {
   const { where, params } = buildFilter(q);
   const rows = db
-    .prepare(`SELECT hold_time_sec, net_pnl FROM trades ${where}`)
+    .prepare(`SELECT hold_time_sec, net_pnl, is_be FROM trades ${where}`)
     .all(params);
 
   const acc = HOLD_BUCKETS.map((b) => ({
@@ -300,7 +306,9 @@ export function holdtime(q) {
     const b = acc[idx === -1 ? acc.length - 1 : idx];
     b.net_pnl += t.net_pnl || 0;
     b.trade_count++;
-    if ((t.net_pnl || 0) > 0) {
+    if (t.is_be) {
+      // BE: counted in the bucket, not in winner/loser hold times
+    } else if ((t.net_pnl || 0) > 0) {
       b.wins++;
       winHoldSum += sec;
       winHoldCount++;
@@ -389,7 +397,7 @@ export function fieldStats(q, defId) {
   const { where, params } = buildFilter(q);
   const rows = db
     .prepare(
-      `SELECT tf.value_num, tf.value_text, t.net_pnl, t.r_multiple
+      `SELECT tf.value_num, tf.value_text, t.net_pnl, t.r_multiple, t.is_be
        FROM trade_fields tf
        JOIN trades t ON t.id = tf.trade_id
        ${where ? where + ' AND' : 'WHERE'} tf.def_id = @defId`
@@ -400,7 +408,7 @@ export function fieldStats(q, defId) {
     const net = list.reduce((s, r) => s + (r.net_pnl || 0), 0);
     const rVals = list.map((r) => r.r_multiple).filter((v) => v != null);
     const avgR = rVals.length ? rVals.reduce((s, v) => s + v, 0) / rVals.length : null;
-    const wins = list.filter((r) => (r.net_pnl || 0) > 0).length;
+    const wins = list.filter((r) => (r.net_pnl || 0) > 0 && !r.is_be).length;
     return {
       label,
       count: list.length,
@@ -512,7 +520,7 @@ export function excursion(q) {
   // the unqualified WHERE stays unambiguous and resolves to trades (t).
   const rows = db
     .prepare(
-      `SELECT t.net_pnl, t.r_multiple, t.mae, t.mfe, t.entry_price, t.exit_price,
+      `SELECT t.net_pnl, t.is_be, t.r_multiple, t.mae, t.mfe, t.entry_price, t.exit_price,
               t.stop_price, t.size, t.direction, t.session, w.swept_level
        FROM trades t
        LEFT JOIN trade_wick w ON w.trade_id = t.id
@@ -548,7 +556,7 @@ export function excursion(q) {
   };
 
   for (const t of rows) {
-    const isWin = (t.net_pnl || 0) > 0;
+    const isWin = (t.net_pnl || 0) > 0 && !t.is_be;
     if (t.mae != null) {
       if (isWin) {
         winMaeSum += t.mae;
@@ -640,7 +648,11 @@ export function propStats(q) {
   const account = resolveAccount(q);
   if (!account) return { error: 'no account' };
 
-  const { where, params } = buildFilter({ ...q, account: account.id });
+  // Prop guardrails describe the account's real state, so they run over the
+  // account's whole history. The dashboard's date preset / instrument / session
+  // / setup / R filters must not change equity, drawdown or target progress
+  // (a "Today" preset would otherwise report equity = start + today's P&L).
+  const { where, params } = buildFilter({ account: account.id });
   const rows = db
     .prepare(
       `SELECT id, COALESCE(exit_time, entry_time) AS t, net_pnl, gross_pnl, hold_time_sec,
@@ -653,8 +665,8 @@ export function propStats(q) {
   const ddType = account.prop_dd_type || 'static';
   let cum = 0;
   let peak = 0;
-  let max_dd = 0; // largest peak-to-trough (static) or trailing high-water mark drop
-  let trailingFloor = 0; // for trailing DD: floor = hwm - limit (rises, never falls)
+  let trail_dd = 0; // worst drop below the closed-balance high-water mark
+  let static_dd = 0; // worst drop below the starting balance
   const dayMap = new Map();
   // Position-sizing exposure: dollar risk at entry vs the equity standing before
   // the trade, so a 1%-per-trade cap can be checked against what was actually
@@ -681,24 +693,36 @@ export function propStats(q) {
     }
     cum += r.net_pnl || 0;
     if (cum > peak) peak = cum;
-    const dd = peak - cum;
-    if (dd > max_dd) max_dd = dd;
+    if (peak - cum > trail_dd) trail_dd = peak - cum;
+    if (-cum > static_dd) static_dd = -cum;
     const day = (r.t || '').slice(0, 10);
     if (day) dayMap.set(day, (dayMap.get(day) || 0) + (r.net_pnl || 0));
   }
   const total_pnl = cum;
   const current_equity = starting_balance + total_pnl;
 
-  // For trailing DD the effective drawdown is how far equity is below the high-water mark.
-  // The limit itself trails up, so used_pct = (hwm - equity) / limit.
-  // For static DD it's peak-to-trough vs the fixed dollar limit.
+  // Trailing DD: the floor trails the high-water mark, so the worst peak-to-
+  // trough drop is what counts against the limit. Static DD: the floor is fixed
+  // at starting balance − limit, so only equity below the starting balance
+  // counts — giving back profit while still above the start uses none of it.
+  const max_dd = ddType === 'trailing' ? trail_dd : static_dd;
+  // Where the DD floor sits right now and how much can still be lost before
+  // equity touches it (≤ 0 once breached). Trailing floors ride the high-water
+  // mark; static floors sit at start − limit.
+  const dd_floor_limit = account.prop_max_dd ?? null;
+  const dd_floor =
+    dd_floor_limit != null && dd_floor_limit > 0
+      ? round(starting_balance + (ddType === 'trailing' ? peak : 0) - dd_floor_limit)
+      : null;
+  const dd_room = dd_floor != null ? round(starting_balance + cum - dd_floor) : null;
 
   const days = [...dayMap.keys()].sort();
   // "Today" must be the actual calendar day, not the most recent trading day —
   // otherwise on a day with no trades yet (e.g. Monday) the last session's P&L
   // (Friday's) leaks through as today's day P&L. If nothing traded today, it's 0.
-  const now = new Date();
-  const currentDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  // UTC, matching the day keys above (the realized-date slice of a UTC ISO
+  // string) — a server-local date would drift against them near midnight.
+  const currentDay = new Date().toISOString().slice(0, 10);
   const day_pnl = dayMap.get(currentDay) || 0;
 
   const day_loss_limit = account.prop_daily_loss ?? null;
@@ -871,6 +895,12 @@ export function propStats(q) {
     max_dd: round(max_dd),
     max_dd_limit,
     max_dd_used_pct,
+    dd_floor,
+    dd_room,
+    day_loss_room:
+      day_loss_limit != null && day_loss_limit > 0
+        ? round(day_loss_limit + Math.min(0, day_pnl || 0))
+        : null,
     dd_type: ddType,
     target,
     target_progress_pct,
@@ -927,14 +957,29 @@ export function propStats(q) {
 }
 
 // GET /api/stats/portfolio — roll-up propStats across all accounts.
-// Ignores q.account (portfolio spans them all). Other filters pass through.
+// Ignores q.account (portfolio spans them all). propStats is account-wide and
+// all-time, so the other filters don't affect these guardrail figures.
 export function portfolio(q = {}) {
   const accounts = db.prepare('SELECT * FROM accounts ORDER BY id').all();
   const rest = { ...q };
   delete rest.account;
   const rows = accounts.map((a) => {
     const stats = propStats({ ...rest, account: a.id });
-    return { name: a.name, broker: a.broker, ...stats };
+    // Performance side follows the global filters (date, instrument, …) like
+    // the combined card does; guardrails above stay all-time.
+    const s = summary({ ...rest, account: a.id });
+    const perf = {
+      trade_count: s.trade_count,
+      net_pnl: s.net_pnl,
+      win_rate: s.win_rate,
+      profit_factor: s.profit_factor,
+      expectancy: s.expectancy,
+      total_r: s.total_r,
+      avg_win: s.avg_win,
+      avg_loss: s.avg_loss,
+    };
+    const curve = equity({ ...rest, account: a.id }).map((p) => ({ t: p.t, cum_pnl: p.cum_pnl }));
+    return { name: a.name, broker: a.broker, ...stats, perf, equity: curve };
   });
   const totals = rows.reduce(
     (acc, r) => {
@@ -1263,7 +1308,7 @@ export function wickEdge(q) {
   const rows = db
     .prepare(
       `SELECT w.swept_level, w.strat_session, w.fill_pct, w.fakeout,
-              t.net_pnl, t.r_multiple
+              t.net_pnl, t.r_multiple, t.is_be
        FROM trades t JOIN trade_wick w ON w.trade_id = t.id
        ${where}`
     )
@@ -1275,7 +1320,7 @@ export function wickEdge(q) {
   };
   const tally = (g, r) => {
     g.count++;
-    if ((r.net_pnl || 0) > 0) g.wins++;
+    if ((r.net_pnl || 0) > 0 && !r.is_be) g.wins++;
     g.net += r.net_pnl || 0;
     if (r.r_multiple != null) { g.rSum += r.r_multiple; g.rN++; }
     if (r.fill_pct != null) { g.fillSum += r.fill_pct; g.fillN++; }
@@ -1331,7 +1376,7 @@ export function reportCard(q) {
   const { where, params } = buildFilter(q);
   const rows = db
     .prepare(
-      `SELECT COALESCE(exit_time, entry_time) AS t, net_pnl, r_multiple
+      `SELECT COALESCE(exit_time, entry_time) AS t, net_pnl, r_multiple, is_be
        FROM trades ${where}
        ORDER BY COALESCE(exit_time, entry_time) ASC, id ASC`
     )
@@ -1369,13 +1414,13 @@ export function reportCard(q) {
     if (dd > maxDd) maxDd = dd;
     rawSeries.push({ t: r.t, dd });
 
-    if (p > 0) {
+    if (p > 0 && !r.is_be) {
       wins++;
       grossWin += p;
       curWin++;
       curLoss = 0;
       if (curWin > maxConsecWin) maxConsecWin = curWin;
-    } else if (p < 0) {
+    } else if (p < 0 && !r.is_be) {
       losses++;
       grossLoss += p;
       curLoss++;
@@ -1395,7 +1440,7 @@ export function reportCard(q) {
         const g = dowMap.get(dow) || { net: 0, count: 0, wins: 0 };
         g.net += p;
         g.count++;
-        if (p > 0) g.wins++;
+        if (p > 0 && !r.is_be) g.wins++;
         dowMap.set(dow, g);
       }
     }
@@ -1515,7 +1560,7 @@ export function tagStats(q) {
   const rows = db
     .prepare(
       `SELECT tags.category AS category, tags.name AS name,
-              trades.net_pnl AS net_pnl, trades.r_multiple AS r_multiple
+              trades.net_pnl AS net_pnl, trades.r_multiple AS r_multiple, trades.is_be AS is_be
        FROM trades
        JOIN trade_tags ON trade_tags.trade_id = trades.id
        JOIN tags ON tags.id = trade_tags.tag_id
@@ -1533,7 +1578,7 @@ export function tagStats(q) {
     }
     const p = r.net_pnl || 0;
     g.count++;
-    if (p > 0) g.wins++;
+    if (p > 0 && !r.is_be) g.wins++;
     g.net += p;
     if (r.r_multiple != null && !isNaN(r.r_multiple)) {
       g.rSum += r.r_multiple;

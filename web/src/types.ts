@@ -35,6 +35,8 @@ export interface Account {
   default_risk_pct: number | null;
   /** Fixed dollar risk per trade; overrides default_risk_pct when set. */
   default_risk_amount: number | null;
+  /** Trades whose |R| is within this band count as break-even (null = exact $0 only). */
+  be_band_r: number | null;
   created_at: string;
 }
 
@@ -73,6 +75,7 @@ export interface NewAccount {
   broker_tz?: string | null;
   default_risk_pct?: number | null;
   default_risk_amount?: number | null;
+  be_band_r?: number | null;
 }
 
 export interface Trade {
@@ -105,6 +108,10 @@ export interface Trade {
   preferred_tf?: string | null;
   /** Post-trade review: null = unreviewed, 1 = followed plan, 0 = broke plan. */
   followed_plan?: number | null;
+  /** Manual break-even call: 1 = BE, 0 = not BE, null = auto (R band / $0). */
+  be_override?: number | null;
+  /** Effective break-even flag (override, else account R band, else $0). */
+  is_be?: number;
   /** Attached by GET /api/trades so the list can render tags without an N+1. */
   tags?: Tag[];
   created_at: string;
@@ -464,6 +471,7 @@ export interface TradeTotals {
   net_pnl: number;
   wins: number;
   losses: number;
+  be: number;
   win_rate: number | null;
   total_r: number | null;
   avg_r: number | null;
@@ -476,7 +484,7 @@ export interface StatsSummary {
   gross_pnl: number;
   trade_count: number;
   win_rate: number;
-  profit_factor: number;
+  profit_factor: number | null; // null when the range has no losing trade
   expectancy: number;
   avg_win: number;
   avg_loss: number;
@@ -599,6 +607,9 @@ export interface PropStats {
   max_dd: number;
   max_dd_limit: number | null;
   max_dd_used_pct: number | null;
+  dd_floor: number | null;
+  dd_room: number | null;
+  day_loss_room: number | null;
   dd_type: 'trailing' | 'static' | null;
   target: number | null;
   target_progress_pct: number | null;
@@ -841,6 +852,17 @@ export interface NewsStatus {
 export interface PortfolioAccount extends PropStats {
   name: string;
   broker: string | null;
+  perf: {
+    trade_count: number;
+    net_pnl: number;
+    win_rate: number;
+    profit_factor: number | null;
+    expectancy: number;
+    total_r: number | null;
+    avg_win: number;
+    avg_loss: number;
+  };
+  equity: EquityPoint[];
 }
 
 export interface PortfolioStats {

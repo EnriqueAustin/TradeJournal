@@ -118,7 +118,12 @@ export default function GoalsCard({
   return (
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-200">Goals</h2>
+        <h2
+          className="text-sm font-semibold text-slate-200"
+          title="Each goal measures its own period (UTC week/month) for its account — the range preset, instrument, session and setup filters don't apply, so goal figures can differ from the stat tiles."
+        >
+          Goals <span className="text-[10px] font-normal text-slate-500">· own period, ignores filters</span>
+        </h2>
         <button className="btn text-xs" onClick={() => setAdding((v) => !v)}>
           {adding ? 'Cancel' : '+ Add goal'}
         </button>

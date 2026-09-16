@@ -380,6 +380,44 @@ export function migrate() {
     db.exec('ALTER TABLE accounts ADD COLUMN default_risk_amount REAL');
   }
 
+  // Break-even classification. accounts.be_band_r: a trade whose |R| is within
+  // this band counts as BE (null/0 = only exactly-zero P&L is BE).
+  // trades.be_override: manual call — 1 = BE, 0 = not BE, null = auto.
+  // trades.is_be is the effective flag, kept current by the triggers below so
+  // every write path (import, EA, edits) stays consistent without code changes.
+  if (!acctCols.some((c) => c.name === 'be_band_r')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN be_band_r REAL');
+  }
+  const beCols = db.prepare('PRAGMA table_info(trades)').all();
+  if (!beCols.some((c) => c.name === 'be_override')) {
+    db.exec('ALTER TABLE trades ADD COLUMN be_override INTEGER');
+  }
+  if (!beCols.some((c) => c.name === 'is_be')) {
+    db.exec('ALTER TABLE trades ADD COLUMN is_be INTEGER NOT NULL DEFAULT 0');
+  }
+  const IS_BE_EXPR = (t) => `CASE
+      WHEN ${t}.be_override IS NOT NULL THEN ${t}.be_override
+      WHEN COALESCE(${t}.net_pnl, 0) = 0 THEN 1
+      WHEN ${t}.r_multiple IS NOT NULL AND ABS(${t}.r_multiple) <=
+        COALESCE((SELECT a.be_band_r FROM accounts a WHERE a.id = ${t}.account_id), 0) THEN 1
+      ELSE 0 END`;
+  db.exec(`
+    DROP TRIGGER IF EXISTS trg_trades_be_ins;
+    DROP TRIGGER IF EXISTS trg_trades_be_upd;
+    DROP TRIGGER IF EXISTS trg_accounts_be_band;
+    CREATE TRIGGER trg_trades_be_ins AFTER INSERT ON trades BEGIN
+      UPDATE trades SET is_be = ${IS_BE_EXPR('NEW')} WHERE id = NEW.id;
+    END;
+    CREATE TRIGGER trg_trades_be_upd
+      AFTER UPDATE OF net_pnl, r_multiple, be_override, account_id ON trades BEGIN
+      UPDATE trades SET is_be = ${IS_BE_EXPR('NEW')} WHERE id = NEW.id;
+    END;
+    CREATE TRIGGER trg_accounts_be_band AFTER UPDATE OF be_band_r ON accounts BEGIN
+      UPDATE trades SET is_be = ${IS_BE_EXPR('trades')} WHERE account_id = NEW.id;
+    END;
+  `);
+  db.exec(`UPDATE trades SET is_be = ${IS_BE_EXPR('trades')}`);
+
   // Prop-firm preset metadata on accounts.
   for (const col of [
     ['prop_firm', 'TEXT'],

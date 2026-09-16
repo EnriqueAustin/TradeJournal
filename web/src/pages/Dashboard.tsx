@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
@@ -23,9 +23,9 @@ import {
   DISPLAY_TZ,
 } from '../utils/format';
 
+// UTC month, matching the server's realized-date buckets.
 function currentMonth(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return new Date().toISOString().slice(0, 7);
 }
 
 function SectionCard({
@@ -259,6 +259,18 @@ function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['f
 export default function Dashboard() {
   const { filters, accounts } = useFilters();
   const [month, setMonth] = useState(currentMonth);
+  // The calendar and heatmap are also scoped by the date range, so a month
+  // outside it would render empty. When the range moves off the picked month,
+  // follow it to the range's last month.
+  useEffect(() => {
+    const fromM = filters.from ? filters.from.slice(0, 7) : '';
+    const toM = filters.to ? filters.to.slice(0, 7) : '';
+    setMonth((m) => {
+      if (toM && m > toM) return toM;
+      if (fromM && m < fromM) return toM || fromM;
+      return m;
+    });
+  }, [filters.from, filters.to]);
   const [unit, setUnit] = useState<'money' | 'r'>('money');
 
   // "2026-08" → "August 2026", for cards that follow the month picker but don't
@@ -336,19 +348,24 @@ export default function Dashboard() {
           />
           <StatTile
             label="Win Rate"
-            value={formatPct(s?.win_rate)}
+            value={s?.trade_count ? formatPct(s.win_rate) : '—'}
             sub={`${s?.trade_count ?? 0} trades`}
           />
           <StatTile
             label="Profit Factor"
-            value={s ? formatNumber(s.profit_factor, 2) : '—'}
+            // null = no losing trades in range: infinite PF, not a bad one.
+            value={!s || s.trade_count === 0 ? '—' : s.profit_factor == null ? (s.avg_win > 0 ? '∞' : '—') : formatNumber(s.profit_factor, 2)}
             valueClass={
-              s && s.profit_factor >= 1 ? 'text-emerald-400' : 'text-red-400'
+              !s || s.trade_count === 0 || (s.profit_factor == null && !(s.avg_win > 0))
+                ? 'text-slate-200'
+                : s.profit_factor == null || s.profit_factor >= 1
+                  ? 'text-emerald-400'
+                  : 'text-red-400'
             }
           />
           <StatTile
             label={unit === 'r' ? 'Expectancy (R)' : 'Expectancy'}
-            value={unit === 'r' ? formatR(s?.avg_r) : formatMoney(s?.expectancy, currency)}
+            value={unit === 'r' ? formatR(s?.avg_r) : s?.trade_count ? formatMoney(s.expectancy, currency) : '—'}
             valueClass={signClass(unit === 'r' ? s?.avg_r : s?.expectancy)}
             sub="per trade"
           />
@@ -361,7 +378,7 @@ export default function Dashboard() {
             label="Trade Count"
             value={s?.trade_count ?? 0}
             sub={
-              s
+              s?.trade_count
                 ? `${formatMoney(s.avg_win, currency)} / ${formatMoney(s.avg_loss, currency)}`
                 : undefined
             }
@@ -436,7 +453,7 @@ export default function Dashboard() {
             loadingLabel="Loading sessions…"
           >
             {session.data && (
-              <SessionHeatmap data={session.data} currency={currency} />
+              <SessionHeatmap data={session.data} currency={currency} month={month} />
             )}
           </AsyncBoundary>
         </SectionCard>

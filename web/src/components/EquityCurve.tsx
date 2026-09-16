@@ -12,9 +12,12 @@ import type { EquityPoint } from '../types';
 export default function EquityCurve({
   data,
   unit = 'money',
+  className = 'h-80',
 }: {
   data: EquityPoint[];
   unit?: 'money' | 'r';
+  /** Height class — the chart autosizes to it, so a parent must not clip it. */
+  className?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -93,5 +96,5 @@ export default function EquityCurve({
     chart.timeScale().fitContent();
   }, [data, unit]);
 
-  return <div ref={containerRef} className="h-80 w-full" />;
+  return <div ref={containerRef} className={`${className} w-full`} />;
 }

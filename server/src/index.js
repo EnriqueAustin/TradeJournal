@@ -284,6 +284,7 @@ app.patch('/api/accounts/:id', (req, res) => {
     'broker_tz',
     'default_risk_pct',
     'default_risk_amount',
+    'be_band_r',
   ];
   const sets = [];
   const params = { id };
@@ -553,9 +554,10 @@ function tradesQuery(q) {
     clauses.push('direction = @direction');
     params.direction = q.direction;
   }
-  if (q.outcome === 'win') clauses.push('net_pnl > 0');
-  else if (q.outcome === 'loss') clauses.push('net_pnl < 0');
-  else if (q.outcome === 'be') clauses.push('net_pnl = 0');
+  // is_be (manual override or the account's R band) wins over the P&L sign.
+  if (q.outcome === 'win') clauses.push('net_pnl > 0 AND is_be = 0');
+  else if (q.outcome === 'loss') clauses.push('net_pnl < 0 AND is_be = 0');
+  else if (q.outcome === 'be') clauses.push('is_be = 1');
   // "Needs attention" backfill queue. Comma-separated flags, OR-combined so the
   // one filter surfaces every trade with a data gap worth fixing:
   //   entry      → corrupt import (entry_price 0 / null) — breaks replay + R
@@ -640,8 +642,9 @@ app.get('/api/trades/totals', (req, res) => {
     .prepare(
       `SELECT COUNT(*) AS count,
               COALESCE(SUM(net_pnl), 0) AS net_pnl,
-              SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) AS wins,
-              SUM(CASE WHEN net_pnl < 0 THEN 1 ELSE 0 END) AS losses,
+              SUM(CASE WHEN net_pnl > 0 AND is_be = 0 THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN net_pnl < 0 AND is_be = 0 THEN 1 ELSE 0 END) AS losses,
+              SUM(is_be) AS be,
               SUM(r_multiple) AS total_r,
               AVG(r_multiple) AS avg_r,
               COALESCE(SUM(commission), 0) AS commission,
@@ -655,6 +658,7 @@ app.get('/api/trades/totals', (req, res) => {
     net_pnl: row.net_pnl,
     wins: row.wins || 0,
     losses: row.losses || 0,
+    be: row.be || 0,
     win_rate: decided ? row.wins / decided : null,
     total_r: row.total_r,
     avg_r: row.avg_r,
@@ -902,6 +906,7 @@ const EDITABLE = new Set([
   'size',
   'preferred_tf',
   'followed_plan',
+  'be_override',
 ]);
 
 app.patch('/api/trades/:id', (req, res) => {
@@ -909,6 +914,8 @@ app.patch('/api/trades/:id', (req, res) => {
   const trade = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
   if (!trade) return res.status(404).json({ error: 'trade not found' });
   const b = req.body || {};
+  if ('be_override' in b && ![null, 0, 1].includes(b.be_override))
+    return res.status(400).json({ error: 'be_override must be null, 0 or 1' });
   // Validate setup_id: must be null or reference an existing setup.
   if ('setup_id' in b && b.setup_id != null) {
     if (!db.prepare('SELECT 1 FROM setups WHERE id = ?').get(Number(b.setup_id)))
@@ -1194,7 +1201,7 @@ app.get('/api/report/week/:date', (req, res) => {
 
   const weekTrades = db
     .prepare(
-      `SELECT id, instrument, direction, entry_time, exit_time, net_pnl, r_multiple, r_derived, session
+      `SELECT id, instrument, direction, entry_time, exit_time, net_pnl, r_multiple, r_derived, session, is_be
        FROM trades
        WHERE account_id = ? AND COALESCE(is_backtest,0) = 0
          AND date(COALESCE(exit_time, entry_time)) BETWEEN date(?) AND date(?)
@@ -1202,7 +1209,7 @@ app.get('/api/report/week/:date', (req, res) => {
     )
     .all(accountId, from, to);
   const best = weekTrades.slice(0, 3);
-  const worst = weekTrades.filter((t) => t.net_pnl < 0).slice(-3).reverse();
+  const worst = weekTrades.filter((t) => t.net_pnl < 0 && !t.is_be).slice(-3).reverse();
 
   const days = [];
   for (let i = 0; i < 7; i++) {
@@ -1505,7 +1512,7 @@ app.post('/api/trades/bulk', (req, res) => {
   const set = b.set || {};
   const sets = [];
   const vals = [];
-  const BULK_EDITABLE = ['setup_id', 'followed_plan'];
+  const BULK_EDITABLE = ['setup_id', 'followed_plan', 'be_override'];
   for (const k of BULK_EDITABLE) {
     if (k in set) {
       sets.push(`${k} = ?`);

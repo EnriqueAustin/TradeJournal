@@ -1223,6 +1223,9 @@ function ReviewPanel({
   const setFollowed = (v: 0 | 1 | null) =>
     run(() => api.patchTrade(trade.id, { followed_plan: v }));
 
+  const beOverride = trade.be_override ?? null;
+  const setBe = (v: 0 | 1 | null) => run(() => api.patchTrade(trade.id, { be_override: v }));
+
   return (
     <div className="card p-5">
       <h2 className="mb-3 text-sm font-semibold text-slate-200">Post-trade Review</h2>
@@ -1273,6 +1276,40 @@ function ReviewPanel({
             >
               ✗ Broke plan
             </button>
+          </div>
+        </div>
+        <div>
+          <div className="label mb-1.5">
+            Break-even{' '}
+            <span className="font-normal normal-case text-slate-500">
+              ({trade.is_be ? 'counted as BE' : 'counted as win/loss'})
+            </span>
+          </div>
+          <div className="flex gap-1.5">
+            {([
+              [null, 'Auto'],
+              [1, 'BE'],
+              [0, 'Not BE'],
+            ] as const).map(([v, label]) => (
+              <button
+                key={label}
+                type="button"
+                disabled={busy}
+                onClick={() => setBe(v)}
+                title={
+                  v == null
+                    ? "BE when P&L is $0 or |R| is within the account's BE band"
+                    : undefined
+                }
+                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                  beOverride === v
+                    ? 'border-cyan-500 bg-cyan-500/15 text-cyan-300'
+                    : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
         {err && <span className="text-sm text-red-400">{err}</span>}

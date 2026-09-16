@@ -1,19 +1,15 @@
 import { useFilters } from '../store/FilterContext';
-import { sessionLabel, DISPLAY_TZ } from '../utils/format';
+import { sessionLabel } from '../utils/format';
 
 const INSTRUMENTS = ['All', 'XAUUSD', 'US100'];
 const SESSIONS = ['All', 'asia', 'london', 'ny', 'off'];
 
-// Today in the display zone as YYYY-MM-DD (from/to compare against the UTC
-// realized date, but a trader thinks in their own clock, so anchor there).
+// Today as a UTC YYYY-MM-DD. from/to filter on the UTC realized date, and the
+// calendar, goals and prop daily-loss all bucket days in UTC — anchoring the
+// presets in the display zone made "Today" skip trades closed in the first
+// hours after local midnight (still yesterday in UTC).
 function todayKey(): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: DISPLAY_TZ,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-  return parts; // en-CA yields YYYY-MM-DD
+  return new Date().toISOString().slice(0, 10);
 }
 
 function addDays(key: string, delta: number): string {
@@ -210,15 +206,22 @@ export default function FilterBar() {
         <div>
           <label className="label">Range preset</label>
           <div className="flex flex-wrap gap-1">
-            {PRESETS.map((p) => (
-              <button
-                key={p.key}
-                className="btn px-2 py-1 text-[10px] uppercase"
-                onClick={() => setFilters(presetRange(p.key))}
-              >
-                {p.label}
-              </button>
-            ))}
+            {PRESETS.map((p) => {
+              const r = presetRange(p.key);
+              const active = filters.from === r.from && filters.to === r.to;
+              return (
+                <button
+                  key={p.key}
+                  className={`btn px-2 py-1 text-[10px] uppercase ${
+                    active ? 'border-cyan-500 text-cyan-300' : ''
+                  }`}
+                  aria-pressed={active}
+                  onClick={() => setFilters(r)}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
           </div>
         </div>
         <button className="btn" onClick={resetFilters}>

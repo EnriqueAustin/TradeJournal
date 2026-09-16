@@ -78,6 +78,17 @@ function BrokerTimePanel({
     }
   };
 
+  const setBeBand = async (id: number, raw: string) => {
+    const v = raw.trim() === '' ? null : Number(raw);
+    if (v != null && (Number.isNaN(v) || v < 0)) return setMsg('BE band must be ≥ 0');
+    try {
+      await api.updateAccount(id, { be_band_r: v });
+      onChanged();
+    } catch (e: any) {
+      setMsg(e?.message || 'Failed to set BE band');
+    }
+  };
+
   const check = async (id: number) => {
     setChecks((c) => ({ ...c, [id]: 'loading' }));
     try {
@@ -183,6 +194,21 @@ function BrokerTimePanel({
                 step="0.1"
                 defaultValue={a.default_risk_pct ?? ''}
                 onBlur={(e) => setRiskPct(a.id, e.target.value)}
+              />
+            </label>
+            <label
+              className="flex items-center gap-1.5 text-xs text-slate-500"
+              title="Trades whose R is within ± this many R count as break-even. Blank = only $0 trades. Override per trade on its page."
+            >
+              BE band ±R
+              <input
+                className="input w-16 py-1 text-xs"
+                type="number"
+                min="0"
+                step="0.05"
+                placeholder="off"
+                defaultValue={a.be_band_r ?? ''}
+                onBlur={(e) => setBeBand(a.id, e.target.value)}
               />
             </label>
             <button className="btn px-2 py-1 text-xs" onClick={() => check(a.id)}>

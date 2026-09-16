@@ -30,9 +30,9 @@ export function formatR(v: number | null | undefined): string {
 
 export function formatPct(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
-  // Accept either fraction (0-1) or already-percent (0-100)
-  const pct = v <= 1 && v >= -1 ? v * 100 : v;
-  return `${pct.toFixed(1)}%`;
+  // Always a fraction (0.5 = 50%). Every caller passes one; guessing "already a
+  // percent" for |v| > 1 rendered a 120% DD breach or 150% target as "1.2%".
+  return `${(v * 100).toFixed(1)}%`;
 }
 
 export function formatNumber(v: number | null | undefined, dp = 2): string {
