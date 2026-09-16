@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import type { ImportResult, BarsImportResult, BarsFetchResult } from '../types';
 import { Spinner } from '../components/states';
+import ImportWatchCard from '../components/ImportWatchCard';
 
 export default function Import() {
   const { refreshAccounts, accounts, filters, setFilters } = useFilters();
@@ -237,6 +238,8 @@ export default function Import() {
           </div>
         </div>
       )}
+
+      <ImportWatchCard onImported={refreshAccounts} />
 
       <BarsImport />
     </div>

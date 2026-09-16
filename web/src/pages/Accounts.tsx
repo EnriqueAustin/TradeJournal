@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
+import BackupsPanel from '../components/BackupsPanel';
 import type { Account, NewAccount, TimeCheck } from '../types';
 import { formatMoney, formatDate, DISPLAY_TZ } from '../utils/format';
 import { FIRM_OPTIONS, getPlanOptions, getPreset, getPhaseRules } from '../data/propPresets';
@@ -723,6 +724,8 @@ export default function Accounts() {
           {ok && <p className="text-sm text-emerald-400">{ok}</p>}
         </form>
       </div>
+
+      <BackupsPanel />
     </div>
   );
 }
