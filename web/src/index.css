@@ -133,6 +133,7 @@ table td {
 }
 table th {
   font-family: var(--font-sans);
+  white-space: nowrap;
 }
 
 ::selection {

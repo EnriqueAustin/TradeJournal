@@ -638,13 +638,13 @@ export default function Trades() {
                     <td className="px-4 py-2.5">
                       <DirectionBadge dir={t.direction} />
                     </td>
-                    <td className="num px-4 py-2.5 text-slate-400">
+                    <td className="num whitespace-nowrap px-4 py-2.5 text-slate-400">
                       {formatDateTime(t.entry_time)}
                     </td>
-                    <td className="num px-4 py-2.5 text-slate-400">
+                    <td className="num whitespace-nowrap px-4 py-2.5 text-slate-400">
                       {formatDateTime(t.exit_time)}
                     </td>
-                    <td className="num px-4 py-2.5 text-right text-slate-400">
+                    <td className="num whitespace-nowrap px-4 py-2.5 text-right text-slate-400">
                       {formatDuration(t.hold_time_sec)}
                     </td>
                     <td className="num px-4 py-2.5 text-right text-slate-300">
