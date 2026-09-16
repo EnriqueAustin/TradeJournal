@@ -369,6 +369,7 @@ export default function Analytics() {
           isEmpty={!reportCard.data || reportCard.data.trade_count === 0}
           emptyMessage="No trades match the filters."
           loadingLabel="Building report card…"
+          skeleton="tiles"
         >
           {reportCard.data && <ReportCard data={reportCard.data} currency={currency} />}
         </AsyncBoundary>
@@ -398,6 +399,7 @@ export default function Analytics() {
           isEmpty={!hasHold}
           emptyMessage="No trades with a hold time match the filters."
           loadingLabel="Loading hold-time buckets…"
+          skeleton="chart"
         >
           {h && <HoldTimeBars data={h.buckets} />}
         </AsyncBoundary>
@@ -409,6 +411,7 @@ export default function Analytics() {
           error={excursion.error}
           onRetry={excursion.reload}
           loadingLabel="Loading excursion…"
+          skeleton="tiles"
         >
           {excursion.data && <ExcursionPanel e={excursion.data} />}
         </AsyncBoundary>
@@ -435,6 +438,7 @@ export default function Analytics() {
           isEmpty={!missed.data || missed.data.count === 0}
           emptyMessage="No missed trades logged for these filters. Log them from the day journal."
           loadingLabel="Loading missed trades…"
+          skeleton="tiles"
         >
           {missed.data && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -491,6 +495,7 @@ export default function Analytics() {
           isEmpty={!fieldStats.data || fieldStats.data.buckets.length === 0}
           emptyMessage="No custom-field values match the filters. Define a field and set values on the trade detail."
           loadingLabel="Correlating…"
+          skeleton="table"
         >
           {fieldStats.data && (
             <table className="w-full text-sm">
@@ -531,6 +536,7 @@ export default function Analytics() {
           error={tagStats.error}
           onRetry={tagStats.reload}
           loadingLabel="Loading tag stats…"
+          skeleton="table"
         >
           {tagStats.data && <TagAnalyticsPanel data={tagStats.data} />}
         </AsyncBoundary>
@@ -542,6 +548,7 @@ export default function Analytics() {
           error={wickEdge.error}
           onRetry={wickEdge.reload}
           loadingLabel="Loading wick edge…"
+          skeleton="table"
         >
           {wickEdge.data && <WickEdgePanel data={wickEdge.data} />}
         </AsyncBoundary>
@@ -577,6 +584,7 @@ export default function Analytics() {
           error={optimizer.error}
           onRetry={optimizer.reload}
           loadingLabel="Sweeping SL/TP grid…"
+          skeleton="chart"
         >
           {optimizer.data && <OptimizerHeatmap data={optimizer.data} />}
         </AsyncBoundary>

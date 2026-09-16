@@ -922,7 +922,10 @@ export interface NewsStatus {
   last_refresh: string | null;
   refreshing?: boolean;
   auto?: boolean;
+  /** ISO time of the last refresh run, successful or not. */
+  last_attempt?: string | null;
   last_error?: string | null;
+  last_actuals_error?: string | null;
 }
 
 export interface PortfolioAccount extends PropStats {

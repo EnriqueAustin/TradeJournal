@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
@@ -182,6 +182,7 @@ function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['f
         isEmpty={!d || d.reviewed === 0}
         emptyMessage="No reviews yet — grade a trade and flag whether you followed your plan on its detail page."
         loadingLabel="Loading discipline…"
+        skeleton="tiles"
       >
         {d && (
           <div className="flex flex-wrap items-center gap-x-10 gap-y-4">
@@ -299,6 +300,23 @@ export default function Dashboard() {
   const summary = useApi(() => api.getSummary(filters), [key]);
   const reportCard = useApi(() => api.getReportCard(filters), [key]);
   const equity = useApi(() => api.getEquity(filters), [key]);
+  // Most recent trade matching the filters (trades sort newest-realized first).
+  // The calendar + heatmap open on its month rather than the current one, which
+  // is often empty; once the user picks a month by hand we stop following it.
+  const latest = useApi(() => api.getTrades(filters, 1, 0), [key]);
+  const lastTradeMonth = useMemo(() => {
+    const t = latest.data?.rows[0];
+    return (t?.exit_time ?? t?.entry_time ?? '').slice(0, 7);
+  }, [latest.data]);
+  const monthPicked = useRef(false);
+  useEffect(() => {
+    if (lastTradeMonth && !monthPicked.current) setMonth(lastTradeMonth);
+  }, [lastTradeMonth]);
+  const pickMonth = (m: string) => {
+    monthPicked.current = true;
+    setMonth(m);
+  };
+
   const calendar = useApi(
     () => api.getCalendar(filters, month),
     [key, month]
@@ -338,6 +356,7 @@ export default function Dashboard() {
         error={summary.error}
         onRetry={summary.reload}
         loadingLabel="Loading summary…"
+        skeleton="tiles"
       >
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatTile
@@ -404,6 +423,7 @@ export default function Dashboard() {
           isEmpty={!equity.data || equity.data.length === 0}
           emptyMessage="No closed trades in range."
           loadingLabel="Loading equity…"
+          skeleton="chart"
         >
           {equity.data && <EquityCurve data={equity.data} unit={unit} />}
         </AsyncBoundary>
@@ -414,12 +434,23 @@ export default function Dashboard() {
         <SectionCard
           title="Monthly P&L"
           right={
-            <input
-              type="month"
-              className="input py-1"
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-            />
+            <div className="flex items-center gap-2">
+              {lastTradeMonth && month !== lastTradeMonth && (
+                <button
+                  className="btn px-2 py-1 text-[10px]"
+                  onClick={() => pickMonth(lastTradeMonth)}
+                  title="Jump to the month of the most recent trade matching the filters"
+                >
+                  Last trading month
+                </button>
+              )}
+              <input
+                type="month"
+                className="input py-1"
+                value={month}
+                onChange={(e) => pickMonth(e.target.value)}
+              />
+            </div>
           }
         >
           <AsyncBoundary
@@ -427,6 +458,7 @@ export default function Dashboard() {
             error={calendar.error}
             onRetry={calendar.reload}
             loadingLabel="Loading calendar…"
+            skeleton="table"
           >
             <Calendar
               month={month}
@@ -451,6 +483,7 @@ export default function Dashboard() {
             isEmpty={!session.data || session.data.length === 0}
             emptyMessage={`No session data for ${monthLabel}.`}
             loadingLabel="Loading sessions…"
+            skeleton="table"
           >
             {session.data && (
               <SessionHeatmap data={session.data} currency={currency} month={month} />
@@ -476,6 +509,7 @@ export default function Dashboard() {
           isEmpty={!hourly.data || hourly.data.length === 0}
           emptyMessage="No hourly data in range."
           loadingLabel="Loading hourly…"
+          skeleton="chart"
         >
           {hourly.data && <HourlyBars data={hourly.data} />}
         </AsyncBoundary>

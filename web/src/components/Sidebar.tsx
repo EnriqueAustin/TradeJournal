@@ -12,22 +12,15 @@ const groups: { heading: string; links: Link[] }[] = [
       { to: '/playbook', label: 'Playbook', icon: '◎' },
       { to: '/analytics', label: 'Analytics', icon: '◔' },
       { to: '/risk', label: 'Risk', icon: '⚠' },
-    ],
-  },
-  {
-    heading: 'Research',
-    links: [
-      { to: '/research', label: 'Signal', icon: '◉' },
-      { to: '/calendar', label: 'Econ Calendar', icon: '▤' },
       { to: '/portfolio', label: 'Portfolio', icon: '⌘' },
     ],
   },
   {
-    heading: 'Simulate',
+    heading: 'Tools',
     links: [
+      { to: '/calendar', label: 'Econ Calendar', icon: '▤' },
       { to: '/replay', label: 'Replay', icon: '▶' },
       { to: '/backtest', label: 'Backtest', icon: '⟲' },
-      { to: '/studio', label: 'Studio', icon: '◫' },
     ],
   },
   {
@@ -59,19 +52,11 @@ export default function Sidebar() {
         >
           TJ
         </div>
-        <div className="leading-tight">
-          <div
-            className="text-[11px] font-bold uppercase"
-            style={{ color: 'var(--term-amber)', letterSpacing: '0.14em' }}
-          >
-            TRADE<span style={{ color: 'var(--term-green)' }}>▮</span>JOURNAL
-          </div>
-          <div
-            className="text-[9px] uppercase"
-            style={{ color: 'var(--term-muted)', letterSpacing: '0.1em' }}
-          >
-            PHASE 3
-          </div>
+        <div
+          className="text-[11px] font-bold uppercase leading-tight"
+          style={{ color: 'var(--term-amber)', letterSpacing: '0.14em' }}
+        >
+          TRADE<span style={{ color: 'var(--term-green)' }}>▮</span>JOURNAL
         </div>
       </div>
       <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-2 py-2">

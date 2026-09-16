@@ -1,8 +1,10 @@
 // Economic-calendar ingest — pulls the free ForexFactory weekly JSON feed and
 // caches events in SQLite so trade timelines can overlay high-impact news.
-// No API key required. Outbound internet only when /api/news/refresh is called.
+// No API key required. The server polls on a schedule (startNewsScheduler) and
+// fills actuals from the TradingView calendar (see newsActuals.js).
 import crypto from 'node:crypto';
 import { db } from './db.js';
+import { countriesFor, fetchTvEvents, formatActual, matchEvent } from './newsActuals.js';
 
 // ForexFactory publishes rolling weekly feeds via faireconomy's CDN.
 const FF_FEEDS = {
@@ -253,19 +255,81 @@ export function getNews(q = {}) {
 let schedulerTimer = null;
 let refreshing = false;
 let lastError = null;
+let lastAttempt = null; // ms epoch of the last refresh run (feed and/or actuals)
+let lastActualsError = null;
 
-/** Refresh guarded against overlapping runs; never throws. */
+const ACTUALS_LOOKBACK_DAYS = 10;
+
+/**
+ * Fill `actual` on recent past events that have none, from the TradingView
+ * calendar (the FF feed never carries actuals). Only touches blank actuals, so
+ * a userscript scrape still wins. @returns {{ checked:number, filled:number }}
+ */
+export async function refreshActuals({ now = Date.now(), lookbackDays = ACTUALS_LOOKBACK_DAYS } = {}) {
+  const from = new Date(now - lookbackDays * 86400_000).toISOString();
+  const to = new Date(now).toISOString();
+  const blanks = db
+    .prepare(
+      `SELECT id, dt, currency, title, forecast, previous
+         FROM news_events
+        WHERE dt >= ? AND dt <= ? AND (actual IS NULL OR actual = '')
+          AND impact != 'holiday'`
+    )
+    .all(from, to);
+  if (!blanks.length) return { checked: 0, filled: 0 };
+
+  const countries = countriesFor(blanks.map((b) => b.currency));
+  if (!countries.length) return { checked: blanks.length, filled: 0 };
+  // Pad a minute each side so events on the window edge are included.
+  const tv = await fetchTvEvents(
+    new Date(Date.parse(blanks.reduce((m, b) => (b.dt < m ? b.dt : m), to)) - 60_000).toISOString(),
+    new Date(now + 60_000).toISOString(),
+    countries
+  );
+
+  const update = db.prepare(
+    `UPDATE news_events SET actual = @actual, fetched_at = datetime('now')
+      WHERE id = @id AND (actual IS NULL OR actual = '')`
+  );
+  let filled = 0;
+  db.transaction(() => {
+    for (const ff of blanks) {
+      const hit = matchEvent(ff, tv);
+      const actual = hit && formatActual(hit, ff);
+      if (actual) filled += update.run({ id: ff.id, actual }).changes;
+    }
+  })();
+  return { checked: blanks.length, filled };
+}
+
+/**
+ * Refresh guarded against overlapping runs; never throws. Pulls the FF feed
+ * (events, forecasts) and then actuals; either can fail independently — only
+ * when both fail is the run reported as an error.
+ */
 export async function safeRefresh(feeds) {
   if (refreshing) return { skipped: true };
   refreshing = true;
+  lastAttempt = Date.now();
+  let feed = null;
+  let actuals = null;
   try {
-    const r = await refreshNews(feeds);
-    lastError = null;
-    return r;
-  } catch (e) {
-    lastError = e.message;
-    console.error('[news] refresh failed:', e.message);
-    return { error: e.message };
+    try {
+      feed = await refreshNews(feeds);
+      lastError = null;
+    } catch (e) {
+      lastError = e.message;
+      console.error('[news] feed refresh failed:', e.message);
+    }
+    try {
+      actuals = await refreshActuals();
+      lastActualsError = null;
+    } catch (e) {
+      lastActualsError = e.message;
+      console.error('[news] actuals refresh failed:', e.message);
+    }
+    if (!feed && !actuals) return { error: [lastError, lastActualsError].filter(Boolean).join('; ') };
+    return { ...(feed ?? {}), feed_error: feed ? null : lastError, actuals };
   } finally {
     refreshing = false;
   }
@@ -307,6 +371,8 @@ export function newsStatus() {
     last_refresh: row.last_refresh || null,
     refreshing,
     auto: schedulerTimer != null,
+    last_attempt: lastAttempt ? new Date(lastAttempt).toISOString() : null,
     last_error: lastError,
+    last_actuals_error: lastActualsError,
   };
 }
