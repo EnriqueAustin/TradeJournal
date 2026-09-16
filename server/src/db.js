@@ -10,7 +10,7 @@ const dataDir = path.join(__dirname, '..', 'data');
 fs.mkdirSync(dataDir, { recursive: true });
 // JOURNAL_DB lets tests (and alternate deployments) point at another file
 // instead of the real journal; defaults to the normal data/journal.db.
-const dbPath = process.env.JOURNAL_DB || path.join(dataDir, 'journal.db');
+export const dbPath = process.env.JOURNAL_DB || path.join(dataDir, 'journal.db');
 
 export const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
@@ -509,6 +509,17 @@ export function migrate() {
     db.pragma('user_version = 3');
   }
 
+  // Small key/value store for app-level settings editable from the UI (e.g. the
+  // import watch folder). Env vars override these at read time. Idempotent, so
+  // no user_version bump.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
   // Seed default account if none exists
   const count = db.prepare('SELECT COUNT(*) AS c FROM accounts').get().c;
   if (count === 0) {
@@ -516,5 +527,21 @@ export function migrate() {
       `INSERT INTO accounts (name, platform, currency, starting_balance)
        VALUES (?, ?, ?, ?)`
     ).run('Main', 'mt5', 'USD', 10000);
+  }
+}
+
+// ---------- app_settings helpers ----------
+export function getSetting(key) {
+  return db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key)?.value ?? null;
+}
+
+export function setSetting(key, value) {
+  if (value == null || value === '') {
+    db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
+  } else {
+    db.prepare(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+    ).run(key, String(value));
   }
 }
