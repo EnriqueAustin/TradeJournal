@@ -105,11 +105,12 @@ export function buildPositionBox(
 // Stop / target / entry horizontal lines (price only — identical across TFs).
 export function buildPriceLines(markers: ReplayMarkers): PriceLineSpec[] {
   const lines: PriceLineSpec[] = [];
-  if (markers.entry)
+  // A bad import can leave a price null; lightweight-charts throws on those.
+  if (markers.entry?.price != null)
     lines.push({ price: markers.entry.price, color: '#6366f1', title: 'Entry' });
-  if (markers.stop)
+  if (markers.stop?.price != null)
     lines.push({ price: markers.stop.price, color: '#ef4444', title: 'Stop' });
-  if (markers.target)
+  if (markers.target?.price != null)
     lines.push({ price: markers.target.price, color: '#10b981', title: 'Target' });
   return lines;
 }
