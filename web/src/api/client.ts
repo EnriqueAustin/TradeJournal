@@ -246,6 +246,12 @@ export const api = {
     request<HoldTimeStats>(`/stats/holdtime${filterParams(f)}`),
   getExcursion: (f: Filters) =>
     request<ExcursionStats>(`/stats/excursion${filterParams(f)}`),
+  getExitStats: (f: Filters) =>
+    request<import('../types').ExitStats>(`/stats/exits${filterParams(f)}`),
+  getExitAnalysis: (tradeId: number) =>
+    request<{ trade_id: number; analysis: import('../types').ExitAnalysis | null }>(
+      `/trades/${tradeId}/exit-analysis`
+    ),
   getProp: (f: Filters) => request<PropStats>(`/stats/prop${filterParams(f)}`),
   getAdherence: (f: Filters) =>
     request<AdherenceStats>(`/stats/adherence${filterParams(f)}`),

@@ -10,6 +10,7 @@ import { newsToMarkers, currenciesForInstrument } from '../utils/news';
 import NewsPanel from '../components/NewsPanel';
 import SocialShareModal from '../components/SocialShareModal';
 import CustomFieldsCard from '../components/CustomFieldsCard';
+import ExitAnalysisCard from '../components/ExitAnalysisCard';
 import ContextTab from '../features/signal/panels/ContextTab';
 import type {
   TradeDetail as TTradeDetail,
@@ -38,6 +39,18 @@ const TAG_CATEGORIES: TagCategory[] = [
   'mistake',
   'grade',
 ];
+
+// Marks an MAE/MFE value that was derived from price bars, not entered by hand.
+function AutoMark() {
+  return (
+    <span
+      className="ml-1 rounded bg-slate-800 px-1 text-[10px] uppercase text-slate-500"
+      title="Auto-derived from stored price bars (S5 when available, else M1)"
+    >
+      auto
+    </span>
+  );
+}
 
 function Field({
   label,
@@ -287,9 +300,11 @@ function TradeBody({
           <Field label="Swap">{formatMoney(trade.swap)}</Field>
           <Field label="MAE">
             {trade.mae == null ? '—' : formatNumber(trade.mae, 2)}
+            {trade.mae != null && trade.mae_auto ? <AutoMark /> : null}
           </Field>
           <Field label="MFE">
             {trade.mfe == null ? '—' : formatNumber(trade.mfe, 2)}
+            {trade.mfe != null && trade.mfe_auto ? <AutoMark /> : null}
           </Field>
           <Field label="Source">
             <span className="uppercase">{trade.source}</span>
@@ -317,6 +332,12 @@ function TradeBody({
         <ContextTab tradeId={trade.id} instrument={trade.instrument} entryPrice={trade.entry_price} />
       ) : (
       <>
+      {/* Where price went after the exit (self-contained, from stored bars) */}
+      <ExitAnalysisCard
+        tradeId={trade.id}
+        refreshKey={`${trade.exit_price}|${trade.stop_price}|${trade.target_price}|${trade.direction}`}
+      />
+
       {/* Post-trade review — grade + did-you-follow-the-plan */}
       <ReviewPanel trade={trade} onChanged={onChanged} />
 
