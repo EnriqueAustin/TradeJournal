@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { sessionFromTime, computeRMultiple, defaultRiskCash, normalizeInstrument } from './util.js';
 import { refreshExcursions } from './excursion.js';
+import { DEFAULT_NOTE_TEMPLATES } from './notebookTemplates.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, '..', 'data');
@@ -570,6 +571,55 @@ export function migrate() {
     db.exec(
       'ALTER TABLE accounts ADD COLUMN profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL'
     );
+  }
+
+  // Notebook: free-form markdown notes in folders, plus reusable templates.
+  // Separate from `notes` so trade notes and day/week recaps keep their exact
+  // shape and queries. Scoped by profile (NULL = shared across profiles);
+  // account_id mirrors notes.account_id for the account the note was written
+  // under. All CREATE IF NOT EXISTS, so no user_version bump.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notebook_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
+      account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+      folder TEXT,
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      body_format TEXT NOT NULL DEFAULT 'markdown',
+      pinned INTEGER NOT NULL DEFAULT 0,
+      trade_id INTEGER REFERENCES trades(id) ON DELETE SET NULL,
+      day TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_notebook_notes_scope ON notebook_notes(profile_id, folder);
+    CREATE TABLE IF NOT EXISTS notebook_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS note_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  // Default templates are seeded once (flagged in app_settings), so a template
+  // the user deletes doesn't come back on the next start.
+  const templatesSeeded = db
+    .prepare("SELECT 1 FROM app_settings WHERE key = 'notebook_templates_seeded'")
+    .get();
+  if (!templatesSeeded) {
+    const insTemplate = db.prepare('INSERT INTO note_templates (name, body) VALUES (?, ?)');
+    for (const [name, body] of DEFAULT_NOTE_TEMPLATES) insTemplate.run(name, body);
+    db.prepare(
+      "INSERT INTO app_settings (key, value, updated_at) VALUES ('notebook_templates_seeded', '1', datetime('now'))"
+    ).run();
   }
 
   // Seed default account if none exists

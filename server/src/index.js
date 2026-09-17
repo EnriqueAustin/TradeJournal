@@ -23,6 +23,7 @@ import { createImportWatcher } from './importWatch.js';
 import { listGoals, createGoal, deleteGoal } from './goals.js';
 import { registerProfileRoutes } from './profiles.js';
 import { registerShareRoutes } from './share.js';
+import { registerNotebookRoutes } from './notebook.js';
 import { migrateResearch } from './research/schema.js';
 import { researchRouter } from './research/routes.js';
 import { initResearchWs } from './research/ws.js';
@@ -258,6 +259,7 @@ function removeScreenshotFiles(rows) {
 // ---------- Profiles + read-only share links (profiles.js, share.js) ----------
 registerProfileRoutes(app);
 registerShareRoutes(app);
+registerNotebookRoutes(app, { imageUpload: screenshotUpload });
 
 // ---------- Accounts ----------
 app.get('/api/accounts', (req, res) => {
