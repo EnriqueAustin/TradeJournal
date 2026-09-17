@@ -1,12 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { isTypingTarget, saveTradesQuery } from '../utils/tradeNav';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
 import AddTradeModal from '../components/AddTradeModal';
-import type { Trade, TradeSort, SortDir, TradeOutcome, TradeNeed } from '../types';
+import type { Trade, TradeSort, SortDir, TradeOutcome, TradeNeed, TradeQuery } from '../types';
+
+// Drill-down params an insight card can link with (?tag=…&hour=…). Shown as a
+// removable chip; they have no control of their own on this page.
+const DRILL_KEYS = ['tag', 'hour', 'dow', 'emotion', 'followed', 'after_loss'] as const;
+type DrillKey = (typeof DRILL_KEYS)[number];
+const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function drillLabel(k: DrillKey, v: string): string {
+  switch (k) {
+    case 'tag': return `tag #${v}`;
+    case 'hour': return `entry ${v.padStart(2, '0')}:00 UTC`;
+    case 'dow': return DOW_NAMES[Number(v)] ?? `weekday ${v}`;
+    case 'emotion': return `emotion: ${v}`;
+    case 'followed': return v === '1' ? 'followed plan' : 'broke plan';
+    case 'after_loss': return '≤30 min after a loss';
+  }
+}
 import {
   formatMoney,
   formatR,
@@ -146,8 +162,10 @@ function DirectionBadge({ dir }: { dir: string }) {
 }
 
 export default function Trades() {
-  const { filters, accounts, setups } = useFilters();
+  const { filters, setFilters, accounts, setups } = useFilters();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [drill, setDrill] = useState<Partial<Record<DrillKey, string>>>({});
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState<TradeSort>('realized');
   const [dir, setDir] = useState<SortDir>('desc');
@@ -170,6 +188,30 @@ export default function Trades() {
     }
   }, [cols]);
 
+  // Apply links like /trades?session=ny&direction=short&tag=4 once, then clean
+  // the URL. Session/instrument/setup go through the shared filter store.
+  useEffect(() => {
+    if ([...searchParams.keys()].length === 0) return;
+    const g = (k: string) => searchParams.get(k);
+    const patch: Record<string, string> = {};
+    if (g('session')) patch.session = g('session')!;
+    if (g('instrument')) patch.instrument = g('instrument')!;
+    if (g('setup')) patch.setup = g('setup')!;
+    if (Object.keys(patch).length) setFilters(patch);
+    const dirParam = g('direction');
+    if (dirParam === 'long' || dirParam === 'short') setDirection(dirParam);
+    const out = g('outcome');
+    if (out === 'win' || out === 'loss' || out === 'be') setOutcome(out);
+    if (g('needs')) setNeeds(g('needs')!.split(',') as TradeNeed[]);
+    if (g('sort')) setSort(g('sort') as TradeSort);
+    if (g('dir') === 'asc' || g('dir') === 'desc') setDir(g('dir') as SortDir);
+    const d: Partial<Record<DrillKey, string>> = {};
+    for (const k of DRILL_KEYS) if (g(k) != null && g(k) !== '') d[k] = g(k)!;
+    setDrill(d);
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const toggleNeed = (n: TradeNeed) =>
     setNeeds((cur) =>
       cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n]
@@ -180,9 +222,9 @@ export default function Trades() {
   const setupName = (id: number | null) =>
     id == null ? null : setups.find((s) => s.id === id)?.name ?? null;
 
-  const query = useMemo(
-    () => ({ sort, dir, q: debouncedSearch, direction, outcome, needs: needs.join(',') }),
-    [sort, dir, debouncedSearch, direction, outcome, needs]
+  const query = useMemo<TradeQuery>(
+    () => ({ sort, dir, q: debouncedSearch, direction, outcome, needs: needs.join(','), ...drill }),
+    [sort, dir, debouncedSearch, direction, outcome, needs, drill]
   );
   const queryKey = JSON.stringify(query);
   // Trade detail steps prev/next through the list in this same order.
@@ -219,7 +261,7 @@ export default function Trades() {
   );
   // Totals over the whole filtered set (not just this page), for the footer.
   const { data: totals, reload: reloadTotals } = useApi(
-    () => api.getTradesTotals(filters, query),
+    () => api.getTradesTotals(filters, query as Record<string, string | undefined>),
     [filterKey(filters), queryKey]
   );
 
@@ -238,7 +280,7 @@ export default function Trades() {
   const allNeedsOn = NEED_OPTIONS.every((o) => needs.includes(o.value));
 
   const filtersActive =
-    Boolean(search) || direction !== '' || outcome !== '' || needs.length > 0;
+    Boolean(search) || direction !== '' || outcome !== '' || needs.length > 0 || Object.keys(drill).length > 0;
 
   const rows: Trade[] = data?.rows ?? [];
 
@@ -404,6 +446,23 @@ export default function Trades() {
             { value: 'be' as TradeOutcome, label: 'B/E' },
           ]}
         />
+        {(Object.keys(drill) as DrillKey[]).map((k) => (
+          <button
+            key={k}
+            type="button"
+            className="rounded-full border border-cyan-500/60 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-300 hover:border-cyan-400"
+            title="Insight drill-down filter — click to remove"
+            onClick={() =>
+              setDrill((cur) => {
+                const next = { ...cur };
+                delete next[k];
+                return next;
+              })
+            }
+          >
+            {drillLabel(k, drill[k]!)} ✕
+          </button>
+        ))}
         {filtersActive && (
           <button
             type="button"
@@ -413,6 +472,7 @@ export default function Trades() {
               setDirection('');
               setOutcome('');
               setNeeds([]);
+              setDrill({});
             }}
           >
             Clear

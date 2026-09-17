@@ -7,6 +7,8 @@ import HoldTimeBars from '../components/HoldTimeBars';
 import OptimizerHeatmap from '../components/OptimizerHeatmap';
 import ReportCard from '../components/ReportCard';
 import ExitAnalysisPanel from '../components/ExitAnalysisPanel';
+import InsightsCard from '../components/InsightsCard';
+import PsychologyPanel from '../components/PsychologyPanel';
 import { formatNumber, formatPct, formatDuration, formatMoney, formatR, signClass, sessionLabel } from '../utils/format';
 import type { ExcursionStats, WickEdgeStats, WickEdgeRow, TagStats, TagStatRow, EfficiencyRow } from '../types';
 
@@ -373,6 +375,14 @@ export default function Analytics() {
         >
           {reportCard.data && <ReportCard data={reportCard.data} currency={currency} />}
         </AsyncBoundary>
+      </SectionCard>
+
+      <SectionCard title="Insights">
+        <InsightsCard full />
+      </SectionCard>
+
+      <SectionCard title="Psychology">
+        <PsychologyPanel currency={currency} />
       </SectionCard>
 
       <SectionCard

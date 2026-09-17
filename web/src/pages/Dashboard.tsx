@@ -13,6 +13,9 @@ import LivePositions from '../components/LivePositions';
 import GoalsCard from '../components/GoalsCard';
 import RecentTradesCard from '../components/RecentTradesCard';
 import { EdgeScoreGauge } from '../components/ReportCard';
+import InsightsCard from '../components/InsightsCard';
+import { ReminderSettingsButton, ReviewReminderBanner } from '../components/ReviewReminders';
+import { reviewPath, longDay } from '../utils/review';
 import { AsyncBoundary } from '../components/states';
 import type { PropStats } from '../types';
 import { Link } from 'react-router-dom';
@@ -313,6 +316,16 @@ export default function Dashboard() {
   // describe the same period.
   const session = useApi(() => api.getSession(filters, month), [key, month]);
   const hourly = useApi(() => api.getHourly(filters), [key]);
+  // Review queue: unreviewed trades (followed_plan unset) in the filters, newest
+  // first, so the prompt can open the stepper on the latest day that needs it.
+  const unreviewed = useApi(
+    () => api.getTrades(filters, 1, 0, { needs: 'unreviewed' }),
+    [key]
+  );
+  const unreviewedDay = (() => {
+    const t = unreviewed.data?.rows[0];
+    return (t?.exit_time ?? t?.entry_time ?? '').slice(0, 10) || null;
+  })();
   const prop = useApi(() => (isProp ? api.getProp(filters) : Promise.resolve(null)), [key, isProp]);
 
 
@@ -326,8 +339,13 @@ export default function Dashboard() {
           <h1 className="text-xl font-semibold text-slate-100">Dashboard</h1>
           <p className="text-sm text-slate-500">Performance across the selected filters.</p>
         </div>
-        <UnitToggle unit={unit} onChange={setUnit} />
+        <div className="flex items-center gap-2">
+          <ReminderSettingsButton />
+          <UnitToggle unit={unit} onChange={setUnit} />
+        </div>
       </div>
+
+      <ReviewReminderBanner account={filters.account} />
 
       {/* Live open positions (rendered only when EA snapshot present) */}
       <LivePositions account={filters.account} currency={currency} />
@@ -441,6 +459,47 @@ export default function Dashboard() {
           </SectionCard>
           <DisciplineCard filters={filters} />
         </div>
+      </div>
+
+      {/* Insights + review queue */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <SectionCard
+          title="Insights"
+          right={
+            <Link to="/analytics" className="text-xs text-cyan-400 hover:underline">
+              All insights →
+            </Link>
+          }
+        >
+          <InsightsCard limit={5} />
+        </SectionCard>
+        <SectionCard title="Review queue">
+          {unreviewed.data && unreviewed.data.total > 0 && unreviewedDay ? (
+            <div className="flex flex-col gap-3">
+              <div>
+                <div className="num text-3xl font-bold text-amber-400">{unreviewed.data.total}</div>
+                <div className="text-sm text-slate-400">
+                  unreviewed trade{unreviewed.data.total === 1 ? '' : 's'} in range
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Link to={reviewPath('day', unreviewedDay)} className="btn btn-primary text-xs">
+                  Review {longDay(unreviewedDay)} →
+                </Link>
+                <Link to={reviewPath('week', unreviewedDay)} className="btn text-xs">
+                  Review week
+                </Link>
+                <Link to="/trades?needs=unreviewed" className="btn text-xs">
+                  List
+                </Link>
+              </div>
+            </div>
+          ) : unreviewed.loading ? (
+            <p className="text-sm text-slate-500">Loading…</p>
+          ) : (
+            <p className="text-sm text-emerald-400">✓ Every trade in range is reviewed.</p>
+          )}
+        </SectionCard>
       </div>
 
       {/* Calendar + recent trades */}
