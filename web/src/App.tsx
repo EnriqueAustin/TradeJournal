@@ -19,6 +19,7 @@ import Notebook from './pages/Notebook';
 import WeekReport from './pages/WeekReport';
 import MonthReport from './pages/MonthReport';
 import Review from './pages/Review';
+import Quick from './pages/Quick';
 import Compare from './pages/Compare';
 import Reports from './pages/Reports';
 import Signal from './features/signal/pages/Signal';
@@ -37,6 +38,7 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="quick" element={<Quick />} />
         <Route path="journal" element={<Journal />} />
         <Route path="notebook" element={<Notebook />} />
         <Route path="report/week/:date" element={<WeekReport />} />

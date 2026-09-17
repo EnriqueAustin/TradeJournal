@@ -11,6 +11,7 @@ interface Command {
 
 const COMMANDS: Command[] = [
   { label: 'Dashboard', group: 'Journal', to: '/' },
+  { label: 'Quick capture', group: 'Journal', to: '/quick', keywords: 'mobile grade log today capture' },
   { label: 'Journal', group: 'Journal', to: '/journal', keywords: 'day plan recap' },
   { label: 'Notebook', group: 'Journal', to: '/notebook', keywords: 'notes markdown templates folders lessons plan' },
   { label: 'Trades', group: 'Journal', to: '/trades' },
