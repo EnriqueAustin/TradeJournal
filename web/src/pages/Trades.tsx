@@ -153,6 +153,7 @@ export default function Trades() {
   const [search, setSearch] = useState('');
   const [direction, setDirection] = useState<'' | 'long' | 'short'>('');
   const [outcome, setOutcome] = useState<TradeOutcome>('');
+  const [plan, setPlan] = useState<'' | 'followed' | 'broke'>('');
   const [needs, setNeeds] = useState<TradeNeed[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
@@ -180,8 +181,8 @@ export default function Trades() {
     id == null ? null : setups.find((s) => s.id === id)?.name ?? null;
 
   const query = useMemo(
-    () => ({ sort, dir, q: debouncedSearch, direction, outcome, needs: needs.join(',') }),
-    [sort, dir, debouncedSearch, direction, outcome, needs]
+    () => ({ sort, dir, q: debouncedSearch, direction, outcome, plan, needs: needs.join(',') }),
+    [sort, dir, debouncedSearch, direction, outcome, plan, needs]
   );
   const queryKey = JSON.stringify(query);
 
@@ -219,7 +220,7 @@ export default function Trades() {
   );
 
   const filtersActive =
-    Boolean(search) || direction !== '' || outcome !== '' || needs.length > 0;
+    Boolean(search) || direction !== '' || outcome !== '' || plan !== '' || needs.length > 0;
 
   const rows: Trade[] = data?.rows ?? [];
   const total = data?.total ?? 0;
@@ -351,6 +352,15 @@ export default function Trades() {
             { value: 'be' as TradeOutcome, label: 'B/E' },
           ]}
         />
+        <Segmented
+          value={plan}
+          onChange={setPlan}
+          options={[
+            { value: '' as const, label: 'Plan: any' },
+            { value: 'followed' as const, label: 'Followed' },
+            { value: 'broke' as const, label: 'Broke' },
+          ]}
+        />
         {filtersActive && (
           <button
             type="button"
@@ -359,6 +369,7 @@ export default function Trades() {
               setSearch('');
               setDirection('');
               setOutcome('');
+              setPlan('');
               setNeeds([]);
             }}
           >

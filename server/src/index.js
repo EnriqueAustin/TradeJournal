@@ -558,6 +558,9 @@ function tradesQuery(q) {
   if (q.outcome === 'win') clauses.push('net_pnl > 0 AND is_be = 0');
   else if (q.outcome === 'loss') clauses.push('net_pnl < 0 AND is_be = 0');
   else if (q.outcome === 'be') clauses.push('is_be = 1');
+  // Post-trade review: followed / broke the plan.
+  if (q.plan === 'followed') clauses.push('followed_plan = 1');
+  else if (q.plan === 'broke') clauses.push('followed_plan = 0');
   // "Needs attention" backfill queue. Comma-separated flags, OR-combined so the
   // one filter surfaces every trade with a data gap worth fixing:
   //   entry      → corrupt import (entry_price 0 / null) — breaks replay + R

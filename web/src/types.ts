@@ -457,6 +457,8 @@ export interface TradeQuery {
   q?: string;
   direction?: '' | 'long' | 'short';
   outcome?: TradeOutcome;
+  /** Post-trade review filter: followed_plan = 1 / 0. */
+  plan?: '' | 'followed' | 'broke';
   /** Comma-joined TradeNeed flags for the needs-attention backfill queue. */
   needs?: string;
 }
