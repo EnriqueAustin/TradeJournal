@@ -252,7 +252,7 @@ function ReplayView({
             <h2 className="text-sm font-semibold text-slate-200">
               {data.instrument} · {data.direction}
             </h2>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               <span className="text-[11px] uppercase tracking-wide text-slate-500">
                 Primary
               </span>
@@ -271,8 +271,8 @@ function ReplayView({
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-1">
               <button
                 className={`btn px-2 py-0.5 text-xs ${
                   layout === 'single' ? 'border-indigo-500 text-indigo-300' : ''

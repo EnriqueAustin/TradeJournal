@@ -25,6 +25,7 @@ const clock = (iso: string) =>
     timeZone: DISPLAY_TZ,
     hour: '2-digit',
     minute: '2-digit',
+    hourCycle: 'h23',
   }).format(new Date(iso));
 
 /**

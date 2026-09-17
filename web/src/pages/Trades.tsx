@@ -940,7 +940,7 @@ function TradeCardList({
                   )}
                 </div>
                 <div className="num mt-1 truncate text-xs text-slate-500">
-                  {formatDateTime(t.entry_time)} · {sessionLabel(t.session)} · {formatDuration(t.hold_time_sec)}
+                  {formatDateTime(t.entry_time)} · {sessionLabel(t.session)}
                 </div>
               </div>
               <div className="shrink-0 text-right">
