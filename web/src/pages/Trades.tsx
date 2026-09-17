@@ -6,6 +6,7 @@ import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
 import AddTradeModal from '../components/AddTradeModal';
+import { useIsMobile } from '../hooks/useMediaQuery';
 import type { Trade, TradeSort, SortDir, TradeOutcome, TradeNeed, TradeQuery } from '../types';
 
 // Drill-down params an insight card can link with (?tag=…&hour=…). Shown as a
@@ -179,6 +180,7 @@ export default function Trades() {
   const [cols, setCols] = useState<OptionalCols>(loadCols);
   const [showColMenu, setShowColMenu] = useState(false);
   const debouncedSearch = useDebounced(search);
+  const mobile = useIsMobile();
 
   useEffect(() => {
     try {
@@ -358,15 +360,15 @@ export default function Trades() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold text-slate-100">Trades</h1>
+          <h1 className="hidden text-xl font-semibold text-slate-100 md:block">Trades</h1>
           <p className="text-sm text-slate-500">
             {total} trade{total === 1 ? '' : 's'} matching filters.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative">
+          <div className="relative hidden md:block">
             <button
               className="btn text-xs"
               onClick={() => setShowColMenu((v) => !v)}
@@ -421,7 +423,7 @@ export default function Trades() {
       {/* Search + quick filters */}
       <div className="flex flex-wrap items-center gap-2">
         <input
-          className="input w-56"
+          className="input w-full sm:w-56"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search instrument or notes…"
@@ -531,7 +533,7 @@ export default function Trades() {
         })}
       </div>
 
-      <div className="card overflow-hidden">
+      <div className={mobile ? '' : 'card overflow-hidden'}>
         <AsyncBoundary
           loading={loading}
           error={error}
@@ -616,7 +618,15 @@ export default function Trades() {
               </button>
             </div>
           )}
-          {/* Own scroll box so the header can stick while the rows scroll. */}
+          {mobile ? (
+            <TradeCardList
+              rows={rows}
+              currency={currency}
+              selected={selected}
+              onOpen={(id) => navigate(`/trades/${id}`)}
+            />
+          ) : (
+          /* Own scroll box so the header can stick while the rows scroll. */
           <div className="max-h-[calc(100vh-16rem)] min-h-[16rem] overflow-auto">
             <table className="w-full min-w-[880px] text-sm">
               <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-900 [&_th]:shadow-[inset_0_-1px_0_rgb(var(--c-border))]">
@@ -844,12 +854,13 @@ export default function Trades() {
               )}
             </table>
           </div>
+          )}
         </AsyncBoundary>
       </div>
 
       {/* Pagination */}
       {total > 0 && (
-        <div className="flex items-center justify-between text-sm text-slate-400">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-400">
           <span className="num">
             Showing {page * PAGE_SIZE + 1}–
             {Math.min((page + 1) * PAGE_SIZE, total)} of {total}
@@ -880,5 +891,72 @@ export default function Trades() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Phone variant of the trades table: one tappable card per trade with the
+ * fields that matter when journaling on the go — instrument, direction, entry
+ * time, P&L, R and whether it's been reviewed yet.
+ */
+function TradeCardList({
+  rows,
+  currency,
+  selected,
+  onOpen,
+}: {
+  rows: Trade[];
+  currency: string;
+  selected: Set<number>;
+  onOpen: (id: number) => void;
+}) {
+  return (
+    <ul className="flex flex-col gap-2" aria-label="Trades">
+      {rows.map((t) => {
+        const pnlCls = t.is_be ? 'text-slate-300' : t.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400';
+        const rCls =
+          t.r_multiple == null ? 'text-slate-500' : t.r_multiple >= 0 ? 'text-emerald-400' : 'text-red-400';
+        return (
+          <li key={t.id}>
+            <button
+              type="button"
+              onClick={() => onOpen(t.id)}
+              className={`card flex min-h-[56px] w-full items-center gap-3 px-3 py-3 text-left ${
+                selected.has(t.id) ? 'border-cyan-600' : ''
+              }`}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-100">{t.instrument}</span>
+                  <DirectionBadge dir={t.direction} />
+                  {t.followed_plan === 1 ? (
+                    <span className="text-[11px] text-emerald-400">✓ followed</span>
+                  ) : t.followed_plan === 0 ? (
+                    <span className="text-[11px] text-red-400">✗ broke plan</span>
+                  ) : (
+                    <span className="rounded-full border border-amber-500/40 px-1.5 text-[11px] text-amber-400">
+                      unreviewed
+                    </span>
+                  )}
+                </div>
+                <div className="num mt-1 truncate text-xs text-slate-500">
+                  {formatDateTime(t.entry_time)} · {sessionLabel(t.session)}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className={`num font-semibold ${pnlCls}`}>
+                  {t.is_be ? 'BE ' : ''}
+                  {formatMoney(t.net_pnl, currency)}
+                </div>
+                <div className={`num text-xs ${rCls}`}>
+                  {formatR(t.r_multiple)}
+                  {t.r_derived ? '~' : ''}
+                </div>
+              </div>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

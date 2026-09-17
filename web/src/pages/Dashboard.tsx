@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
@@ -210,13 +211,17 @@ export default function Dashboard() {
     <DashboardProvider value={ctx}>
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-baseline gap-3">
+          <div className="hidden items-baseline gap-3 md:flex">
             <h1 className="text-xl font-semibold text-slate-100">Dashboard</h1>
             <p className="text-sm text-slate-500">Performance across the selected filters.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link to="/quick" className="btn btn-primary text-xs" title="Grade and note today's trades">
+              + Quick capture
+            </Link>
+            {/* Drag-and-drop layout editing is a desktop affordance. */}
             <button
-              className={`btn text-xs ${editing ? 'btn-primary' : ''}`}
+              className={`btn hidden text-xs md:inline-flex ${editing ? 'btn-primary' : ''}`}
               onClick={() => setEditing((e) => !e)}
               title="Show, hide, reorder and resize dashboard widgets"
             >
@@ -228,7 +233,7 @@ export default function Dashboard() {
         </div>
 
         {editing && (
-          <div className="card flex flex-col gap-2 border-dashed border-cyan-500/40 p-3">
+          <div className="card hidden flex-col gap-2 border-dashed md:flex border-cyan-500/40 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-slate-400">
                 Drag widgets by their handle (or use ↑ ↓) to reorder · ⇔ toggles wide · ✕ hides. Saved

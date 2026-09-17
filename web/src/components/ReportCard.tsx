@@ -98,7 +98,7 @@ function UnderwaterCurve({ d, currency }: { d: DrawdownStats; currency: string }
   const area = `M0,0 ${pts.map((p, i) => `L${x(i).toFixed(1)},${y(p.dd).toFixed(1)}`).join(' ')} L${w},0 Z`;
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
           <div className="text-[11px] uppercase tracking-wide text-slate-500">Max Drawdown</div>
           <div className="num mt-0.5 text-lg font-semibold text-red-400">

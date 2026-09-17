@@ -5,9 +5,10 @@ import { useFilters } from '../store/FilterContext';
 import { AsyncBoundary } from '../components/states';
 import TradeChartCard from '../components/trade/TradeChartCard';
 import KeyStatsCard from '../components/trade/KeyStatsCard';
-import PsychCard from '../components/trade/PsychCard';
+import QuickReview, { OFF } from '../components/trade/QuickReview';
 import ExitAnalysisCard from '../components/ExitAnalysisCard';
-import { isTypingTarget } from '../utils/tradeNav';
+import { useIsMobile } from '../hooks/useMediaQuery';
+import { useSwipe } from '../hooks/useSwipe';
 import {
   GRADES,
   longDay,
@@ -17,7 +18,7 @@ import {
   shiftDay,
   type ReviewScope,
 } from '../utils/review';
-import type { Tag, TagWithUses, Trade, TradeDetail } from '../types';
+import type { Trade, TradeDetail } from '../types';
 import {
   formatDateTime,
   formatMoney,
@@ -27,21 +28,6 @@ import {
   signClass,
 } from '../utils/format';
 
-const OFF = 'border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200';
-const gradeOn = (g: string) =>
-  g === 'A' || g === 'B'
-    ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
-    : g === 'C'
-      ? 'border-amber-500 bg-amber-500/15 text-amber-300'
-      : 'border-red-500 bg-red-500/15 text-red-300';
-
-function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="num rounded border border-slate-700 bg-slate-900 px-1 py-px text-[11px] text-slate-400">
-      {children}
-    </kbd>
-  );
-}
 
 /**
  * Guided review: step through every trade in a day or week — chart, stats and
@@ -126,6 +112,9 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
   const title =
     scope === 'week' ? `Week of ${longDay(from)}` : longDay(date);
   const current = trade && trade.id === tradeId ? trade : null;
+  const mobile = useIsMobile();
+  // Phones: swipe left/right on the trade header or review card to step.
+  const swipe = useSwipe({ onLeft: next, onRight: prev });
 
   return (
     <div className="flex flex-col gap-4">
@@ -153,7 +142,7 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
               <Link
                 key={s}
                 to={reviewPath(s, s === 'day' && scope === 'week' ? from : date)}
-                className={`px-2.5 py-1 text-xs font-semibold capitalize ${
+                className={`px-3 py-2.5 text-xs font-semibold capitalize md:px-2.5 md:py-1 ${
                   s === scope ? 'bg-cyan-600 text-white' : 'bg-slate-900/40 text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -176,7 +165,7 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
               title={`#${i + 1} ${t.instrument} ${t.direction} ${formatMoney(t.net_pnl, currency)}${
                 t.followed_plan == null ? ' · unreviewed' : ''
               }`}
-              className={`num h-6 min-w-[1.5rem] rounded border px-1 text-[11px] font-semibold ${
+              className={`num h-10 min-w-[2.5rem] rounded border px-1 text-xs font-semibold md:h-6 md:min-w-[1.5rem] md:text-[11px] ${
                 i === idx ? 'ring-2 ring-cyan-500 ' : ''
               }${
                 t.followed_plan == null
@@ -191,7 +180,7 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
           ))}
           <button
             onClick={() => setIdx(total)}
-            className={`h-6 rounded border px-2 text-[11px] font-semibold ${
+            className={`h-10 rounded border px-2 text-xs font-semibold md:h-6 md:text-[11px] ${
               onSummary ? 'border-cyan-500 text-cyan-300 ring-2 ring-cyan-500' : OFF
             }`}
           >
@@ -229,7 +218,7 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
           {current && (
             <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
               <div className="flex min-w-0 flex-col gap-4">
-                <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex touch-pan-y flex-wrap items-center gap-2.5" {...swipe}>
                   <span className="num text-sm text-slate-500">
                     {idx + 1} / {total}
                   </span>
@@ -254,10 +243,20 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
                   </span>
                   <span className={`num text-sm ${signClass(current.r_multiple)}`}>{formatR(current.r_multiple)}</span>
                 </div>
-                <TradeChartCard key={current.id} trade={current} onChanged={loadTrade} height={360} hideNews />
-                <ExitAnalysisCard tradeId={current.id} currency={currency} />
+                <TradeChartCard
+                  key={current.id}
+                  trade={current}
+                  onChanged={loadTrade}
+                  height={mobile ? 260 : 360}
+                  hideNews
+                />
+                {/* Phones: the review inputs come straight after the chart. */}
+                {!mobile && <ExitAnalysisCard tradeId={current.id} currency={currency} />}
               </div>
-              <div className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
+              <div
+                className="flex min-w-0 touch-pan-y flex-col gap-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1"
+                {...(mobile ? swipe : {})}
+              >
                 <QuickReview
                   key={current.id}
                   trade={current}
@@ -268,6 +267,7 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
                   isLast={idx === total - 1}
                 />
                 <KeyStatsCard trade={current} />
+                {mobile && <ExitAnalysisCard tradeId={current.id} currency={currency} />}
               </div>
             </div>
           )}
@@ -277,301 +277,6 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
   );
 }
 
-function QuickReview({
-  trade,
-  setups,
-  onChanged,
-  onNext,
-  onPrev,
-  isLast,
-}: {
-  trade: TradeDetail;
-  setups: { id: number; name: string }[];
-  onChanged: () => void;
-  onNext: () => void;
-  onPrev: () => void;
-  isLast: boolean;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [note, setNote] = useState('');
-  const [newMistake, setNewMistake] = useState('');
-  const [known, setKnown] = useState<TagWithUses[]>([]);
-  const gradeTag = trade.tags.find((t) => t.category === 'grade') ?? null;
-  const grade = gradeTag?.name ?? null;
-  const mistakeTags = trade.tags.filter((t) => t.category === 'mistake');
-
-  useEffect(() => {
-    api.getTags('mistake').then(setKnown).catch(() => setKnown([]));
-  }, []);
-
-  // Serialise writes so a fast double-press never interleaves remove/add.
-  const chain = useRef<Promise<unknown>>(Promise.resolve());
-  const run = useCallback(
-    (fn: () => Promise<unknown>) => {
-      chain.current = chain.current.then(async () => {
-        setBusy(true);
-        setErr(null);
-        try {
-          await fn();
-          onChanged();
-        } catch (e: any) {
-          setErr(e?.message || 'Failed to save');
-        } finally {
-          setBusy(false);
-        }
-      });
-      return chain.current;
-    },
-    [onChanged]
-  );
-
-  const setGrade = useCallback(
-    (g: string) =>
-      run(async () => {
-        if (gradeTag) await api.removeTag(trade.id, gradeTag.id);
-        if (g !== grade) await api.addTag(trade.id, 'grade', g);
-      }),
-    [run, gradeTag, grade, trade.id]
-  );
-  const setFollowed = useCallback(
-    (v: 0 | 1) =>
-      run(() => api.patchTrade(trade.id, { followed_plan: trade.followed_plan === v ? null : v })),
-    [run, trade.id, trade.followed_plan]
-  );
-  const toggleMistake = (name: string) => {
-    const on = mistakeTags.find((t) => t.name === name);
-    return run(() => (on ? api.removeTag(trade.id, on.id) : api.addTag(trade.id, 'mistake', name)));
-  };
-  const addMistake = () => {
-    const n = newMistake.trim();
-    if (!n) return;
-    setNewMistake('');
-    run(async () => {
-      await api.addTag(trade.id, 'mistake', n);
-      setKnown((k) => (k.some((t) => t.name === n) ? k : [...k, { id: -1, category: 'mistake', name: n, uses: 1 }]));
-    });
-  };
-  const saveNote = async () => {
-    const body = note.trim();
-    if (!body) return;
-    setNote('');
-    await run(() => api.addNote(trade.id, body));
-  };
-
-  // Keyboard: 1–5 grade A–F, f/b plan, n/Enter next, p previous.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (isTypingTarget(e)) return;
-      const k = e.key.toLowerCase();
-      if (k >= '1' && k <= '5') {
-        e.preventDefault();
-        setGrade(GRADES[Number(k) - 1]);
-      } else if (k === 'f') {
-        e.preventDefault();
-        setFollowed(1);
-      } else if (k === 'b') {
-        e.preventDefault();
-        setFollowed(0);
-      } else if (k === 'n' || k === 'enter' || k === 'arrowright') {
-        if (k === 'enter' && (e.target as HTMLElement)?.tagName === 'BUTTON') return;
-        e.preventDefault();
-        onNext();
-      } else if (k === 'p' || k === 'arrowleft') {
-        e.preventDefault();
-        onPrev();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [setGrade, setFollowed, onNext, onPrev]);
-
-  // Quick-pick: most used mistakes first, plus any already on this trade.
-  const chips = useMemo(() => {
-    const names = new Set<string>();
-    for (const t of known) names.add(t.name);
-    for (const t of mistakeTags) names.add(t.name);
-    return [...names].slice(0, 14);
-  }, [known, mistakeTags]);
-
-  const existingNotes = trade.notes.filter((n) => n.body?.trim());
-
-  return (
-    <div className="card p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-200">Quick review</h2>
-        {busy ? (
-          <span className="text-xs text-slate-500">Saving…</span>
-        ) : trade.followed_plan != null ? (
-          <span className="text-xs text-emerald-400">✓ reviewed</span>
-        ) : (
-          <span className="text-xs text-amber-400">unreviewed</span>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-4">
-        <div>
-          <div className="label mb-1.5">
-            Grade <span className="font-normal normal-case text-slate-600">1–5</span>
-          </div>
-          <div className="flex gap-1.5">
-            {GRADES.map((g, i) => (
-              <button
-                key={g}
-                type="button"
-                aria-pressed={grade === g}
-                onClick={() => setGrade(g)}
-                title={`Grade ${g} (${i + 1})`}
-                className={`h-9 w-9 rounded-lg border text-sm font-semibold transition ${grade === g ? gradeOn(g) : OFF}`}
-              >
-                {g}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="label mb-1.5">Plan</div>
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              aria-pressed={trade.followed_plan === 1}
-              onClick={() => setFollowed(1)}
-              className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                trade.followed_plan === 1 ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300' : OFF
-              }`}
-            >
-              ✓ Followed <Kbd>f</Kbd>
-            </button>
-            <button
-              type="button"
-              aria-pressed={trade.followed_plan === 0}
-              onClick={() => setFollowed(0)}
-              className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                trade.followed_plan === 0 ? 'border-red-500 bg-red-500/15 text-red-300' : OFF
-              }`}
-            >
-              ✗ Broke <Kbd>b</Kbd>
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <div className="label mb-1.5">Mistakes</div>
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {chips.length === 0 && <span className="text-xs text-slate-500">No mistake tags yet — add one.</span>}
-            {chips.map((name) => {
-              const on = mistakeTags.some((t: Tag) => t.name === name);
-              return (
-                <button
-                  key={name}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => toggleMistake(name)}
-                  className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
-                    on ? 'border-red-500 bg-red-500/15 text-red-300' : OFF
-                  }`}
-                >
-                  {name}
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex gap-1.5">
-            <input
-              className="input flex-1 py-1 text-sm"
-              value={newMistake}
-              placeholder="New mistake, e.g. moved stop"
-              onChange={(e) => setNewMistake(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addMistake();
-                }
-              }}
-            />
-            <button className="btn text-xs" onClick={addMistake} disabled={!newMistake.trim()}>
-              Add
-            </button>
-          </div>
-        </div>
-
-        <div className="border-t border-slate-800 pt-3">
-          <PsychCard trade={trade} onChanged={onChanged} bare />
-        </div>
-
-        <div>
-          <label className="label mb-1.5 block" htmlFor="review-setup">
-            Setup
-          </label>
-          <select
-            id="review-setup"
-            className="input w-full"
-            value={trade.setup_id ?? ''}
-            onChange={(e) =>
-              run(() => api.patchTrade(trade.id, { setup_id: e.target.value ? Number(e.target.value) : null }))
-            }
-          >
-            <option value="">— none —</option>
-            {setups.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="label mb-1.5 block" htmlFor="review-note">
-            One-line note
-          </label>
-          {existingNotes.length > 0 && (
-            <ul className="mb-1.5 flex flex-col gap-1">
-              {existingNotes.slice(-3).map((n) => (
-                <li key={n.id} className="truncate text-xs text-slate-400" title={n.body}>
-                  • {n.body}
-                </li>
-              ))}
-            </ul>
-          )}
-          <input
-            id="review-note"
-            className="input w-full"
-            value={note}
-            placeholder="What mattered on this trade? (Enter saves + next)"
-            onChange={(e) => setNote(e.target.value)}
-            onBlur={saveNote}
-            onKeyDown={async (e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                await saveNote();
-                (e.target as HTMLInputElement).blur();
-                onNext();
-              } else if (e.key === 'Escape') {
-                (e.target as HTMLInputElement).blur();
-              }
-            }}
-          />
-        </div>
-
-        {err && <p className="text-sm text-red-400">{err}</p>}
-
-        <div className="flex items-center justify-between gap-2 border-t border-slate-800 pt-3">
-          <button className="btn" onClick={onPrev}>
-            ← Prev <Kbd>p</Kbd>
-          </button>
-          <button className="btn btn-primary" onClick={onNext}>
-            {isLast ? 'Finish' : 'Next'} → <Kbd>n</Kbd>
-          </button>
-        </div>
-        <p className="text-[11px] text-slate-500">
-          Keys: <Kbd>1</Kbd>–<Kbd>5</Kbd> grade A–F · <Kbd>f</Kbd>/<Kbd>b</Kbd> followed/broke ·{' '}
-          <Kbd>n</Kbd>/<Kbd>Enter</Kbd> next · <Kbd>p</Kbd> previous
-        </p>
-      </div>
-    </div>
-  );
-}
 
 function ReviewSummary({
   scope,

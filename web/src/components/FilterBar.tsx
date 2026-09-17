@@ -1,5 +1,8 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useFilters } from '../store/FilterContext';
+import { useIsMobile } from '../hooks/useMediaQuery';
+import Sheet from './Sheet';
+import type { Filters } from '../types';
 import { sessionLabel } from '../utils/format';
 
 const INSTRUMENTS = ['All', 'XAUUSD', 'US100'];
@@ -61,26 +64,142 @@ function Field({
   htmlFor?: string;
   children: ReactNode;
 }) {
+  const stacked = useContext(StackedCtx);
+  const labelEl = (
+    <label
+      htmlFor={htmlFor}
+      className="text-[11px] font-bold uppercase"
+      style={{ color: 'var(--term-muted)', letterSpacing: '0.04em' }}
+    >
+      {label}
+    </label>
+  );
+  if (stacked) {
+    // Sheet layout: label above, controls share the full width.
+    return (
+      <div className="flex flex-col gap-1">
+        {labelEl}
+        <div className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1 [&>select]:min-w-0 [&>select]:max-w-none [&>select]:flex-1">
+          {children}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-1.5">
-      <label
-        htmlFor={htmlFor}
-        className="text-[11px] font-bold uppercase"
-        style={{ color: 'var(--term-muted)', letterSpacing: '0.04em' }}
-      >
-        {label}
-      </label>
+      {labelEl}
       {children}
     </div>
   );
+}
+
+// True inside the mobile filter sheet, so Field stacks its label.
+const StackedCtx = createContext(false);
+
+type Variant = 'full' | 'account';
+
+/** How many filters differ from "everything" — the badge on the mobile button. */
+function activeCount(f: Filters, variant: Variant): number {
+  let n = f.account != null ? 1 : 0;
+  if (variant === 'account') return n;
+  if (f.instrument && f.instrument !== 'All') n++;
+  if (f.session && f.session !== 'All') n++;
+  if (f.setup && f.setup !== 'All') n++;
+  if (f.from || f.to) n++;
+  if (f.rMin !== '' || f.rMax !== '') n++;
+  return n;
 }
 
 /**
  * Global filter bar. `full` on report/list pages; `account` on pages scoped to
  * one account that ignore the other filters (Journal, Week report, Replay,
  * Backtest), so the account can still be switched there.
+ *
+ * Below md the controls collapse into a "Filters (n)" button that opens a
+ * bottom sheet with the same fields stacked.
  */
-export default function FilterBar({ variant = 'full' }: { variant?: 'full' | 'account' }) {
+export default function FilterBar({ variant = 'full' }: { variant?: Variant }) {
+  const mobile = useIsMobile();
+  const { filters } = useFilters();
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!mobile) setOpen(false);
+  }, [mobile]);
+
+  if (!mobile) {
+    return (
+      <div
+        className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-4 py-1.5"
+        style={{
+          borderColor: 'var(--term-border-2)',
+          background: 'linear-gradient(180deg, var(--term-panel-hd), var(--term-bg-2))',
+        }}
+      >
+        <FilterFields variant={variant} />
+      </div>
+    );
+  }
+
+  const n = activeCount(filters, variant);
+  return (
+    <div
+      className="flex items-center gap-2 border-b px-3 py-1.5"
+      style={{
+        borderColor: 'var(--term-border-2)',
+        background: 'var(--term-bg-2)',
+      }}
+    >
+      <button
+        type="button"
+        className="btn"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+      >
+        <span aria-hidden>⚲</span> Filters{n > 0 ? ` (${n})` : ''}
+      </button>
+      <FilterSummary variant={variant} />
+      {open && (
+        <Sheet title="Filters" onClose={() => setOpen(false)}>
+          <StackedCtx.Provider value={true}>
+            <div className="flex flex-col gap-4">
+              <FilterFields variant={variant} />
+            </div>
+          </StackedCtx.Provider>
+          <button
+            type="button"
+            className="btn btn-primary mt-5 w-full"
+            onClick={() => setOpen(false)}
+          >
+            Done
+          </button>
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+// One-line hint of what's applied, next to the mobile Filters button.
+function FilterSummary({ variant }: { variant: Variant }) {
+  const { filters, accounts } = useFilters();
+  const parts: string[] = [];
+  const acct = accounts.find((a) => a.id === filters.account);
+  parts.push(acct ? acct.name : 'All accounts');
+  if (variant === 'full') {
+    if (filters.instrument !== 'All') parts.push(filters.instrument);
+    if (filters.session !== 'All') parts.push(sessionLabel(filters.session));
+    if (filters.from || filters.to) parts.push(`${filters.from || '…'} → ${filters.to || '…'}`);
+  }
+  return (
+    <span className="min-w-0 flex-1 truncate text-xs" style={{ color: 'var(--term-muted)' }}>
+      {parts.join(' · ')}
+    </span>
+  );
+}
+
+function FilterFields({ variant }: { variant: Variant }) {
+  const stacked = useContext(StackedCtx);
   const {
     filters,
     setFilters,
@@ -93,13 +212,7 @@ export default function FilterBar({ variant = 'full' }: { variant?: 'full' | 'ac
   } = useFilters();
 
   return (
-    <div
-      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-4 py-1.5"
-      style={{
-        borderColor: 'var(--term-border-2)',
-        background: 'linear-gradient(180deg, var(--term-panel-hd), var(--term-bg-2))',
-      }}
-    >
+    <>
       <Field label="Account" htmlFor="f-account">
         <select
           id="f-account"
@@ -219,7 +332,7 @@ export default function FilterBar({ variant = 'full' }: { variant?: 'full' | 'ac
             />
           </Field>
 
-          <div className="ml-auto flex flex-wrap items-center gap-1">
+          <div className={stacked ? 'grid grid-cols-4 gap-2' : 'ml-auto flex flex-wrap items-center gap-1'}>
             {PRESETS.map((p) => {
               const r = presetRange(p.key);
               const active = filters.from === r.from && filters.to === r.to;
@@ -251,6 +364,6 @@ export default function FilterBar({ variant = 'full' }: { variant?: 'full' | 'ac
           {accountsError}
         </span>
       )}
-    </div>
+    </>
   );
 }

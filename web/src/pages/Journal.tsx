@@ -158,7 +158,7 @@ export default function Journal() {
           <h1 className="text-lg font-semibold text-slate-100">Journal</h1>
           <p className="text-sm text-slate-400">{weekday(day)}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button className="btn px-2 py-1" onClick={() => setDay(shiftDay(day, -1))} aria-label="Previous day">
             ‹
           </button>

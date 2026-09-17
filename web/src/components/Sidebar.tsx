@@ -9,17 +9,18 @@ type Link = { to: string; label: string; icon: string; end?: boolean; match?: st
 
 // Today / this month on the display clock, so the Review and Month report links
 // land on the trader's local day rather than UTC's.
-function localToday(): string {
+export function localToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: DISPLAY_TZ }).format(new Date());
 }
 
-function navGroups(): { heading: string; links: Link[] }[] {
+export function navGroups(): { heading: string; links: Link[] }[] {
   const today = localToday();
   return [
     {
       heading: 'Journal',
       links: [
         { to: '/', label: 'Dashboard', icon: '▦', end: true },
+        { to: '/quick', label: 'Quick capture', icon: '+' },
         { to: '/journal', label: 'Journal', icon: '❒' },
         { to: '/notebook', label: 'Notebook', icon: '✎' },
         { to: '/trades', label: 'Trades', icon: '≣' },
@@ -61,13 +62,31 @@ function navGroups(): { heading: string; links: Link[] }[] {
   ];
 }
 
-export default function Sidebar() {
+/**
+ * App navigation. On desktop (md+) it's the fixed left column; below md the
+ * Layout renders it inside an off-canvas drawer (`drawer`), where rows get
+ * taller tap targets and the edges respect the safe-area insets.
+ */
+export default function Sidebar({
+  drawer = false,
+  className = '',
+}: {
+  drawer?: boolean;
+  className?: string;
+}) {
   const { pathname } = useLocation();
   const groups = navGroups();
   return (
     <aside
-      className="flex w-52 shrink-0 flex-col border-r"
-      style={{ background: 'var(--term-bg-2)', borderColor: 'var(--term-border-2)' }}
+      id={drawer ? 'nav-drawer' : undefined}
+      aria-label="Main navigation"
+      className={`flex shrink-0 flex-col border-r ${drawer ? 'h-full w-72 max-w-[85vw]' : 'w-52'} ${className}`}
+      style={{
+        background: 'var(--term-bg-2)',
+        borderColor: 'var(--term-border-2)',
+        paddingTop: drawer ? 'env(safe-area-inset-top)' : undefined,
+        paddingBottom: drawer ? 'env(safe-area-inset-bottom)' : undefined,
+      }}
     >
       <div
         className="flex items-center gap-2 px-4 py-3 border-b"
@@ -106,7 +125,9 @@ export default function Sidebar() {
                 to={l.to}
                 end={l.end}
                 className={({ isActive: a }) =>
-                  `flex items-center gap-2 border px-2.5 py-1 text-[13px] font-medium transition ${
+                  `flex items-center gap-2 border px-2.5 font-medium transition ${
+                    drawer ? 'min-h-[40px] py-2 text-sm' : 'py-1 text-[13px]'
+                  } ${
                     a || (l.match && pathname.startsWith(l.match)) ? 'is-active' : ''
                   }`
                 }
@@ -145,7 +166,7 @@ export default function Sidebar() {
   );
 }
 
-function Avatar({ profile, size = 22 }: { profile: Profile | null; size?: number }) {
+export function Avatar({ profile, size = 22 }: { profile: Profile | null; size?: number }) {
   return (
     <span
       aria-hidden
@@ -196,7 +217,7 @@ function ProfileSwitcher() {
     >
       <button
         type="button"
-        className="flex w-full items-center gap-2 border px-2 py-1.5 text-left text-[13px] font-medium transition hover:brightness-110"
+        className="flex min-h-[40px] md:min-h-0 w-full items-center gap-2 border px-2 py-1.5 text-left text-[13px] font-medium transition hover:brightness-110"
         style={{ borderColor: 'var(--term-border-2)', borderRadius: 2, color: 'var(--term-text)' }}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -224,7 +245,7 @@ function ProfileSwitcher() {
               <li key={p?.id ?? 'all'} role="option" aria-selected={selected}>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] hover:brightness-125"
+                  className="flex min-h-[40px] md:min-h-0 w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] hover:brightness-125"
                   style={{
                     color: selected ? 'var(--term-amber)' : 'var(--term-text-dim)',
                     background: selected ? 'var(--term-panel-hd)' : 'transparent',
@@ -258,7 +279,7 @@ function ThemeToggle() {
     <button
       type="button"
       onClick={() => setTheme(next)}
-      className="flex items-center gap-1.5 border px-2 py-1 text-[11px] font-medium transition hover:brightness-110"
+      className="flex min-h-[40px] items-center gap-1.5 border px-2 py-1 text-[11px] font-medium md:min-h-0 transition hover:brightness-110"
       style={{
         borderColor: 'var(--term-border-2)',
         color: 'var(--term-text-dim)',

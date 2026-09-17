@@ -216,10 +216,103 @@ table th {
   }
 }
 
+/* Mobile shell (below md). The bottom tab bar is fixed, so main reserves its
+   height plus the home-indicator inset; sheets/drawers slide in. */
+@media (max-width: 767.98px) {
+  .tj-main {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+  /* iOS zooms into inputs under 16px on focus — keep form controls at 16px. */
+  .input,
+  select,
+  textarea,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']) {
+    font-size: 16px;
+  }
+  .btn {
+    min-height: 40px;
+  }
+  /* Tap targets: every control in the page gets at least 40px of height, and
+     a select can never be wider than its container (long option labels). */
+  .tj-main button,
+  .tj-main select,
+  .tj-main [role='button'],
+  .tj-main input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .tj-sheet-body button,
+  .tj-sheet-body select,
+  .tj-sheet-body input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .tj-modal button,
+  .tj-modal select,
+  .tj-modal input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']) {
+    min-height: 40px;
+  }
+  .tj-main select,
+  .tj-main .input {
+    max-width: 100%;
+  }
+  /* Prev/Next row of the review card stays under the thumb while scrolling:
+     above the tab bar in the page, at the sheet's bottom edge inside a sheet. */
+  .tj-sticky-actions {
+    position: sticky;
+    z-index: 5;
+    background: var(--term-panel);
+    padding-bottom: 0.5rem;
+  }
+  .tj-main .tj-sticky-actions {
+    bottom: calc(3.5rem + env(safe-area-inset-bottom));
+  }
+  /* Centered modals become full-screen sheets on phones. */
+  .tj-modal {
+    padding: 0 !important;
+    align-items: stretch !important;
+  }
+  .tj-modal > .tj-modal-panel {
+    width: 100%;
+    max-width: none !important;
+    height: 100dvh;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border-width: 0;
+    overflow-y: auto !important;
+    padding-top: max(env(safe-area-inset-top), var(--tj-modal-pt, 0px));
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: tj-slide-up 180ms ease-out;
+  }
+  .tj-sheet-body .tj-sticky-actions {
+    bottom: 0;
+  }
+}
+/* Installed on a tablet (md+, translucent status bar): keep the sidebar and
+   page clear of the notch/status bar. env() is 0 in ordinary browsers. */
+@media (min-width: 768px) {
+  .tj-shell {
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    box-sizing: border-box;
+  }
+}
+@keyframes tj-slide-right {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes tj-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.tj-drawer-in { animation: tj-slide-right 160ms ease-out; }
+.tj-sheet-in { animation: tj-slide-up 180ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .tj-drawer-in, .tj-sheet-in { animation: none; }
+}
+
 /* Print — the weekly review is the only screen meant for paper. Drop the app
    chrome and flip to black-on-white so it reads on a printed page or PDF. */
 @media print {
-  aside { display: none !important; }
+  aside, .tj-mobile-chrome { display: none !important; }
   body { background: #fff !important; }
   main { color: #111 !important; }
   main .card,

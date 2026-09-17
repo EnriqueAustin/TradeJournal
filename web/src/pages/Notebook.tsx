@@ -1094,9 +1094,9 @@ function TemplatesModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div className="tj-modal fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="card flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden"
+        className="tj-modal-panel card flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Note templates"
