@@ -73,9 +73,9 @@ function TradeLine({ t, currency }: { t: MonthReportTrade; currency: string }) {
     >
       <span className="font-medium text-slate-200">{t.instrument}</span>
       <span className="capitalize text-slate-400">{t.direction}</span>
-      <span className="text-xs text-slate-500">{formatDate(t.entry_time)}</span>
-      <span className={`num ml-auto ${signClass(t.net_pnl)}`}>{formatMoney(t.net_pnl, currency)}</span>
-      <span className={`num w-16 text-right ${signClass(t.r_multiple)}`}>{formatR(t.r_multiple)}</span>
+      <span className="min-w-0 truncate text-xs text-slate-500">{formatDate(t.entry_time)}</span>
+      <span className={`num ml-auto shrink-0 ${signClass(t.net_pnl)}`}>{formatMoney(t.net_pnl, currency)}</span>
+      <span className={`num w-16 shrink-0 text-right ${signClass(t.r_multiple)}`}>{formatR(t.r_multiple)}</span>
     </Link>
   );
 }
@@ -206,7 +206,7 @@ function MonthBody({ d, currency }: { d: TMonthReport; currency: string }) {
             <Calendar month={d.month} days={d.days} currency={currency} />
           </Section>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
             <Section title="Best & worst days">
               {[...d.best_days, ...d.worst_days].length === 0 && <p className="text-sm text-slate-500">—</p>}
               {[...d.best_days, ...d.worst_days].map((day) => (
@@ -255,7 +255,7 @@ function MonthBody({ d, currency }: { d: TMonthReport; currency: string }) {
             </Section>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
             <Section title="Best trades">
               {d.best_trades.length ? d.best_trades.map((t) => <TradeLine key={t.id} t={t} currency={currency} />) : <p className="text-sm text-slate-500">—</p>}
             </Section>
@@ -280,7 +280,7 @@ function MonthBody({ d, currency }: { d: TMonthReport; currency: string }) {
             </Section>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
             <Section title="Top mistakes by cost">
               {d.mistakes.length === 0 ? (
                 <p className="text-sm text-slate-500">No costly mistake tags this month.</p>

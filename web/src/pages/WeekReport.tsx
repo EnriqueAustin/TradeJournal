@@ -12,9 +12,9 @@ function TradeLine({ t, currency }: { t: WeekReportTrade; currency: string }) {
     <div className="flex items-center gap-3 border-b border-slate-800/60 py-1.5 text-sm last:border-0">
       <span className="font-medium text-slate-200">{t.instrument}</span>
       <span className="capitalize text-slate-400">{t.direction}</span>
-      <span className="text-xs text-slate-500">{formatDate(t.entry_time)}</span>
-      <span className={`num ml-auto ${signClass(t.net_pnl)}`}>{formatMoney(t.net_pnl, currency)}</span>
-      <span className={`num w-16 text-right ${signClass(t.r_multiple)}`}>{formatR(t.r_multiple)}</span>
+      <span className="min-w-0 truncate text-xs text-slate-500">{formatDate(t.entry_time)}</span>
+      <span className={`num ml-auto shrink-0 ${signClass(t.net_pnl)}`}>{formatMoney(t.net_pnl, currency)}</span>
+      <span className={`num w-16 shrink-0 text-right ${signClass(t.r_multiple)}`}>{formatR(t.r_multiple)}</span>
     </div>
   );
 }
@@ -86,7 +86,7 @@ export default function WeekReport() {
             )}
 
             {/* Best / worst */}
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
               <div className="rounded-lg border border-slate-800 p-4">
                 <h3 className="mb-2 text-sm font-semibold text-emerald-400">Best trades</h3>
                 {d.best.length ? (
