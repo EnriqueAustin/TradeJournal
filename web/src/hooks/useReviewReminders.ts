@@ -116,7 +116,11 @@ export function useReminderConfig() {
   return [cfg, update] as const;
 }
 
-export function useReviewReminders(account: number | null, onOpen?: (day: string) => void) {
+export function useReviewReminders(
+  account: number | null,
+  onOpen?: (day: string) => void,
+  profile: number | null = null
+) {
   const [cfg] = useReminderConfig();
   const [banner, setBanner] = useState<ReminderBanner | null>(null);
   const [tick, setTick] = useState(0);
@@ -137,7 +141,7 @@ export function useReviewReminders(account: number | null, onOpen?: (day: string
     const day = todayUtc();
     const key = `${day}|${ended.session}`;
     api
-      .getTradesTotals(rangeFilters(account, day, day), { needs: 'unreviewed' })
+      .getTradesTotals({ ...rangeFilters(account, day, day), profile }, { needs: 'unreviewed' })
       .then((t) => {
         if (cancelled) return;
         if (!t.count) {
@@ -179,7 +183,7 @@ export function useReviewReminders(account: number | null, onOpen?: (day: string
     };
     // onOpen is a navigation callback; re-running for its identity is pointless.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cfg, account, tick]);
+  }, [cfg, account, profile, tick]);
 
   const dismiss = useCallback(() => {
     if (banner) pushList(DISMISSED_KEY, banner.key);

@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import DailyPlanCard from '../components/DailyPlanCard';
 import MissedTradesCard from '../components/MissedTradesCard';
+import ShareLinkButton from '../components/ShareLinkButton';
 import { ReminderSettingsButton, ReviewReminderBanner } from '../components/ReviewReminders';
 import type { Filters, JournalDay } from '../types';
 import {
@@ -190,11 +191,12 @@ export default function Journal() {
           <Link className="btn px-2 py-1 text-xs" to={`/report/month/${day.slice(0, 7)}`}>
             Month report →
           </Link>
+          <ShareLinkButton kind="day" refId={day} accountId={account} />
           <ReminderSettingsButton />
         </div>
       </div>
 
-      <ReviewReminderBanner account={account} />
+      <ReviewReminderBanner account={account} profile={filters.profile ?? null} />
 
       {err && <div className="card border-red-500/30 p-3 text-sm text-red-400">{err}</div>}
 

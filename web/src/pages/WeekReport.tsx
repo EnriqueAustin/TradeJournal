@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
+import ShareLinkButton from '../components/ShareLinkButton';
 import type { WeekReportTrade } from '../types';
 import { formatMoney, formatR, formatPct, formatNumber, formatDate, signClass } from '../utils/format';
 
@@ -32,6 +33,7 @@ export default function WeekReport() {
       <div className="mb-4 flex items-center justify-between print:hidden">
         <h1 className="text-lg font-semibold text-slate-100">Weekly Review</h1>
         <div className="flex flex-wrap items-center gap-2">
+          <ShareLinkButton kind="week" refId={date} accountId={account} />
           <Link className="btn text-xs" to={`/review/week/${d?.from ?? date}`}>
             Review week
           </Link>

@@ -5,6 +5,7 @@ import { useApi } from '../hooks/useApi';
 import { useFilters } from '../store/FilterContext';
 import { AsyncBoundary } from '../components/states';
 import SocialShareModal from '../components/SocialShareModal';
+import ShareLinkButton from '../components/ShareLinkButton';
 import CustomFieldsCard from '../components/CustomFieldsCard';
 import ExitAnalysisCard from '../components/ExitAnalysisCard';
 import ContextTab from '../features/signal/panels/ContextTab';
@@ -108,6 +109,7 @@ export default function TradeDetail() {
           >
             {loadingShare ? 'Loading Card…' : '📸 Share Card'}
           </button>
+          <ShareLinkButton kind="trade" refId={tradeId} className="btn" />
           <Link to={`/replay?trade=${tradeId}`} className="btn">
             ▶ Replay
           </Link>

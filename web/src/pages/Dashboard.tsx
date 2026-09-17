@@ -345,7 +345,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <ReviewReminderBanner account={filters.account} />
+      <ReviewReminderBanner account={filters.account} profile={filters.profile ?? null} />
 
       {/* Live open positions (rendered only when EA snapshot present) */}
       <LivePositions account={filters.account} currency={currency} />

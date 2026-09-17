@@ -3,9 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useReminderConfig, useReviewReminders } from '../hooks/useReviewReminders';
 
 /** In-app "N trades unreviewed" banner shown after a session ends. */
-export function ReviewReminderBanner({ account }: { account: number | null }) {
+export function ReviewReminderBanner({ account, profile = null }: { account: number | null; profile?: number | null }) {
   const navigate = useNavigate();
-  const { banner, dismiss } = useReviewReminders(account, (day) => navigate(`/review/day/${day}`));
+  const { banner, dismiss } = useReviewReminders(account, (day) => navigate(`/review/day/${day}`), profile);
   if (!banner) return null;
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-2.5 text-sm">
