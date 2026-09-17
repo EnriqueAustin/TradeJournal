@@ -4,6 +4,8 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import DailyPlanCard from '../components/DailyPlanCard';
 import MissedTradesCard from '../components/MissedTradesCard';
+import ShareLinkButton from '../components/ShareLinkButton';
+import { ReminderSettingsButton, ReviewReminderBanner } from '../components/ReviewReminders';
 import type { Filters, JournalDay } from '../types';
 import {
   formatMoney,
@@ -186,8 +188,15 @@ export default function Journal() {
           <Link className="btn px-2 py-1 text-xs" to={`/report/week/${day}`}>
             Week review →
           </Link>
+          <Link className="btn px-2 py-1 text-xs" to={`/report/month/${day.slice(0, 7)}`}>
+            Month report →
+          </Link>
+          <ShareLinkButton kind="day" refId={day} accountId={account} />
+          <ReminderSettingsButton />
         </div>
       </div>
+
+      <ReviewReminderBanner account={account} profile={filters.profile ?? null} />
 
       {err && <div className="card border-red-500/30 p-3 text-sm text-red-400">{err}</div>}
 
@@ -222,9 +231,26 @@ export default function Journal() {
 
       {/* Trades taken */}
       <div className="card p-5">
-        <h2 className="mb-3 text-sm font-semibold text-slate-200">
-          Trades <span className="text-slate-500">({trades.length})</span>
-        </h2>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-200">
+            Trades <span className="text-slate-500">({trades.length})</span>
+            {trades.some((t) => t.followed_plan == null) && (
+              <span className="ml-2 text-xs font-normal text-amber-400">
+                {trades.filter((t) => t.followed_plan == null).length} unreviewed
+              </span>
+            )}
+          </h2>
+          {trades.length > 0 && (
+            <div className="flex gap-2">
+              <Link className="btn btn-primary px-3 py-1 text-xs" to={`/review/day/${day}`}>
+                Review day →
+              </Link>
+              <Link className="btn px-2 py-1 text-xs" to={`/review/week/${day}`}>
+                Review week
+              </Link>
+            </div>
+          )}
+        </div>
         {loading && trades.length === 0 ? (
           <p className="text-sm text-slate-500">Loading…</p>
         ) : trades.length === 0 ? (

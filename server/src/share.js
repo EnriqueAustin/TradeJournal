@@ -202,7 +202,7 @@ function rangePayload(link) {
   const recapFor = (day) =>
     db
       .prepare(
-        'SELECT body FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+        'SELECT body FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL AND kind IS NULL ORDER BY id LIMIT 1'
       )
       .get(account.id, day)?.body ?? null;
   const out = { from, to, currency: account.currency ?? 'USD', kpis: kpis(stats), trades };

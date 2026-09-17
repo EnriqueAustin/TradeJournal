@@ -5,6 +5,7 @@ import { useApi } from '../hooks/useApi';
 import { useFilters } from '../store/FilterContext';
 import { AsyncBoundary } from '../components/states';
 import SocialShareModal from '../components/SocialShareModal';
+import ShareLinkButton from '../components/ShareLinkButton';
 import CustomFieldsCard from '../components/CustomFieldsCard';
 import ExitAnalysisCard from '../components/ExitAnalysisCard';
 import ContextTab from '../features/signal/panels/ContextTab';
@@ -14,6 +15,7 @@ import ScreenshotsPanel from '../components/trade/ScreenshotsPanel';
 import TagsPanel from '../components/trade/TagsPanel';
 import WickSetupPanel from '../components/trade/WickSetupPanel';
 import ReviewPanel from '../components/trade/ReviewPanel';
+import PsychCard from '../components/trade/PsychCard';
 import NotesPanel from '../components/trade/NotesPanel';
 import KeyStatsCard from '../components/trade/KeyStatsCard';
 import RiskLevelsCard from '../components/trade/RiskLevelsCard';
@@ -107,6 +109,7 @@ export default function TradeDetail() {
           >
             {loadingShare ? 'Loading Card…' : '📸 Share Card'}
           </button>
+          <ShareLinkButton kind="trade" refId={tradeId} className="btn" />
           <Link to={`/replay?trade=${tradeId}`} className="btn">
             ▶ Replay
           </Link>
@@ -271,6 +274,7 @@ function TradeBody({
       <div className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
         <KeyStatsCard trade={trade} />
         <ReviewPanel trade={trade} onChanged={onChanged} />
+        <PsychCard trade={trade} onChanged={onChanged} />
         <RiskLevelsCard trade={trade} onChanged={onChanged} />
         <TagsPanel trade={trade} onChanged={onChanged} />
         <WickSetupPanel trade={trade} onChanged={onChanged} />
