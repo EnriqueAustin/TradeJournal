@@ -6,7 +6,7 @@ import CommandPalette from './CommandPalette';
 // Report/list pages get the full filter bar; account-scoped pages only the
 // account picker; everything else (trade detail, import, accounts, econ
 // calendar) none — the filters do nothing there.
-const FULL_FILTERS = ['/', '/trades', '/analytics', '/risk', '/playbook', '/portfolio'];
+const FULL_FILTERS = ['/', '/trades', '/analytics', '/risk', '/playbook', '/portfolio', '/reports'];
 const ACCOUNT_ONLY = ['/journal', '/report/week/:date', '/replay', '/backtest'];
 
 function filterVariant(pathname: string): 'full' | 'account' | null {

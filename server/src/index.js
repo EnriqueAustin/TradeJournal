@@ -22,6 +22,7 @@ import {
 import { createImportWatcher } from './importWatch.js';
 import { listGoals, createGoal, deleteGoal } from './goals.js';
 import { registerProfileRoutes } from './profiles.js';
+import { registerPivotRoutes } from './pivot.js';
 import { registerShareRoutes } from './share.js';
 import { registerNotebookRoutes } from './notebook.js';
 import { migrateResearch } from './research/schema.js';
@@ -258,6 +259,7 @@ function removeScreenshotFiles(rows) {
 
 // ---------- Profiles + read-only share links (profiles.js, share.js) ----------
 registerProfileRoutes(app);
+registerPivotRoutes(app);
 registerShareRoutes(app);
 registerNotebookRoutes(app, { imageUpload: screenshotUpload });
 

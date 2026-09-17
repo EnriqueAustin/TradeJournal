@@ -19,6 +19,8 @@ import Notebook from './pages/Notebook';
 import WeekReport from './pages/WeekReport';
 import MonthReport from './pages/MonthReport';
 import Review from './pages/Review';
+import Compare from './pages/Compare';
+import Reports from './pages/Reports';
 import Signal from './features/signal/pages/Signal';
 
 export default function App() {
@@ -45,6 +47,8 @@ export default function App() {
         <Route path="playbook" element={<Playbook />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="risk" element={<Risk />} />
+        <Route path="compare" element={<Compare />} />
+        <Route path="reports" element={<Reports />} />
         <Route path="calendar" element={<CalendarPage />} />
         <Route path="portfolio" element={<Portfolio />} />
         <Route path="replay" element={<Replay />} />
