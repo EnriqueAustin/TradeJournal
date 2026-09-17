@@ -42,13 +42,13 @@ function GoalRow({
       <div className="mb-1 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-slate-200">{METRIC_LABELS[g.metric]}</span>
-          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-400">
             {PERIOD_LABELS[g.period]}
           </span>
           {g.account_id == null && (
-            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">all accts</span>
+            <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-500">all accts</span>
           )}
-          {reached && <span className="text-[10px] font-semibold text-emerald-400">✓ reached</span>}
+          {reached && <span className="text-[11px] font-semibold text-emerald-400">✓ reached</span>}
         </div>
         <button
           onClick={() => onDelete(g.id)}
@@ -122,7 +122,7 @@ export default function GoalsCard({
           className="text-sm font-semibold text-slate-200"
           title="Each goal measures its own period (UTC week/month) for its account — the range preset, instrument, session and setup filters don't apply, so goal figures can differ from the stat tiles."
         >
-          Goals <span className="text-[10px] font-normal text-slate-500">· own period, ignores filters</span>
+          Goals <span className="text-[11px] font-normal text-slate-500">· own period, ignores filters</span>
         </h2>
         <button className="btn text-xs" onClick={() => setAdding((v) => !v)}>
           {adding ? 'Cancel' : '+ Add goal'}

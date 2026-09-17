@@ -21,8 +21,8 @@ export default function StatTile({
       }}
     >
       <div
-        className="text-[10px] font-bold uppercase"
-        style={{ color: 'var(--term-amber)', letterSpacing: '0.1em' }}
+        className="text-[11px] font-bold uppercase"
+        style={{ color: 'var(--term-amber)', letterSpacing: '0.04em' }}
       >
         {label}
       </div>
@@ -34,7 +34,7 @@ export default function StatTile({
       </div>
       {sub != null && (
         <div
-          className="num mt-0.5 text-[10px]"
+          className="num mt-0.5 text-[11px]"
           style={{ color: 'var(--term-text-dim)' }}
         >
           {sub}

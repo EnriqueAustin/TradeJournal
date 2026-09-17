@@ -1,8 +1,9 @@
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
+import ShareLinkButton from '../components/ShareLinkButton';
 import type { WeekReportTrade } from '../types';
 import { formatMoney, formatR, formatPct, formatNumber, formatDate, signClass } from '../utils/format';
 
@@ -11,9 +12,9 @@ function TradeLine({ t, currency }: { t: WeekReportTrade; currency: string }) {
     <div className="flex items-center gap-3 border-b border-slate-800/60 py-1.5 text-sm last:border-0">
       <span className="font-medium text-slate-200">{t.instrument}</span>
       <span className="capitalize text-slate-400">{t.direction}</span>
-      <span className="text-xs text-slate-500">{formatDate(t.entry_time)}</span>
-      <span className={`num ml-auto ${signClass(t.net_pnl)}`}>{formatMoney(t.net_pnl, currency)}</span>
-      <span className={`num w-16 text-right ${signClass(t.r_multiple)}`}>{formatR(t.r_multiple)}</span>
+      <span className="min-w-0 truncate text-xs text-slate-500">{formatDate(t.entry_time)}</span>
+      <span className={`num ml-auto shrink-0 ${signClass(t.net_pnl)}`}>{formatMoney(t.net_pnl, currency)}</span>
+      <span className={`num w-16 shrink-0 text-right ${signClass(t.r_multiple)}`}>{formatR(t.r_multiple)}</span>
     </div>
   );
 }
@@ -31,9 +32,18 @@ export default function WeekReport() {
       {/* Screen-only toolbar; hidden when printing */}
       <div className="mb-4 flex items-center justify-between print:hidden">
         <h1 className="text-lg font-semibold text-slate-100">Weekly Review</h1>
-        <button className="btn btn-primary" onClick={() => window.print()}>
-          Print / Save PDF
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ShareLinkButton kind="week" refId={date} accountId={account} />
+          <Link className="btn text-xs" to={`/review/week/${d?.from ?? date}`}>
+            Review week
+          </Link>
+          <Link className="btn text-xs" to={`/report/month/${(d?.from ?? date).slice(0, 7)}`}>
+            Month report →
+          </Link>
+          <button className="btn btn-primary" onClick={() => window.print()}>
+            Print / Save PDF
+          </button>
+        </div>
       </div>
 
       <AsyncBoundary
@@ -68,8 +78,15 @@ export default function WeekReport() {
               ))}
             </div>
 
+            {d.week_recap && (
+              <div className="rounded-lg border border-slate-800 p-4">
+                <h3 className="mb-2 text-sm font-semibold text-slate-200">Week recap</h3>
+                <p className="whitespace-pre-wrap text-sm text-slate-300">{d.week_recap}</p>
+              </div>
+            )}
+
             {/* Best / worst */}
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
               <div className="rounded-lg border border-slate-800 p-4">
                 <h3 className="mb-2 text-sm font-semibold text-emerald-400">Best trades</h3>
                 {d.best.length ? (

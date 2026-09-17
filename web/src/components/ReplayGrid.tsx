@@ -84,7 +84,7 @@ function FrameChart({
         <span className="font-semibold text-slate-200">
           {frame.tf}
           {isPrimary && (
-            <span className="ml-1.5 text-[10px] font-medium text-indigo-400">
+            <span className="ml-1.5 text-[11px] font-medium text-indigo-400">
               primary
             </span>
           )}

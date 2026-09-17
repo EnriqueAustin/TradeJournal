@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-// Every jump-to destination. Mirrors the sidebar groups plus the Signal views
-// (the Signal section is chosen via the ?section= query the page reads on load).
+// Every jump-to destination. Mirrors the sidebar groups.
 interface Command {
   label: string;
   group: string;
@@ -12,16 +11,20 @@ interface Command {
 
 const COMMANDS: Command[] = [
   { label: 'Dashboard', group: 'Journal', to: '/' },
+  { label: 'Quick capture', group: 'Journal', to: '/quick', keywords: 'mobile grade log today capture' },
+  { label: 'Journal', group: 'Journal', to: '/journal', keywords: 'day plan recap' },
+  { label: 'Notebook', group: 'Journal', to: '/notebook', keywords: 'notes markdown templates folders lessons plan' },
   { label: 'Trades', group: 'Journal', to: '/trades' },
   { label: 'Playbook', group: 'Journal', to: '/playbook' },
   { label: 'Analytics', group: 'Journal', to: '/analytics' },
-  { label: 'Risk', group: 'Journal', to: '/risk' },
-  { label: 'Signal Terminal', group: 'Research', to: '/research', keywords: 'gold xauusd research' },
-  { label: 'Calendar', group: 'Research', to: '/calendar' },
-  { label: 'Portfolio', group: 'Research', to: '/portfolio' },
-  { label: 'Replay', group: 'Simulate', to: '/replay' },
-  { label: 'Backtest', group: 'Simulate', to: '/backtest' },
-  { label: 'Studio', group: 'Simulate', to: '/studio' },
+  { label: 'Reports', group: 'Analyze', to: '/reports', keywords: 'pivot report builder group by' },
+  { label: 'Compare', group: 'Analyze', to: '/compare', keywords: 'a vs b side by side' },
+  { label: 'Risk', group: 'Journal', to: '/risk', keywords: 'monte carlo risk of ruin' },
+  { label: 'Portfolio', group: 'Journal', to: '/portfolio' },
+  { label: 'Econ Calendar', group: 'Tools', to: '/calendar', keywords: 'news events' },
+  { label: 'Replay', group: 'Tools', to: '/replay' },
+  { label: 'Backtest Studio', group: 'Tools', to: '/backtest', keywords: 'studio bar replay' },
+  { label: 'Backtest quick log', group: 'Tools', to: '/backtest?mode=log', keywords: 'click chart' },
   { label: 'Import', group: 'Data', to: '/import' },
   { label: 'Accounts', group: 'Data', to: '/accounts' },
 ];
@@ -133,7 +136,7 @@ export default function CommandPalette() {
             >
               <span className="font-semibold">{c.label}</span>
               <span
-                className="text-[10px] uppercase tracking-wide"
+                className="text-[11px] uppercase tracking-wide"
                 style={{ color: i === active ? 'var(--term-bg)' : 'var(--term-muted)' }}
               >
                 {c.group}

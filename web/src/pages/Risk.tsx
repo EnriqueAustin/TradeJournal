@@ -16,6 +16,7 @@ import {
 import type { PropStats } from '../types';
 import { getPreset } from '../data/propPresets';
 import RiskCalculator from '../components/RiskCalculator';
+import MonteCarloCard from '../components/MonteCarloCard';
 
 function SectionCard({
   title,
@@ -139,7 +140,7 @@ function RuleRow({
 
   return (
     <div className="flex items-center gap-3 rounded-lg border border-slate-800/60 bg-slate-900/30 px-3 py-2">
-      <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${icon.bg} ${icon.text}`}>
+      <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${icon.bg} ${icon.text}`}>
         {icon.label}
       </span>
       <div className="flex-1">
@@ -148,7 +149,7 @@ function RuleRow({
       </div>
       <div className="text-right">
         <div className={`num text-sm font-medium ${icon.text}`}>{value}</div>
-        {limit && <div className="num text-[10px] text-slate-500">{limit}</div>}
+        {limit && <div className="num text-[11px] text-slate-500">{limit}</div>}
       </div>
     </div>
   );
@@ -180,7 +181,7 @@ function AvgHoldTimeRule({ p, minHoldLabel }: { p: PropStats; minHoldLabel: stri
         className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-slate-800/40"
         aria-expanded={open}
       >
-        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${primaryIcon.bg} ${primaryIcon.text}`}>
+        <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider ${primaryIcon.bg} ${primaryIcon.text}`}>
           {primaryIcon.label}
         </span>
         <div className="flex-1">
@@ -206,7 +207,7 @@ function AvgHoldTimeRule({ p, minHoldLabel }: { p: PropStats; minHoldLabel: stri
       </button>
       {open && (
         <div className="flex items-center gap-3 border-t border-slate-800/60 bg-slate-950/40 py-2 pl-8 pr-3">
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-slate-800/50 ${firstIcon.text}`}>
+          <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider bg-slate-800/50 ${firstIcon.text}`}>
             {firstIcon.label}
           </span>
           <div className="flex-1">
@@ -339,7 +340,7 @@ function PositionSizeGuard({ p, currency }: { p: PropStats; currency: string }) 
             <div className="mt-2 overflow-x-auto">
               <table className="w-full min-w-[560px] text-xs">
                 <thead>
-                  <tr className="text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500">
                     <th className="py-1 pr-3 font-medium">Day</th>
                     <th className="py-1 pr-3 font-medium">Instrument</th>
                     <th className="py-1 pr-3 text-right font-medium">Lots</th>
@@ -580,6 +581,7 @@ export default function Risk() {
           error={prop.error}
           onRetry={prop.reload}
           loadingLabel="Loading prop guardrails…"
+          skeleton="tiles"
         >
           {p && (
             <div className="flex flex-col gap-4">
@@ -721,10 +723,11 @@ export default function Risk() {
             error={adh.error}
             onRetry={adh.reload}
             loadingLabel="Loading adherence…"
+            skeleton="table"
           >
             {adh.data && (
               <div className="flex flex-col gap-4">
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <StatTile
                     label="Rules Followed"
                     value={
@@ -805,6 +808,7 @@ export default function Risk() {
             error={streaks.error}
             onRetry={streaks.reload}
             loadingLabel="Loading streaks…"
+            skeleton="tiles"
           >
             {streaks.data && (
               <div className="flex flex-col gap-4">
@@ -927,6 +931,7 @@ export default function Risk() {
           isEmpty={!!tilt.data && tilt.data.count === 0}
           emptyMessage="No rapid re-entries after losses. Clean discipline."
           loadingLabel="Loading tilt analysis…"
+          skeleton="table"
         >
           {tilt.data && tilt.data.count > 0 && (
             <div className="flex flex-col gap-3">
@@ -992,6 +997,8 @@ export default function Risk() {
           )}
         </AsyncBoundary>
       </SectionCard>
+
+      <MonteCarloCard />
     </div>
   );
 }

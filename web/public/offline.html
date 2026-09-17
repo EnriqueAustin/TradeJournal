@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0e161a" />
+    <title>Offline · Trade Journal</title>
+    <style>
+      :root { color-scheme: dark; --bg: #05080a; --panel: #0b1114; --border: #23343b; --text: #c6d3cc; --dim: #7d8f88; --accent: #f5a623; }
+      @media (prefers-color-scheme: light) {
+        :root { color-scheme: light; --bg: #f2f4f3; --panel: #fff; --border: #c5cfcb; --text: #1f2b27; --dim: #4c5b55; --accent: #a86400; }
+      }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: flex; align-items: center; justify-content: center;
+        padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+        box-sizing: border-box; background: var(--bg); color: var(--text);
+        font: 15px/1.5 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      main { max-width: 360px; width: 100%; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 24px; text-align: center; }
+      img { width: 56px; height: 56px; border-radius: 12px; }
+      h1 { font-size: 18px; margin: 12px 0 4px; }
+      p { color: var(--dim); margin: 0 0 20px; }
+      button { min-height: 44px; width: 100%; border: 0; border-radius: 4px; background: var(--accent); color: var(--bg); font-family: inherit; font-size: 14px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icons/icon-192.png" alt="" />
+      <h1>Can't reach the journal</h1>
+      <p>Your phone is offline or the journal server isn't reachable on this network. Trades are never cached on the device, so reconnect to keep journaling.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>

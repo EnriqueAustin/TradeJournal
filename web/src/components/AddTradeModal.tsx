@@ -93,16 +93,17 @@ export default function AddTradeModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="tj-modal fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={onClose}
     >
       <div
-        className="card max-h-[90vh] w-full max-w-2xl overflow-y-auto p-5"
+        className="tj-modal-panel card max-h-[90vh] w-full max-w-2xl overflow-y-auto p-5"
+        style={{ ['--tj-modal-pt' as string]: '1.25rem' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-100">Add trade</h2>
-          <button className="btn text-xs" onClick={onClose}>✕</button>
+          <button className="btn text-xs" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
         {err && (
@@ -111,7 +112,7 @@ export default function AddTradeModal({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:grid-cols-3">
           <div>
             <label className="label">Account</label>
             <select
@@ -183,9 +184,9 @@ export default function AddTradeModal({
           Add a stop price to get an R-multiple.
         </p>
 
-        <div className="mt-4 flex justify-end gap-2">
-          <button className="btn text-xs" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary text-xs" onClick={submit} disabled={busy}>
+        <div className="mt-4 flex justify-end gap-2 pb-4 md:pb-0">
+          <button className="btn flex-1 text-xs md:flex-none" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary flex-1 text-xs md:flex-none" onClick={submit} disabled={busy}>
             {busy ? 'Saving…' : 'Save trade'}
           </button>
         </div>

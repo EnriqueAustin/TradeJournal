@@ -1,11 +1,29 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { isTypingTarget, saveTradesQuery } from '../utils/tradeNav';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
 import AddTradeModal from '../components/AddTradeModal';
-import type { Trade, TradeSort, SortDir, TradeOutcome, TradeNeed } from '../types';
+import { useIsMobile } from '../hooks/useMediaQuery';
+import type { Trade, TradeSort, SortDir, TradeOutcome, TradeNeed, TradeQuery } from '../types';
+
+// Drill-down params an insight card can link with (?tag=…&hour=…). Shown as a
+// removable chip; they have no control of their own on this page.
+const DRILL_KEYS = ['tag', 'hour', 'dow', 'emotion', 'followed', 'after_loss'] as const;
+type DrillKey = (typeof DRILL_KEYS)[number];
+const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function drillLabel(k: DrillKey, v: string): string {
+  switch (k) {
+    case 'tag': return `tag #${v}`;
+    case 'hour': return `entry ${v.padStart(2, '0')}:00 UTC`;
+    case 'dow': return DOW_NAMES[Number(v)] ?? `weekday ${v}`;
+    case 'emotion': return `emotion: ${v}`;
+    case 'followed': return v === '1' ? 'followed plan' : 'broke plan';
+    case 'after_loss': return '≤30 min after a loss';
+  }
+}
 import {
   formatMoney,
   formatR,
@@ -145,15 +163,16 @@ function DirectionBadge({ dir }: { dir: string }) {
 }
 
 export default function Trades() {
-  const { filters, accounts, setups } = useFilters();
+  const { filters, setFilters, accounts, setups } = useFilters();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [drill, setDrill] = useState<Partial<Record<DrillKey, string>>>({});
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState<TradeSort>('realized');
   const [dir, setDir] = useState<SortDir>('desc');
   const [search, setSearch] = useState('');
   const [direction, setDirection] = useState<'' | 'long' | 'short'>('');
   const [outcome, setOutcome] = useState<TradeOutcome>('');
-  const [plan, setPlan] = useState<'' | 'followed' | 'broke'>('');
   const [needs, setNeeds] = useState<TradeNeed[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
@@ -161,6 +180,7 @@ export default function Trades() {
   const [cols, setCols] = useState<OptionalCols>(loadCols);
   const [showColMenu, setShowColMenu] = useState(false);
   const debouncedSearch = useDebounced(search);
+  const mobile = useIsMobile();
 
   useEffect(() => {
     try {
@@ -169,6 +189,30 @@ export default function Trades() {
       /* storage may be unavailable; ignore */
     }
   }, [cols]);
+
+  // Apply links like /trades?session=ny&direction=short&tag=4 once, then clean
+  // the URL. Session/instrument/setup go through the shared filter store.
+  useEffect(() => {
+    if ([...searchParams.keys()].length === 0) return;
+    const g = (k: string) => searchParams.get(k);
+    const patch: Record<string, string> = {};
+    if (g('session')) patch.session = g('session')!;
+    if (g('instrument')) patch.instrument = g('instrument')!;
+    if (g('setup')) patch.setup = g('setup')!;
+    if (Object.keys(patch).length) setFilters(patch);
+    const dirParam = g('direction');
+    if (dirParam === 'long' || dirParam === 'short') setDirection(dirParam);
+    const out = g('outcome');
+    if (out === 'win' || out === 'loss' || out === 'be') setOutcome(out);
+    if (g('needs')) setNeeds(g('needs')!.split(',') as TradeNeed[]);
+    if (g('sort')) setSort(g('sort') as TradeSort);
+    if (g('dir') === 'asc' || g('dir') === 'desc') setDir(g('dir') as SortDir);
+    const d: Partial<Record<DrillKey, string>> = {};
+    for (const k of DRILL_KEYS) if (g(k) != null && g(k) !== '') d[k] = g(k)!;
+    setDrill(d);
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const toggleNeed = (n: TradeNeed) =>
     setNeeds((cur) =>
@@ -180,11 +224,15 @@ export default function Trades() {
   const setupName = (id: number | null) =>
     id == null ? null : setups.find((s) => s.id === id)?.name ?? null;
 
-  const query = useMemo(
-    () => ({ sort, dir, q: debouncedSearch, direction, outcome, plan, needs: needs.join(',') }),
-    [sort, dir, debouncedSearch, direction, outcome, plan, needs]
+  const query = useMemo<TradeQuery>(
+    () => ({ sort, dir, q: debouncedSearch, direction, outcome, needs: needs.join(','), ...drill }),
+    [sort, dir, debouncedSearch, direction, outcome, needs, drill]
   );
   const queryKey = JSON.stringify(query);
+  // Trade detail steps prev/next through the list in this same order.
+  useEffect(() => {
+    saveTradesQuery(query);
+  }, [query]);
 
   // Reset to first page whenever the filters or the list query change.
   const filtersKey = filterKey(filters);
@@ -215,14 +263,61 @@ export default function Trades() {
   );
   // Totals over the whole filtered set (not just this page), for the footer.
   const { data: totals, reload: reloadTotals } = useApi(
-    () => api.getTradesTotals(filters, query),
+    () => api.getTradesTotals(filters, query as Record<string, string | undefined>),
     [filterKey(filters), queryKey]
   );
 
+  // Needs-attention counts over the global filters (not the list query), for
+  // the summary chip. One totals call per gap plus one for "any gap".
+  const { data: needCounts, reload: reloadNeedCounts } = useApi(async () => {
+    const all = NEED_OPTIONS.map((o) => o.value);
+    const [any, ...each] = await Promise.all([
+      api.getTradesTotals(filters, { needs: all.join(',') }),
+      ...all.map((n) => api.getTradesTotals(filters, { needs: n })),
+    ]);
+    const by = {} as Record<TradeNeed, number>;
+    all.forEach((n, i) => (by[n] = each[i].count));
+    return { any: any.count, by };
+  }, [filterKey(filters)]);
+  const allNeedsOn = NEED_OPTIONS.every((o) => needs.includes(o.value));
+
   const filtersActive =
-    Boolean(search) || direction !== '' || outcome !== '' || plan !== '' || needs.length > 0;
+    Boolean(search) || direction !== '' || outcome !== '' || needs.length > 0 || Object.keys(drill).length > 0;
 
   const rows: Trade[] = data?.rows ?? [];
+
+  // Keyboard row cursor: j/↓ and k/↑ move it, Enter opens the trade. Reset
+  // whenever the visible rows change.
+  const [cursor, setCursor] = useState(-1);
+  const tbodyRef = useRef<HTMLTableSectionElement>(null);
+  useEffect(() => {
+    setCursor(-1);
+  }, [data]);
+  useEffect(() => {
+    if (cursor < 0) return;
+    const row = tbodyRef.current?.children[cursor] as HTMLElement | undefined;
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [cursor]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (showAdd || isTypingTarget(e) || rows.length === 0) return;
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        setCursor((c) => Math.min(rows.length - 1, c + 1));
+      } else if (e.key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setCursor((c) => Math.max(0, c < 0 ? 0 : c - 1));
+      } else if (e.key === 'Enter' && cursor >= 0 && rows[cursor]) {
+        // Let Enter on a focused button/link do its own thing.
+        const tag = (e.target as HTMLElement | null)?.tagName;
+        if (tag === 'BUTTON' || tag === 'A') return;
+        e.preventDefault();
+        navigate(`/trades/${rows[cursor].id}`);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rows, cursor, showAdd, navigate]);
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -254,6 +349,7 @@ export default function Trades() {
       setSelected(new Set());
       reload();
       reloadTotals();
+      reloadNeedCounts();
     } catch (e) {
       window.alert((e as Error)?.message ?? 'Bulk action failed');
     } finally {
@@ -264,15 +360,15 @@ export default function Trades() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold text-slate-100">Trades</h1>
+          <h1 className="hidden text-xl font-semibold text-slate-100 md:block">Trades</h1>
           <p className="text-sm text-slate-500">
             {total} trade{total === 1 ? '' : 's'} matching filters.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative">
+          <div className="relative hidden md:block">
             <button
               className="btn text-xs"
               onClick={() => setShowColMenu((v) => !v)}
@@ -327,7 +423,7 @@ export default function Trades() {
       {/* Search + quick filters */}
       <div className="flex flex-wrap items-center gap-2">
         <input
-          className="input w-56"
+          className="input w-full sm:w-56"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search instrument or notes…"
@@ -353,14 +449,38 @@ export default function Trades() {
           ]}
         />
         <Segmented
-          value={plan}
-          onChange={setPlan}
+          value={(drill.followed ?? '') as '' | '1' | '0'}
+          onChange={(v) =>
+            setDrill((cur) => {
+              const next = { ...cur };
+              if (v === '') delete next.followed;
+              else next.followed = v;
+              return next;
+            })
+          }
           options={[
             { value: '' as const, label: 'Plan: any' },
-            { value: 'followed' as const, label: 'Followed' },
-            { value: 'broke' as const, label: 'Broke' },
+            { value: '1' as const, label: 'Followed' },
+            { value: '0' as const, label: 'Broke' },
           ]}
         />
+        {(Object.keys(drill) as DrillKey[]).filter((k) => k !== 'followed').map((k) => (
+          <button
+            key={k}
+            type="button"
+            className="rounded-full border border-cyan-500/60 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-300 hover:border-cyan-400"
+            title="Insight drill-down filter — click to remove"
+            onClick={() =>
+              setDrill((cur) => {
+                const next = { ...cur };
+                delete next[k];
+                return next;
+              })
+            }
+          >
+            {drillLabel(k, drill[k]!)} ✕
+          </button>
+        ))}
         {filtersActive && (
           <button
             type="button"
@@ -369,8 +489,8 @@ export default function Trades() {
               setSearch('');
               setDirection('');
               setOutcome('');
-              setPlan('');
               setNeeds([]);
+              setDrill({});
             }}
           >
             Clear
@@ -381,11 +501,35 @@ export default function Trades() {
       {/* Needs-attention backfill queue — one click to find the trades whose
           missing data keeps them out of the stats. */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs uppercase tracking-wide text-slate-500">
-          Needs attention
-        </span>
+        {needCounts ? (
+          needCounts.any > 0 ? (
+            <button
+              type="button"
+              onClick={() =>
+                setNeeds(allNeedsOn ? [] : NEED_OPTIONS.map((o) => o.value))
+              }
+              title="Show every trade with at least one data gap"
+              className={`rounded border px-2.5 py-1 text-xs font-semibold transition ${
+                allNeedsOn
+                  ? 'border-amber-500 bg-amber-500/15 text-amber-300'
+                  : 'border-amber-500/40 text-amber-400 hover:border-amber-500'
+              }`}
+            >
+              ⚠ <span className="num">{needCounts.any}</span>{' '}
+              {needCounts.any === 1 ? 'trade needs' : 'trades need'} attention
+            </button>
+          ) : (
+            <span className="text-xs text-emerald-400">✓ No trades need attention</span>
+          )
+        ) : (
+          <span className="text-xs uppercase tracking-wide text-slate-500">
+            Needs attention
+          </span>
+        )}
         {NEED_OPTIONS.map((o) => {
           const on = needs.includes(o.value);
+          const n = needCounts?.by[o.value];
+          if (n === 0 && !on) return null;
           return (
             <button
               key={o.value}
@@ -399,12 +543,13 @@ export default function Trades() {
               }`}
             >
               {o.label}
+              {n != null && <span className="num ml-1 text-slate-500">{n}</span>}
             </button>
           );
         })}
       </div>
 
-      <div className="card overflow-hidden">
+      <div className={mobile ? '' : 'card overflow-hidden'}>
         <AsyncBoundary
           loading={loading}
           error={error}
@@ -489,9 +634,18 @@ export default function Trades() {
               </button>
             </div>
           )}
-          <div className="overflow-x-auto">
+          {mobile ? (
+            <TradeCardList
+              rows={rows}
+              currency={currency}
+              selected={selected}
+              onOpen={(id) => navigate(`/trades/${id}`)}
+            />
+          ) : (
+          /* Own scroll box so the header can stick while the rows scroll. */
+          <div className="max-h-[calc(100vh-16rem)] min-h-[16rem] overflow-auto">
             <table className="w-full min-w-[880px] text-sm">
-              <thead>
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-900 [&_th]:shadow-[inset_0_-1px_0_rgb(var(--c-border))]">
                 <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="px-3 py-2.5">
                     <input
@@ -518,14 +672,15 @@ export default function Trades() {
                   <th className="px-4 py-2.5 font-medium">Tags</th>
                 </tr>
               </thead>
-              <tbody>
-                {rows.map((t) => (
+              <tbody ref={tbodyRef}>
+                {rows.map((t, i) => (
                   <tr
                     key={t.id}
                     onClick={() => navigate(`/trades/${t.id}`)}
-                    className={`cursor-pointer border-b border-slate-800/60 transition hover:bg-slate-800/40 ${
+                    aria-selected={i === cursor}
+                    className={`group cursor-pointer border-b border-slate-800/60 transition hover:bg-slate-800/40 ${
                       selected.has(t.id) ? 'bg-slate-800/50' : ''
-                    }`}
+                    } ${i === cursor ? 'bg-cyan-500/10 shadow-[inset_2px_0_0_rgb(var(--c-cyan))]' : ''}`}
                   >
                     <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <input
@@ -548,8 +703,11 @@ export default function Trades() {
                         {(() => {
                           const gaps = tradeGaps(t);
                           return gaps.length ? (
+                            // Subtle by default (most rows have some gap); lights
+                            // up on row hover. The summary chip carries the signal.
                             <span
-                              className="text-amber-400"
+                              className="text-[11px] leading-none text-slate-700 transition group-hover:text-amber-400"
+                              aria-label="Needs attention"
                               title={`Needs attention: ${gaps
                                 .map(
                                   (g) =>
@@ -557,7 +715,7 @@ export default function Trades() {
                                 )
                                 .join(', ')}`}
                             >
-                              ⚠
+                              ●
                             </span>
                           ) : null;
                         })()}
@@ -566,13 +724,13 @@ export default function Trades() {
                     <td className="px-4 py-2.5">
                       <DirectionBadge dir={t.direction} />
                     </td>
-                    <td className="num px-4 py-2.5 text-slate-400">
+                    <td className="num whitespace-nowrap px-4 py-2.5 text-slate-400">
                       {formatDateTime(t.entry_time)}
                     </td>
-                    <td className="num px-4 py-2.5 text-slate-400">
+                    <td className="num whitespace-nowrap px-4 py-2.5 text-slate-400">
                       {formatDateTime(t.exit_time)}
                     </td>
-                    <td className="num px-4 py-2.5 text-right text-slate-400">
+                    <td className="num whitespace-nowrap px-4 py-2.5 text-right text-slate-400">
                       {formatDuration(t.hold_time_sec)}
                     </td>
                     <td className="num px-4 py-2.5 text-right text-slate-300">
@@ -589,7 +747,7 @@ export default function Trades() {
                     >
                       {t.is_be ? (
                         <span
-                          className="mr-1.5 rounded bg-slate-600/40 px-1 py-0.5 text-[10px] font-semibold text-slate-300"
+                          className="mr-1.5 rounded bg-slate-600/40 px-1 py-0.5 text-[11px] font-semibold text-slate-300"
                           title={t.be_override === 1 ? 'Marked break-even manually' : 'Break-even (within the account R band)'}
                         >
                           BE
@@ -712,15 +870,20 @@ export default function Trades() {
               )}
             </table>
           </div>
+          )}
         </AsyncBoundary>
       </div>
 
       {/* Pagination */}
       {total > 0 && (
-        <div className="flex items-center justify-between text-sm text-slate-400">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-400">
           <span className="num">
             Showing {page * PAGE_SIZE + 1}–
             {Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+            <span className="ml-3 hidden text-xs text-slate-500 md:inline">
+              <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move ·{' '}
+              <kbd className="font-mono">Enter</kbd> open
+            </span>
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -744,5 +907,72 @@ export default function Trades() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Phone variant of the trades table: one tappable card per trade with the
+ * fields that matter when journaling on the go — instrument, direction, entry
+ * time, P&L, R and whether it's been reviewed yet.
+ */
+function TradeCardList({
+  rows,
+  currency,
+  selected,
+  onOpen,
+}: {
+  rows: Trade[];
+  currency: string;
+  selected: Set<number>;
+  onOpen: (id: number) => void;
+}) {
+  return (
+    <ul className="flex flex-col gap-2" aria-label="Trades">
+      {rows.map((t) => {
+        const pnlCls = t.is_be ? 'text-slate-300' : t.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400';
+        const rCls =
+          t.r_multiple == null ? 'text-slate-500' : t.r_multiple >= 0 ? 'text-emerald-400' : 'text-red-400';
+        return (
+          <li key={t.id}>
+            <button
+              type="button"
+              onClick={() => onOpen(t.id)}
+              className={`card flex min-h-[56px] w-full items-center gap-3 px-3 py-3 text-left ${
+                selected.has(t.id) ? 'border-cyan-600' : ''
+              }`}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-100">{t.instrument}</span>
+                  <DirectionBadge dir={t.direction} />
+                  {t.followed_plan === 1 ? (
+                    <span className="text-[11px] text-emerald-400">✓ followed</span>
+                  ) : t.followed_plan === 0 ? (
+                    <span className="text-[11px] text-red-400">✗ broke plan</span>
+                  ) : (
+                    <span className="rounded-full border border-amber-500/40 px-1.5 text-[11px] text-amber-400">
+                      unreviewed
+                    </span>
+                  )}
+                </div>
+                <div className="num mt-1 truncate text-xs text-slate-500">
+                  {formatDateTime(t.entry_time)} · {sessionLabel(t.session)}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className={`num font-semibold ${pnlCls}`}>
+                  {t.is_be ? 'BE ' : ''}
+                  {formatMoney(t.net_pnl, currency)}
+                </div>
+                <div className={`num text-xs ${rCls}`}>
+                  {formatR(t.r_multiple)}
+                  {t.r_derived ? '~' : ''}
+                </div>
+              </div>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

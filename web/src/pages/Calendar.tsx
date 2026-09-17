@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
@@ -25,6 +25,7 @@ const IMPACT_LABEL: Record<NewsImpact, string> = {
 };
 const POLL_MS = 60_000; // client re-reads the server cache every minute
 const TICK_MS = 30_000; // re-render countdowns / "now" line twice a minute
+const STALE_MS = 10 * 60_000; // ask the server to refresh when older than this
 
 // The server container is Cloudflare-blocked from the ForexFactory feed, so the
 // "Refresh now" button pings a small fetcher running on the host (residential
@@ -102,7 +103,7 @@ function ActualCell({ e }: { e: NewsEvent }) {
   return (
     <span className={`font-semibold ${cls}`}>
       {e.actual}
-      {dir && <span className="ml-1 text-[10px]">{dir === 'up' ? '▲' : '▼'}</span>}
+      {dir && <span className="ml-1 text-[11px]">{dir === 'up' ? '▲' : '▼'}</span>}
     </span>
   );
 }
@@ -143,7 +144,7 @@ function EventRow({ e, isNext }: { e: NewsEvent; isNext: boolean }) {
             title="Open on ForexFactory"
           >
             {e.title}
-            <span className="text-[10px] text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">
+            <span className="text-[11px] text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">
               ↗
             </span>
           </a>
@@ -186,7 +187,7 @@ function DaySection({
         <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
           {weekdayLabel(dayKey)}
           {isToday && (
-            <span className="rounded bg-indigo-600/30 px-1.5 py-0.5 text-[10px] font-medium text-indigo-200">
+            <span className="rounded bg-indigo-600/30 px-1.5 py-0.5 text-[11px] font-medium text-indigo-200">
               Today
             </span>
           )}
@@ -212,7 +213,7 @@ function DaySection({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px]">
             <thead>
-              <tr className="text-left text-[10px] uppercase tracking-wide text-slate-600">
+              <tr className="text-left text-[11px] uppercase tracking-wide text-slate-600">
                 <th className="px-0 py-1 pl-4 font-medium">Time</th>
                 <th className="py-1 font-medium"></th>
                 <th className="py-1 font-medium">Ccy</th>
@@ -240,7 +241,7 @@ function NextEventBanner({ event, now }: { event: NewsEvent; now: number }) {
   const ms = new Date(event.dt).getTime() - now;
   return (
     <div className="card flex flex-wrap items-center gap-x-4 gap-y-1 border-indigo-500/30 bg-indigo-500/5 px-4 py-2.5">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-300">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-300">
         Next up
       </span>
       <span className="flex items-center gap-2 text-sm text-slate-200">
@@ -306,6 +307,30 @@ export default function Calendar() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to]);
+
+  // Self-heal a stale cache: if the server hasn't pulled the feed/actuals
+  // recently (scheduler disabled, or the machine slept), ask it to refresh on
+  // load and again whenever the cache goes stale while the page stays open.
+  const autoRefreshing = useRef(false);
+  useEffect(() => {
+    const s = status.data;
+    if (!s || s.refreshing || autoRefreshing.current) return;
+    const last = Math.max(
+      parseServerTs(s.last_refresh) ?? 0,
+      s.last_attempt ? Date.parse(s.last_attempt) : 0
+    );
+    if (Date.now() - last < STALE_MS) return;
+    autoRefreshing.current = true;
+    api
+      .refreshNews()
+      .catch(() => {})
+      .finally(() => {
+        autoRefreshing.current = false;
+        news.reload();
+        status.reload();
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status.data, now]);
 
   // Lightweight clock so countdowns and the next-event highlight stay live
   // without re-fetching.
@@ -448,9 +473,19 @@ export default function Calendar() {
                 status.data?.auto ? 'bg-emerald-400' : 'bg-slate-600'
               }`}
             />
-            {status.data?.auto ? 'Auto' : 'Manual'}
+            {status.data ? (status.data.auto ? 'Auto' : 'Manual') : status.error ? 'Offline' : '…'}
           </span>
-          <span>· updated {ago(lastRefreshMs)}</span>
+          {status.data && (
+            <span
+              title={
+                status.data.last_attempt
+                  ? `Last checked ${ago(Date.parse(status.data.last_attempt))}`
+                  : undefined
+              }
+            >
+              · updated {ago(lastRefreshMs)}
+            </span>
+          )}
           <button className="btn text-xs" onClick={refreshNow} disabled={refreshing}>
             {refreshing || status.data?.refreshing ? 'Refreshing…' : '↻ Refresh now'}
           </button>
@@ -642,6 +677,11 @@ export default function Calendar() {
       {status.data?.last_error && (
         <p className="text-[11px] text-amber-500/80">
           Last server refresh error: {status.data.last_error}
+        </p>
+      )}
+      {status.data?.last_actuals_error && (
+        <p className="text-[11px] text-amber-500/80">
+          Actuals refresh error: {status.data.last_actuals_error}
         </p>
       )}
     </div>

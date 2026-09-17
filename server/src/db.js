@@ -2,14 +2,16 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { sessionFromTime, computeRMultiple, defaultRiskCash } from './util.js';
+import { sessionFromTime, computeRMultiple, defaultRiskCash, normalizeInstrument } from './util.js';
+import { refreshExcursions } from './excursion.js';
+import { DEFAULT_NOTE_TEMPLATES } from './notebookTemplates.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, '..', 'data');
 fs.mkdirSync(dataDir, { recursive: true });
 // JOURNAL_DB lets tests (and alternate deployments) point at another file
 // instead of the real journal; defaults to the normal data/journal.db.
-const dbPath = process.env.JOURNAL_DB || path.join(dataDir, 'journal.db');
+export const dbPath = process.env.JOURNAL_DB || path.join(dataDir, 'journal.db');
 
 export const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
@@ -338,6 +340,16 @@ export function migrate() {
     db.exec('ALTER TABLE trades ADD COLUMN r_derived INTEGER NOT NULL DEFAULT 0');
   }
 
+  // Auto MAE/MFE: 1 when the stored value was derived from price bars (see
+  // excursion.js) rather than entered by hand. Only null/auto values are ever
+  // recomputed, so a manual edit (which clears the flag) sticks.
+  if (!tradeCols.some((c) => c.name === 'mae_auto')) {
+    db.exec('ALTER TABLE trades ADD COLUMN mae_auto INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!tradeCols.some((c) => c.name === 'mfe_auto')) {
+    db.exec('ALTER TABLE trades ADD COLUMN mfe_auto INTEGER NOT NULL DEFAULT 0');
+  }
+
   // Day-scoped journal recaps live in `notes` with trade_id NULL and a day set;
   // account_id scopes the recap to one account's trading day (trade notes leave
   // it null and derive the account from the trade). Nullable + guarded.
@@ -486,6 +498,130 @@ export function migrate() {
     db.pragma('user_version = 2');
   }
 
+  // One-shot backfill: derive MAE/MFE from stored price bars for existing trades
+  // whose excursions are null. Trades without bars yet are filled later, when
+  // their bars are fetched. Guarded by user_version.
+  if (db.pragma('user_version', { simple: true }) < 3) {
+    const rows = db
+      .prepare('SELECT * FROM trades WHERE (mae IS NULL OR mfe IS NULL) AND exit_time IS NOT NULL')
+      .all();
+    const n = refreshExcursions(db, rows, normalizeInstrument);
+    if (rows.length) console.log(`[migrate] auto MAE/MFE backfill: ${n}/${rows.length} trades`);
+    db.pragma('user_version = 3');
+  }
+
+  // Small key/value store for app-level settings editable from the UI (e.g. the
+  // import watch folder). Env vars override these at read time. Idempotent, so
+  // no user_version bump.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Structured psychology per trade (Edgewonk-style tiltmeter): pre-trade
+  // confidence 1-5, the emotional state going in (single select) and a
+  // post-trade execution/satisfaction rating 1-5. One row per trade; every
+  // column nullable so a partial rating is fine. Idempotent, no version bump.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS trade_psych (
+      trade_id INTEGER PRIMARY KEY REFERENCES trades(id) ON DELETE CASCADE,
+      confidence INTEGER CHECK(confidence BETWEEN 1 AND 5),
+      emotion TEXT CHECK(emotion IN ('calm','anxious','fomo','revenge','bored','confident')),
+      satisfaction INTEGER CHECK(satisfaction BETWEEN 1 AND 5),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
+  // notes.kind distinguishes a week recap ('week', stored on the week's Monday)
+  // from day recaps and trade notes (NULL). Day-recap queries filter on
+  // kind IS NULL so a Monday's day recap and its week recap never collide.
+  const noteKindCols = db.prepare('PRAGMA table_info(notes)').all();
+  if (!noteKindCols.some((c) => c.name === 'kind')) {
+    db.exec('ALTER TABLE notes ADD COLUMN kind TEXT');
+  }
+
+  // Profiles: a lightweight "whose accounts are these" grouping so two traders
+  // sharing one local app each get a clean view. No auth — just a switcher.
+  // share_links: read-only public links to one trade / day / week. Both are
+  // idempotent (CREATE IF NOT EXISTS + guarded column), so no user_version bump.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      colour TEXT,
+      default_instrument TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS share_links (
+      token TEXT PRIMARY KEY,           -- 32 random bytes, hex
+      kind TEXT NOT NULL CHECK(kind IN ('trade','day','week')),
+      ref TEXT NOT NULL,                -- trade id, or YYYY-MM-DD (day / any day of the week)
+      account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE, -- day/week scope
+      include_notes INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      expires_at TEXT,
+      revoked INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+  const acctProfileCols = db.prepare('PRAGMA table_info(accounts)').all();
+  if (!acctProfileCols.some((c) => c.name === 'profile_id')) {
+    db.exec(
+      'ALTER TABLE accounts ADD COLUMN profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL'
+    );
+  }
+
+  // Notebook: free-form markdown notes in folders, plus reusable templates.
+  // Separate from `notes` so trade notes and day/week recaps keep their exact
+  // shape and queries. Scoped by profile (NULL = shared across profiles);
+  // account_id mirrors notes.account_id for the account the note was written
+  // under. All CREATE IF NOT EXISTS, so no user_version bump.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notebook_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
+      account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+      folder TEXT,
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      body_format TEXT NOT NULL DEFAULT 'markdown',
+      pinned INTEGER NOT NULL DEFAULT 0,
+      trade_id INTEGER REFERENCES trades(id) ON DELETE SET NULL,
+      day TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_notebook_notes_scope ON notebook_notes(profile_id, folder);
+    CREATE TABLE IF NOT EXISTS notebook_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS note_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  // Default templates are seeded once (flagged in app_settings), so a template
+  // the user deletes doesn't come back on the next start.
+  const templatesSeeded = db
+    .prepare("SELECT 1 FROM app_settings WHERE key = 'notebook_templates_seeded'")
+    .get();
+  if (!templatesSeeded) {
+    const insTemplate = db.prepare('INSERT INTO note_templates (name, body) VALUES (?, ?)');
+    for (const [name, body] of DEFAULT_NOTE_TEMPLATES) insTemplate.run(name, body);
+    db.prepare(
+      "INSERT INTO app_settings (key, value, updated_at) VALUES ('notebook_templates_seeded', '1', datetime('now'))"
+    ).run();
+  }
+
   // Seed default account if none exists
   const count = db.prepare('SELECT COUNT(*) AS c FROM accounts').get().c;
   if (count === 0) {
@@ -493,5 +629,21 @@ export function migrate() {
       `INSERT INTO accounts (name, platform, currency, starting_balance)
        VALUES (?, ?, ?, ?)`
     ).run('Main', 'mt5', 'USD', 10000);
+  }
+}
+
+// ---------- app_settings helpers ----------
+export function getSetting(key) {
+  return db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key)?.value ?? null;
+}
+
+export function setSetting(key, value) {
+  if (value == null || value === '') {
+    db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
+  } else {
+    db.prepare(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+    ).run(key, String(value));
   }
 }

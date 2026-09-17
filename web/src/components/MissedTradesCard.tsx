@@ -22,9 +22,14 @@ const SWEPT_LEVELS: [string, string][] = [
 export default function MissedTradesCard({
   account,
   day,
+  bare = false,
+  onLogged,
 }: {
   account: number | null;
   day: string;
+  /** Drop the card chrome (when hosted in a sheet). */
+  bare?: boolean;
+  onLogged?: () => void;
 }) {
   const [rows, setRows] = useState<MissedTrade[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -66,6 +71,7 @@ export default function MissedTradesCard({
       setNote('');
       setSwept('');
       load();
+      onLogged?.();
     } catch (e: any) {
       setErr(e?.message || 'Failed to log missed trade');
     } finally {
@@ -86,7 +92,7 @@ export default function MissedTradesCard({
     SWEPT_LEVELS.find(([v]) => v === (k ?? ''))?.[1] ?? k ?? '—';
 
   return (
-    <div className="card p-5">
+    <div className={bare ? '' : 'card p-5'}>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-200">
           Missed <span className="text-slate-500">({rows.length})</span>
@@ -158,7 +164,7 @@ export default function MissedTradesCard({
           title="What it would have returned, in R (positive = a winner you skipped)"
         />
         <input
-          className="input flex-1 py-1 text-xs"
+          className="input min-w-[10rem] flex-1 py-1 text-xs"
           placeholder="note (optional)"
           value={note}
           onChange={(e) => setNote(e.target.value)}

@@ -100,6 +100,7 @@ export function filterParams(
 ): string {
   const p = new URLSearchParams();
   if (f.account != null) p.set('account', String(f.account));
+  else if (f.profile != null) p.set('profile', String(f.profile));
   if (f.instrument && f.instrument !== 'All') p.set('instrument', f.instrument);
   if (f.session && f.session !== 'All') p.set('session', f.session);
   if (f.setup && f.setup !== 'All') p.set('setup', f.setup);
@@ -184,7 +185,7 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
-  addNote: (id: number, body: string, rules_followed: 0 | 1) =>
+  addNote: (id: number, body: string, rules_followed?: 0 | 1) =>
     request<Note>(`/trades/${id}/notes`, {
       method: 'POST',
       body: JSON.stringify({ body, rules_followed }),
@@ -246,6 +247,12 @@ export const api = {
     request<HoldTimeStats>(`/stats/holdtime${filterParams(f)}`),
   getExcursion: (f: Filters) =>
     request<ExcursionStats>(`/stats/excursion${filterParams(f)}`),
+  getExitStats: (f: Filters) =>
+    request<import('../types').ExitStats>(`/stats/exits${filterParams(f)}`),
+  getExitAnalysis: (tradeId: number) =>
+    request<{ trade_id: number; analysis: import('../types').ExitAnalysis | null }>(
+      `/trades/${tradeId}/exit-analysis`
+    ),
   getProp: (f: Filters) => request<PropStats>(`/stats/prop${filterParams(f)}`),
   getAdherence: (f: Filters) =>
     request<AdherenceStats>(`/stats/adherence${filterParams(f)}`),
@@ -283,8 +290,9 @@ export const api = {
       `/stats/optimizer${filterParams(f, { sl, tp })}`
     ),
   getPortfolio: (f: Filters) => {
-    // Portfolio spans every account — drop the account filter.
+    // Portfolio spans every account (of the active profile) — drop the account filter.
     const p = new URLSearchParams();
+    if (f.profile != null) p.set('profile', String(f.profile));
     if (f.instrument && f.instrument !== 'All') p.set('instrument', f.instrument);
     if (f.session && f.session !== 'All') p.set('session', f.session);
     if (f.setup && f.setup !== 'All') p.set('setup', f.setup);
@@ -645,6 +653,31 @@ export const api = {
     }),
   getFieldStats: (f: Filters, defId: number) =>
     request<FieldStats>(`/stats/field${filterParams(f, { def: defId })}`),
+  // Phase D — review workflow
+  getMonthReport: (account: number | null, ym: string) =>
+    request<import('../types').MonthReport>(
+      `/report/month/${ym}${account != null ? `?account=${account}` : ''}`
+    ),
+  getWeekRecap: (account: number | null, date: string) =>
+    request<import('../types').WeekRecap>(
+      `/journal/week/${date}${account != null ? `?account=${account}` : ''}`
+    ),
+  saveWeekRecap: (account: number | null, date: string, body: string) =>
+    request<Note>(`/journal/week/${date}`, {
+      method: 'PUT',
+      body: JSON.stringify({ account_id: account ?? undefined, body }),
+    }),
+  saveTradePsych: (tradeId: number, body: Partial<Pick<import('../types').TradePsych, 'confidence' | 'emotion' | 'satisfaction'>>) =>
+    request<import('../types').TradePsych | null>(`/trades/${tradeId}/psych`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  getTags: (category?: string) =>
+    request<import('../types').TagWithUses[]>(`/tags${category ? `?category=${category}` : ''}`),
+  getPsychology: (f: Filters) =>
+    request<import('../types').PsychologyStats>(`/stats/psychology${filterParams(f)}`),
+  getInsights: (f: Filters) =>
+    request<import('../types').InsightsResponse>(`/stats/insights${filterParams(f)}`),
   getWeekReport: (account: number | null, date: string) => {
     const p = new URLSearchParams();
     if (account != null) p.set('account', String(account));

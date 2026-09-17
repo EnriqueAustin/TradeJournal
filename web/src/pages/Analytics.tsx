@@ -6,6 +6,9 @@ import { AsyncBoundary } from '../components/states';
 import HoldTimeBars from '../components/HoldTimeBars';
 import OptimizerHeatmap from '../components/OptimizerHeatmap';
 import ReportCard from '../components/ReportCard';
+import ExitAnalysisPanel from '../components/ExitAnalysisPanel';
+import InsightsCard from '../components/InsightsCard';
+import PsychologyPanel from '../components/PsychologyPanel';
 import { formatNumber, formatPct, formatDuration, formatMoney, formatR, signClass, sessionLabel } from '../utils/format';
 import type { ExcursionStats, WickEdgeStats, WickEdgeRow, TagStats, TagStatRow, EfficiencyRow } from '../types';
 
@@ -311,9 +314,9 @@ function ExcursionPanel({ e }: { e: ExcursionStats }) {
         </div>
       </div>
       <p className="text-xs text-slate-500">
-        MAE/MFE are price-distance excursions recorded per trade. Sample:{' '}
-        {e.mae_sample} with MAE, {e.mfe_sample} with MFE. Populate them on the
-        Trade detail page or via the EA/import to enrich this panel.
+        MAE/MFE are price-distance excursions per trade, auto-derived from stored
+        price bars (S5 when available, else M1) unless entered by hand. Sample:{' '}
+        {e.mae_sample} with MAE, {e.mfe_sample} with MFE.
       </p>
     </div>
   );
@@ -329,6 +332,7 @@ export default function Analytics() {
   const reportCard = useApi(() => api.getReportCard(filters), [key]);
   const holdtime = useApi(() => api.getHoldtime(filters), [key]);
   const excursion = useApi(() => api.getExcursion(filters), [key]);
+  const exits = useApi(() => api.getExitStats(filters), [key]);
   const wickEdge = useApi(() => api.getWickEdge(filters), [key]);
   const tagStats = useApi(() => api.getTagStats(filters), [key]);
   const missed = useApi(() => api.getMissedStats(filters), [key]);
@@ -367,9 +371,18 @@ export default function Analytics() {
           isEmpty={!reportCard.data || reportCard.data.trade_count === 0}
           emptyMessage="No trades match the filters."
           loadingLabel="Building report card…"
+          skeleton="tiles"
         >
           {reportCard.data && <ReportCard data={reportCard.data} currency={currency} />}
         </AsyncBoundary>
+      </SectionCard>
+
+      <SectionCard title="Insights">
+        <InsightsCard full />
+      </SectionCard>
+
+      <SectionCard title="Psychology">
+        <PsychologyPanel currency={currency} />
       </SectionCard>
 
       <SectionCard
@@ -396,6 +409,7 @@ export default function Analytics() {
           isEmpty={!hasHold}
           emptyMessage="No trades with a hold time match the filters."
           loadingLabel="Loading hold-time buckets…"
+          skeleton="chart"
         >
           {h && <HoldTimeBars data={h.buckets} />}
         </AsyncBoundary>
@@ -407,8 +421,22 @@ export default function Analytics() {
           error={excursion.error}
           onRetry={excursion.reload}
           loadingLabel="Loading excursion…"
+          skeleton="tiles"
         >
           {excursion.data && <ExcursionPanel e={excursion.data} />}
+        </AsyncBoundary>
+      </SectionCard>
+
+      <SectionCard title="Exit Analysis — Price After Exit">
+        <AsyncBoundary
+          loading={exits.loading}
+          error={exits.error}
+          onRetry={exits.reload}
+          isEmpty={!exits.data || exits.data.sample === 0}
+          emptyMessage="No trades with price bars after their exit match the filters."
+          loadingLabel="Reading price after exit…"
+        >
+          {exits.data && <ExitAnalysisPanel data={exits.data} currency={currency} />}
         </AsyncBoundary>
       </SectionCard>
 
@@ -420,6 +448,7 @@ export default function Analytics() {
           isEmpty={!missed.data || missed.data.count === 0}
           emptyMessage="No missed trades logged for these filters. Log them from the day journal."
           loadingLabel="Loading missed trades…"
+          skeleton="tiles"
         >
           {missed.data && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -476,6 +505,7 @@ export default function Analytics() {
           isEmpty={!fieldStats.data || fieldStats.data.buckets.length === 0}
           emptyMessage="No custom-field values match the filters. Define a field and set values on the trade detail."
           loadingLabel="Correlating…"
+          skeleton="table"
         >
           {fieldStats.data && (
             <table className="w-full text-sm">
@@ -516,6 +546,7 @@ export default function Analytics() {
           error={tagStats.error}
           onRetry={tagStats.reload}
           loadingLabel="Loading tag stats…"
+          skeleton="table"
         >
           {tagStats.data && <TagAnalyticsPanel data={tagStats.data} />}
         </AsyncBoundary>
@@ -527,6 +558,7 @@ export default function Analytics() {
           error={wickEdge.error}
           onRetry={wickEdge.reload}
           loadingLabel="Loading wick edge…"
+          skeleton="table"
         >
           {wickEdge.data && <WickEdgePanel data={wickEdge.data} />}
         </AsyncBoundary>
@@ -562,6 +594,7 @@ export default function Analytics() {
           error={optimizer.error}
           onRetry={optimizer.reload}
           loadingLabel="Sweeping SL/TP grid…"
+          skeleton="chart"
         >
           {optimizer.data && <OptimizerHeatmap data={optimizer.data} />}
         </AsyncBoundary>

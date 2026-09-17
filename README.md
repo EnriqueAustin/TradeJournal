@@ -71,6 +71,102 @@ MT5: *History → right-click → Report → Save as*. All four export formats w
 Upload on the Import page. Trades are deduped by broker deal/position id.
 Sample: `samples/mt5_deals_sample.csv`.
 
+### Watch folder (auto-import)
+Point the server at a folder and it polls it every 30s (`IMPORT_WATCH_SEC`) for
+`.csv/.htm/.html/.xlsx/.xml` reports. Each file goes through the same pipeline as
+an upload (broker-tz → UTC, dedupe by broker id, bar auto-fetch, MAE/MFE), then
+moves to `processed/` — or to `failed/` with a `<file>.log` explaining why (a file
+that yields zero trades counts as failed). Files modified in the last 5s are left
+for the next scan so half-written exports aren't picked up.
+
+- Configure on the Import page (saved in the DB), or with env vars, which win:
+  `IMPORT_WATCH_DIR` (absolute path) and `IMPORT_WATCH_ACCOUNT` (account id).
+- Default account: `IMPORT_WATCH_ACCOUNT` / the saved one / else the first account.
+  Per-file override: prefix the name with `acc<id>_`, e.g. `acc3_ReportHistory.html`.
+- Docker: the folder must exist inside the `server` container — add a bind mount,
+  e.g. `- "C:/Users/you/Documents/MT5 Reports:/import"` under `server.volumes`,
+  and set `IMPORT_WATCH_DIR=/import`.
+
+## Backups & restore
+- **Automatic:** while the server runs it snapshots the journal daily (on startup
+  if the newest backup is >24h old, then every 24h). `BACKUP_AUTO=0` disables it.
+- **Manual:** Accounts page → *Backup now* (or `POST /api/backup`).
+- **Where:** `BACKUP_DIR`, default `backups/` next to the journal DB
+  (`server/data/backups`; in Docker `/app/data/backups` inside the `journal-data`
+  volume — mount a host folder there if you want copies outside Docker).
+  Each backup is `journal-YYYYMMDD-HHMMSS.db` (UTC; a consistent SQLite online
+  backup, safe while the app is writing) plus a sibling
+  `journal-YYYYMMDD-HHMMSS-screenshots/` with copies of the screenshot files trades
+  reference. The newest `BACKUP_KEEP` (default 14) are kept.
+- **Download:** Accounts page backup list, or `GET /api/backups/<name>/download`
+  (the `.db` file; screenshots stay in the backup folder).
+- **Export:** *Export all (JSON)* / `GET /api/export/all` dumps every journal table
+  (trades, executions, notes, tags, setups, accounts, goals, missed trades, custom
+  fields, plans, backtest sessions, …) for portability. Price bars, the news cache
+  and live positions are excluded (re-fetchable).
+
+**Restore (manual, on purpose — there is no restore API):**
+1. Stop the server (`Ctrl+C`, or `docker compose stop server`).
+2. Keep the current DB aside: rename `server/data/journal.db` to e.g.
+   `journal.db.before-restore`, and **delete** `journal.db-wal` / `journal.db-shm`
+   if present (stale WAL files would be replayed onto the restored DB).
+3. Copy the chosen `journal-YYYYMMDD-HHMMSS.db` to `server/data/journal.db`.
+4. Copy the files from `journal-YYYYMMDD-HHMMSS-screenshots/` into
+   `server/data/screenshots/` (existing files with the same name are identical).
+5. Start the server. Migrations run on startup, so older backups upgrade in place.
+
+Docker: do the same inside the volume, e.g.
+`docker compose run --rm --entrypoint sh server` then work in `/app/data`
+(backups are in `/app/data/backups`).
+
+## Profiles & share links
+
+- **Profiles** (Accounts page) group accounts per trader, e.g. one profile for XAUUSD and one for US100. Pick the active profile at the top of the sidebar: the account filter then lists only that profile's accounts, "All accounts" means all of that profile's accounts, and its default instrument is pre-selected. No passwords; it is a view switch, not access control.
+- **Share links** (Accounts page, Share links panel) create a read-only page at `/s/<token>` for one trade, day or week, with notes/recaps only if you tick "Include notes". Links can expire and can be revoked.
+- The app has no authentication. A share link only works for someone else if this app is reachable from their machine (e.g. you expose it on your LAN or through a tunnel), and exposing the app exposes the whole API, not just the shared page.
+
+## Install on a phone (PWA)
+
+The web app is responsive (drawer nav + bottom tab bar below 768px) and ships a
+web-app manifest and service worker, so it can be added to a phone's home screen
+and opened full-screen. **Quick capture** (`/quick`, the **+** in the bottom bar)
+is the phone screen: today's trades as cards → grade, plan, mistakes, emotion,
+note and a camera screenshot.
+
+**1. Serve a production build on your LAN.** The service worker is only
+registered in production builds (never in `npm run dev`).
+
+- Docker: `docker compose up --build` already listens on every interface → `http://<pc-lan-ip>:8080`.
+- Without Docker: start the API (`npm --prefix server start`), then
+  `npm --prefix web run build && npm --prefix web run preview -- --host --port 4173`
+  → `http://<pc-lan-ip>:4173` (`vite preview` proxies `/api` to the server like the dev server; set `API_PORT` if it isn't on 4000).
+- Find the PC's LAN IP with `ipconfig` (Windows) / `ip addr` (Linux); allow the port through the firewall.
+
+**2. Use HTTPS (or localhost).** Browsers only allow service workers — and
+therefore "Install app" — on `https://` or `http://localhost`. Over plain
+`http://192.168.x.x` the site still works in the phone's browser and iOS can
+still "Add to Home Screen", but there is no service worker/offline page and
+Android won't offer a proper install. Options:
+
+- **Tailscale** (simplest): install Tailscale on the PC and the phones, then
+  `tailscale serve --bg 8080` (or `4173`) gives a `https://<pc>.<tailnet>.ts.net`
+  URL with a valid certificate, reachable only from your tailnet.
+- **LAN reverse proxy with a cert**: e.g. Caddy (`caddy reverse-proxy --from journal.lan --to localhost:8080`
+  with its internal CA installed on the phones) or nginx with a mkcert certificate.
+- **Android + USB for testing**: `adb reverse tcp:8080 tcp:8080`, then open `http://localhost:8080` on the phone.
+
+**3. Install.** Android Chrome: menu → *Install app*. iPhone Safari: Share →
+*Add to Home Screen*.
+
+What is cached: only the built static assets (`/assets/*`, icons, manifest) and
+an offline page. `/api/*` and `/screenshots/*` are never cached — journal data
+always comes live from the server, so the phone must reach the PC to journal.
+After changing `web/public/sw.js`, bump its `VERSION`. Icons are generated by
+`node web/scripts/gen-icons.mjs` (Node built-ins only).
+
+The app has no authentication: anyone who can reach the URL can read and edit
+the journal. Prefer Tailscale over opening the port to the whole network.
+
 ## Roadmap (see docs/CONTRACT.md for Phase 0 detail)
 - **Phase 0 (this)** — CSV/HTML import, stats, equity curve, P&L calendar, session/instrument filters.
 - **Phase 1** — EA webhook real-time capture, session heatmap, setups/playbook, hold-time & MAE/MFE.

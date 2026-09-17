@@ -126,11 +126,13 @@ class KillZoneRenderer implements ISeriesPrimitivePaneRenderer {
 // Build the London (07–10 UTC) and NY (12–15 UTC) kill-zone windows that fall
 // within [fromSec, toSec] (lightweight-charts UTC seconds). These are the
 // higher-probability windows of the two sessions the strategy trades.
+export const KILL_ZONE_WINDOWS: { kind: 'LON' | 'NY'; startH: number; endH: number }[] = [
+  { kind: 'LON', startH: 7, endH: 10 },
+  { kind: 'NY', startH: 12, endH: 15 },
+];
+
 export function buildKillZones(fromSec: number, toSec: number): KillZone[] {
-  const WINDOWS: { kind: 'LON' | 'NY'; startH: number; endH: number }[] = [
-    { kind: 'LON', startH: 7, endH: 10 },
-    { kind: 'NY', startH: 12, endH: 15 },
-  ];
+  const WINDOWS = KILL_ZONE_WINDOWS;
   const zones: KillZone[] = [];
   const dayMs = 86400;
   const firstDay = Math.floor(fromSec / dayMs) * dayMs;

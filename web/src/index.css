@@ -2,28 +2,87 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Global terminal theme — mirrors the Signal (Bloomberg-style) look so every
- * page shares the same dense, monospace, black-with-amber aesthetic. Signal's
- * own `.sig-*` scoped styles still take precedence inside that page. */
+/* Theme tokens. Every colour is an "R G B" triplet (--c-*) so Tailwind utilities
+ * can apply opacity modifiers; --term-* are the ready-to-use rgb() forms for
+ * inline styles. <html data-theme="dark|light"> picks the palette — set before
+ * first paint by index.html and toggled from the sidebar (store/theme.ts). */
 
 :root {
   color-scheme: dark;
-  --term-bg: #05080a;
-  --term-bg-2: #0a0f12;
-  --term-panel: #0b1114;
-  --term-panel-hd: #0e161a;
-  --term-border: #17242a;
-  --term-border-2: #23343b;
-  --term-muted: #526059;
-  --term-text-dim: #7d8f88;
-  --term-text: #c6d3cc;
-  --term-text-hi: #e3ecda;
-  --term-green: #2ee56b;
-  --term-red: #ff5a5a;
-  --term-amber: #f5a623;
-  --term-cyan: #35c7e0;
-  --term-blue: #4f9dff;
-  --term-mag: #c07bff;
+  --font-sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --c-bg: 5 8 10;
+  --c-bg-2: 10 15 18;
+  --c-panel: 11 17 20;
+  --c-panel-hd: 14 22 26;
+  --c-border: 23 36 42;
+  --c-border-2: 35 52 59;
+  --c-muted: 82 96 89;
+  --c-text-dim: 125 143 136;
+  --c-text: 198 211 204;
+  --c-text-hi: 227 236 218;
+  --c-green: 46 229 107;
+  --c-red: 255 90 90;
+  --c-amber: 245 166 35;
+  --c-cyan: 53 199 224;
+  --c-blue: 79 157 255;
+  --c-mag: 192 123 255;
+  --c-emerald-200: 165 240 190; --c-emerald-300: 127 232 161; --c-emerald-400: 46 229 107; --c-emerald-500: 46 229 107; --c-emerald-600: 31 191 88; --c-emerald-700: 24 140 67; --c-emerald-800: 15 90 44; --c-emerald-900: 8 46 22; --c-emerald-950: 3 23 10;
+  --c-red-200: 255 193 193; --c-red-300: 255 160 160; --c-red-400: 255 90 90; --c-red-500: 255 90 90; --c-red-600: 228 58 58; --c-red-700: 165 36 36; --c-red-800: 112 24 24; --c-red-900: 61 13 13; --c-red-950: 28 5 5;
+  --c-amber-200: 255 220 144; --c-amber-300: 255 204 102; --c-amber-400: 255 187 68; --c-amber-500: 245 166 35; --c-amber-600: 245 166 35; --c-amber-700: 196 127 0; --c-amber-800: 143 92 0; --c-amber-900: 74 50 0; --c-amber-950: 35 24 0;
+  --c-cyan-200: 165 243 252; --c-cyan-300: 125 230 245; --c-cyan-400: 53 199 224; --c-cyan-500: 53 199 224; --c-cyan-600: 30 165 189; --c-cyan-700: 14 116 144; --c-cyan-800: 21 94 117; --c-cyan-900: 22 78 99; --c-cyan-950: 8 51 68;
+  --c-orange-300: 253 186 116; --c-orange-400: 251 146 60; --c-orange-800: 154 52 18; --c-orange-950: 67 20 7;
+  --c-amber-hover: 255 187 68;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --c-bg: 242 244 243;
+  --c-bg-2: 233 237 235;
+  --c-panel: 255 255 255;
+  --c-panel-hd: 247 249 248;
+  --c-border: 220 226 223;
+  --c-border-2: 197 207 203;
+  --c-muted: 103 118 111;
+  --c-text-dim: 76 91 85;
+  --c-text: 31 43 39;
+  --c-text-hi: 11 20 17;
+  --c-green: 13 138 58;
+  --c-red: 207 41 41;
+  --c-amber: 168 100 0;
+  --c-cyan: 8 127 151;
+  --c-blue: 31 111 209;
+  --c-mag: 127 60 196;
+  --c-emerald-200: 8 90 38; --c-emerald-300: 10 110 47; --c-emerald-400: 13 138 58; --c-emerald-500: 22 163 74; --c-emerald-600: 13 138 58; --c-emerald-700: 134 211 161; --c-emerald-800: 185 230 200; --c-emerald-900: 213 241 222; --c-emerald-950: 230 247 236;
+  --c-red-200: 122 17 17; --c-red-300: 151 25 25; --c-red-400: 207 41 41; --c-red-500: 224 59 59; --c-red-600: 192 36 36; --c-red-700: 240 163 163; --c-red-800: 245 197 197; --c-red-900: 250 218 218; --c-red-950: 253 233 233;
+  --c-amber-200: 97 57 0; --c-amber-300: 122 72 0; --c-amber-400: 154 92 0; --c-amber-500: 194 122 5; --c-amber-600: 168 100 0; --c-amber-700: 230 181 102; --c-amber-800: 240 210 154; --c-amber-900: 248 229 194; --c-amber-950: 252 241 220;
+  --c-cyan-200: 5 72 90; --c-cyan-300: 6 96 114; --c-cyan-400: 8 127 151; --c-cyan-500: 11 147 174; --c-cyan-600: 8 127 151; --c-cyan-700: 143 211 224; --c-cyan-800: 189 229 237; --c-cyan-900: 217 241 245; --c-cyan-950: 233 247 250;
+  --c-orange-300: 154 74 12; --c-orange-400: 185 90 16; --c-orange-800: 243 199 159; --c-orange-950: 253 240 227;
+  --c-amber-hover: 140 82 0;
+}
+
+:root {
+  --term-bg: rgb(var(--c-bg));
+  --term-bg-2: rgb(var(--c-bg-2));
+  --term-panel: rgb(var(--c-panel));
+  --term-panel-hd: rgb(var(--c-panel-hd));
+  --term-border: rgb(var(--c-border));
+  --term-border-2: rgb(var(--c-border-2));
+  --term-muted: rgb(var(--c-muted));
+  --term-text-dim: rgb(var(--c-text-dim));
+  --term-text: rgb(var(--c-text));
+  --term-text-hi: rgb(var(--c-text-hi));
+  --term-green: rgb(var(--c-green));
+  --term-red: rgb(var(--c-red));
+  --term-amber: rgb(var(--c-amber));
+  --term-cyan: rgb(var(--c-cyan));
+  --term-blue: rgb(var(--c-blue));
+  --term-mag: rgb(var(--c-mag));
+  /* Text on an amber (primary) fill. */
+  --term-on-accent: #fff;
+}
+:root:not([data-theme="light"]) {
+  --term-on-accent: rgb(var(--c-bg));
 }
 
 html,
@@ -35,9 +94,9 @@ body,
 body {
   background: var(--term-bg);
   color: var(--term-text);
-  font-family: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
-  font-size: 12.5px;
-  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -65,8 +124,20 @@ body {
   outline-offset: 1px;
 }
 
+/* Tables stay terminal-dense: monospace, tabular figures. Headers use the UI
+   sans so column names read as labels, not data. */
+table td {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+table th {
+  font-family: var(--font-sans);
+  white-space: nowrap;
+}
+
 ::selection {
-  background: rgba(245, 166, 35, 0.3);
+  background: rgb(var(--c-amber) / 0.3);
   color: var(--term-text-hi);
 }
 
@@ -81,8 +152,9 @@ body {
 
   /* Numeric cells: tabular monospaced. */
   .num {
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
-    letter-spacing: 0.01em;
+    letter-spacing: 0;
   }
 
   /* Inputs — terminal-flat, cyan focus. */
@@ -92,7 +164,6 @@ body {
     border-color: var(--term-border-2);
     border-radius: 2px;
     font-family: inherit;
-    letter-spacing: 0.03em;
   }
   .input:hover {
     border-color: var(--term-muted);
@@ -109,7 +180,7 @@ body {
     color: var(--term-text-dim);
     border-color: var(--term-border-2);
     border-radius: 2px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.04em;
     font-family: inherit;
   }
   .btn:hover:not(:disabled) {
@@ -124,13 +195,13 @@ body {
   /* Primary — amber "active tab" look, matches .sig-tab.is-active. */
   .btn-primary {
     background: var(--term-amber);
-    color: var(--term-bg);
+    color: var(--term-on-accent);
     border-color: var(--term-amber);
   }
   .btn-primary:hover:not(:disabled) {
-    background: #ffbb44;
-    border-color: #ffbb44;
-    color: var(--term-bg);
+    background: rgb(var(--c-amber-hover));
+    border-color: rgb(var(--c-amber-hover));
+    color: var(--term-on-accent);
   }
 
   .btn-icon {
@@ -139,16 +210,109 @@ body {
 
   /* Section labels — small, uppercase, dim (amber for section headings elsewhere). */
   .label {
-    @apply mb-1 block text-[10px] font-bold uppercase;
+    @apply mb-1 block text-[11px] font-semibold uppercase;
     color: var(--term-text-dim);
-    letter-spacing: 0.1em;
+    letter-spacing: 0.04em;
   }
+}
+
+/* Mobile shell (below md). The bottom tab bar is fixed, so main reserves its
+   height plus the home-indicator inset; sheets/drawers slide in. */
+@media (max-width: 767.98px) {
+  .tj-main {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+  /* iOS zooms into inputs under 16px on focus — keep form controls at 16px. */
+  .input,
+  select,
+  textarea,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']) {
+    font-size: 16px;
+  }
+  .btn {
+    min-height: 40px;
+  }
+  /* Tap targets: every control in the page gets at least 40px of height, and
+     a select can never be wider than its container (long option labels). */
+  .tj-main button,
+  .tj-main select,
+  .tj-main [role='button'],
+  .tj-main input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .tj-sheet-body button,
+  .tj-sheet-body select,
+  .tj-sheet-body input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .tj-modal button,
+  .tj-modal select,
+  .tj-modal input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']) {
+    min-height: 40px;
+  }
+  .tj-main select,
+  .tj-main .input {
+    max-width: 100%;
+  }
+  /* Prev/Next row of the review card stays under the thumb while scrolling:
+     above the tab bar in the page, at the sheet's bottom edge inside a sheet. */
+  .tj-sticky-actions {
+    position: sticky;
+    z-index: 5;
+    background: var(--term-panel);
+    padding-bottom: 0.5rem;
+  }
+  .tj-main .tj-sticky-actions {
+    bottom: calc(3.5rem + env(safe-area-inset-bottom));
+  }
+  /* Centered modals become full-screen sheets on phones. */
+  .tj-modal {
+    padding: 0 !important;
+    align-items: stretch !important;
+  }
+  .tj-modal > .tj-modal-panel {
+    width: 100%;
+    max-width: none !important;
+    height: 100dvh;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border-width: 0;
+    overflow-y: auto !important;
+    padding-top: max(env(safe-area-inset-top), var(--tj-modal-pt, 0px));
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: tj-slide-up 180ms ease-out;
+  }
+  .tj-sheet-body .tj-sticky-actions {
+    bottom: 0;
+  }
+}
+/* Installed on a tablet (md+, translucent status bar): keep the sidebar and
+   page clear of the notch/status bar. env() is 0 in ordinary browsers. */
+@media (min-width: 768px) {
+  .tj-shell {
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    box-sizing: border-box;
+  }
+}
+@keyframes tj-slide-right {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes tj-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.tj-drawer-in { animation: tj-slide-right 160ms ease-out; }
+.tj-sheet-in { animation: tj-slide-up 180ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .tj-drawer-in, .tj-sheet-in { animation: none; }
 }
 
 /* Print — the weekly review is the only screen meant for paper. Drop the app
    chrome and flip to black-on-white so it reads on a printed page or PDF. */
 @media print {
-  aside { display: none !important; }
+  aside, .tj-mobile-chrome { display: none !important; }
   body { background: #fff !important; }
   main { color: #111 !important; }
   main .card,

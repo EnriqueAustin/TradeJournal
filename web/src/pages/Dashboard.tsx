@@ -1,53 +1,28 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi, filterKey } from '../hooks/useApi';
-import StatTile from '../components/StatTile';
-import EquityCurve from '../components/EquityCurve';
-import Calendar from '../components/Calendar';
-import SessionHeatmap from '../components/SessionHeatmap';
-import SessionsClock from '../components/SessionsClock';
-import HourlyBars from '../components/HourlyBars';
-import AiReviewPanel from '../components/AiReviewPanel';
 import LivePositions from '../components/LivePositions';
-import GoalsCard from '../components/GoalsCard';
-import { AsyncBoundary } from '../components/states';
-import type { PropStats, EdgeScore } from '../types';
-import { Link } from 'react-router-dom';
+import { ReminderSettingsButton, ReviewReminderBanner } from '../components/ReviewReminders';
+import { DashboardProvider, WIDGETS, type DashboardCtx, type WidgetDef } from '../components/dashboard/widgets';
 import {
-  formatMoney,
-  formatR,
-  formatPct,
-  formatNumber,
-  signClass,
-  DISPLAY_TZ,
-} from '../utils/format';
+  defaultLayout,
+  loadLayout,
+  saveLayout,
+  moveWidget,
+  stepWidget,
+  toggleIn,
+  type LayoutState,
+} from '../components/dashboard/layout';
+import type { PropStats } from '../types';
+import { formatMoney, formatPct } from '../utils/format';
+
+const RECENT_TRADES = 8;
 
 // UTC month, matching the server's realized-date buckets.
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7);
-}
-
-function SectionCard({
-  title,
-  right,
-  children,
-  className = '',
-}: {
-  title: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={`card p-4 ${className}`}>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-200">{title}</h2>
-        {right}
-      </div>
-      {children}
-    </div>
-  );
 }
 
 function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
@@ -66,7 +41,7 @@ function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
     const color = pct >= 1 ? 'bg-red-500' : pct >= 0.8 ? 'bg-amber-500' : danger === false ? 'bg-cyan-500' : 'bg-emerald-500';
     return (
       <div className="min-w-[100px] flex-1">
-        <div className="mb-0.5 flex items-center justify-between text-[10px] text-slate-500">
+        <div className="mb-0.5 flex items-center justify-between text-[11px] text-slate-500">
           <span>{label}</span>
           <span className="num">{formatPct(pct)}</span>
         </div>
@@ -84,19 +59,13 @@ function PropBanner({ p, currency }: { p: PropStats; currency: string }) {
           <span className="text-xs font-semibold uppercase tracking-wide">
             {p.status === 'ok' ? 'OK' : p.status === 'warn' ? 'Warning' : 'Breach'}
           </span>
-          <span className="num text-xs opacity-70">
-            Equity {formatMoney(p.current_equity, currency)}
-          </span>
+          <span className="num text-xs opacity-70">Equity {formatMoney(p.current_equity, currency)}</span>
           {p.dd_type && (
-            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">
+            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[11px]">
               {p.dd_type === 'trailing' ? 'trailing' : 'static'} DD
             </span>
           )}
-          {p.phase > 0 && (
-            <span className="rounded bg-black/20 px-1.5 py-0.5 text-[10px]">
-              Phase {p.phase}
-            </span>
-          )}
+          {p.phase > 0 && <span className="rounded bg-black/20 px-1.5 py-0.5 text-[11px]">Phase {p.phase}</span>}
         </div>
         <div className="flex flex-1 items-center gap-4">
           <MiniMeter label="Daily Loss" pct={p.day_loss_used_pct} />
@@ -128,133 +97,8 @@ function UnitToggle({ unit, onChange }: { unit: 'money' | 'r'; onChange: (u: 'mo
   );
 }
 
-// Compact Edge Score badge (full breakdown lives on Analytics → Report Card).
-function EdgeScoreChip({ score }: { score: EdgeScore }) {
-  const col =
-    score.total >= 70
-      ? 'text-emerald-400 border-emerald-800/60 bg-emerald-950/30'
-      : score.total >= 55
-        ? 'text-amber-400 border-amber-800/60 bg-amber-950/30'
-        : score.total >= 40
-          ? 'text-orange-400 border-orange-800/60 bg-orange-950/30'
-          : 'text-red-400 border-red-800/60 bg-red-950/30';
-  return (
-    <Link
-      to="/analytics"
-      title="Edge Score — see the full Report Card on Analytics"
-      className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 ${col} transition hover:brightness-125`}
-    >
-      <span className="num text-2xl font-bold leading-none">{score.total}</span>
-      <span className="flex flex-col leading-tight">
-        <span className="text-[10px] uppercase tracking-wide opacity-70">Edge Score</span>
-        <span className="text-xs font-semibold">
-          Grade {score.grade}
-          {!score.reliable && <span className="ml-1 opacity-60">· early</span>}
-        </span>
-      </span>
-    </Link>
-  );
-}
-
-// Discipline card — how often the plan was followed and whether following it
-// actually pays. Data comes from trades.followed_plan + the 'grade' tag; both
-// are set one-tap from the Post-trade Review on each trade.
-function DisciplineCard({ filters }: { filters: ReturnType<typeof useFilters>['filters'] }) {
-  const key = filterKey(filters);
-  const { data, loading, error, reload } = useApi(() => api.getDiscipline(filters), [key]);
-  const d = data;
-  const gradeOrder = ['A', 'B', 'C', 'D', 'F'];
-  return (
-    <SectionCard
-      title="Discipline"
-      right={
-        d && d.reviewed > 0 ? (
-          <span className="num text-xs text-slate-400">
-            {d.reviewed}/{d.total} reviewed
-          </span>
-        ) : undefined
-      }
-    >
-      <AsyncBoundary
-        loading={loading}
-        error={error}
-        onRetry={reload}
-        isEmpty={!d || d.reviewed === 0}
-        emptyMessage="No reviews yet — grade a trade and flag whether you followed your plan on its detail page."
-        loadingLabel="Loading discipline…"
-      >
-        {d && (
-          <div className="flex flex-wrap items-center gap-x-10 gap-y-4">
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">
-                Plan followed
-              </div>
-              <div
-                className={`num text-2xl font-bold ${
-                  (d.followed_pct ?? 0) >= 0.7
-                    ? 'text-emerald-400'
-                    : (d.followed_pct ?? 0) >= 0.4
-                      ? 'text-amber-400'
-                      : 'text-red-400'
-                }`}
-              >
-                {d.followed_pct == null ? '—' : formatPct(d.followed_pct)}
-              </div>
-              <div className="text-[11px] text-slate-500">
-                {d.followed} followed · {d.broken} broke
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-500">
-                Avg P&L: followed vs broke
-              </div>
-              <div className="mt-1 flex items-center gap-3 text-sm">
-                <span className={signClass(d.avg_net_followed)}>
-                  {d.avg_net_followed == null ? '—' : formatMoney(d.avg_net_followed)}
-                </span>
-                <span className="text-slate-600">/</span>
-                <span className={signClass(d.avg_net_broken)}>
-                  {d.avg_net_broken == null ? '—' : formatMoney(d.avg_net_broken)}
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-500">per trade</div>
-            </div>
-            {d.graded > 0 && (
-              <div>
-                <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">
-                  Grades
-                </div>
-                <div className="flex items-end gap-1.5">
-                  {gradeOrder.map((g) => {
-                    const n = d.grades[g] ?? 0;
-                    return (
-                      <div key={g} className="flex flex-col items-center gap-1">
-                        <span className="num text-xs text-slate-300">{n || ''}</span>
-                        <span
-                          className={`flex h-6 w-6 items-center justify-center rounded text-xs font-semibold ${
-                            n === 0
-                              ? 'bg-slate-800 text-slate-600'
-                              : g === 'A' || g === 'B'
-                                ? 'bg-emerald-500/15 text-emerald-300'
-                                : g === 'C'
-                                  ? 'bg-amber-500/15 text-amber-300'
-                                  : 'bg-red-500/15 text-red-300'
-                          }`}
-                        >
-                          {g}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </AsyncBoundary>
-    </SectionCard>
-  );
-}
+const WIDE = 'lg:col-span-12';
+const BY_ID = new Map(WIDGETS.map((w) => [w.id, w]));
 
 export default function Dashboard() {
   const { filters, accounts } = useFilters();
@@ -298,191 +142,268 @@ export default function Dashboard() {
 
   const summary = useApi(() => api.getSummary(filters), [key]);
   const reportCard = useApi(() => api.getReportCard(filters), [key]);
-  const equity = useApi(() => api.getEquity(filters), [key]);
-  const calendar = useApi(
-    () => api.getCalendar(filters, month),
-    [key, month]
-  );
-  // Scoped to the same month as the calendar beside it, so the two cards always
-  // describe the same period.
-  const session = useApi(() => api.getSession(filters, month), [key, month]);
-  const hourly = useApi(() => api.getHourly(filters), [key]);
+  // Most recent trade matching the filters (trades sort newest-realized first).
+  // The calendar + heatmap open on its month rather than the current one, which
+  // is often empty; once the user picks a month by hand we stop following it.
+  // Also feeds the Recent Trades widget.
+  const latest = useApi(() => api.getTrades(filters, RECENT_TRADES, 0), [key]);
+  const lastTradeMonth = useMemo(() => {
+    const t = latest.data?.rows[0];
+    return (t?.exit_time ?? t?.entry_time ?? '').slice(0, 7);
+  }, [latest.data]);
+  const monthPicked = useRef(false);
+  useEffect(() => {
+    if (lastTradeMonth && !monthPicked.current) setMonth(lastTradeMonth);
+  }, [lastTradeMonth]);
+  const pickMonth = (m: string) => {
+    monthPicked.current = true;
+    setMonth(m);
+  };
+
   const prop = useApi(() => (isProp ? api.getProp(filters) : Promise.resolve(null)), [key, isProp]);
 
-  const s = summary.data;
+  const ctx: DashboardCtx = {
+    filters,
+    fkey: key,
+    currency,
+    unit,
+    month,
+    monthLabel,
+    pickMonth,
+    lastTradeMonth,
+    summary,
+    reportCard,
+    latest,
+  };
+
+  // ----- layout (per profile, localStorage) -----
+  const profile = filters.profile ?? null;
+  const [layout, setLayoutState] = useState<LayoutState>(() => loadLayout(profile, WIDGETS));
+  useEffect(() => setLayoutState(loadLayout(profile, WIDGETS)), [profile]);
+  const setLayout = (next: LayoutState) => {
+    setLayoutState(next);
+    saveLayout(profile, next);
+  };
+  const [editing, setEditing] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropHint, setDropHint] = useState<{ id: string; after: boolean } | null>(null);
+
+  const visible = layout.order
+    .filter((id) => !layout.hidden.includes(id))
+    .map((id) => BY_ID.get(id))
+    .filter((w): w is WidgetDef => !!w);
+  const hiddenDefs = WIDGETS.filter((w) => layout.hidden.includes(w.id));
+  const isDefault = JSON.stringify(layout) === JSON.stringify(defaultLayout(WIDGETS));
+
+  // The equity card spans two rows beside a stacked pair of 4-col cards (Edge
+  // Score + Discipline by default) — only when that pair actually follows it,
+  // otherwise the row-span would leave a hole.
+  const narrow = (w?: WidgetDef) => !!w && w.span === 'lg:col-span-4' && !layout.wide.includes(w.id);
+  const spanClass = (w: WidgetDef, i: number) => {
+    if (layout.wide.includes(w.id)) return WIDE;
+    if (w.span === 'lg:col-span-8' && narrow(visible[i + 1]) && narrow(visible[i + 2])) {
+      return 'lg:col-span-8 lg:row-span-2';
+    }
+    return w.span;
+  };
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-100">Dashboard</h1>
-          <p className="text-sm text-slate-500">
-            Performance across the selected filters.
-          </p>
+    <DashboardProvider value={ctx}>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="hidden items-baseline gap-3 md:flex">
+            <h1 className="text-xl font-semibold text-slate-100">Dashboard</h1>
+            <p className="text-sm text-slate-500">Performance across the selected filters.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link to="/quick" className="btn btn-primary text-xs" title="Grade and note today's trades">
+              + Quick capture
+            </Link>
+            {/* Drag-and-drop layout editing is a desktop affordance. */}
+            <button
+              className={`btn hidden text-xs md:inline-flex ${editing ? 'btn-primary' : ''}`}
+              onClick={() => setEditing((e) => !e)}
+              title="Show, hide, reorder and resize dashboard widgets"
+            >
+              {editing ? 'Done' : 'Customise'}
+            </button>
+            <ReminderSettingsButton />
+            <UnitToggle unit={unit} onChange={setUnit} />
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <UnitToggle unit={unit} onChange={setUnit} />
-          {reportCard.data?.score && <EdgeScoreChip score={reportCard.data.score} />}
-        </div>
-      </div>
 
-      {/* Live open positions (rendered only when EA snapshot present) */}
-      <LivePositions account={filters.account} currency={currency} />
-
-      {/* Prop status banner */}
-      {isProp && prop.data && <PropBanner p={prop.data} currency={currency} />}
-
-      {/* Stat tiles */}
-      <AsyncBoundary
-        loading={summary.loading}
-        error={summary.error}
-        onRetry={summary.reload}
-        loadingLabel="Loading summary…"
-      >
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <StatTile
-            label={unit === 'r' ? 'Total R' : 'Net P&L'}
-            value={unit === 'r' ? formatR(s?.total_r ?? null) : formatMoney(s?.net_pnl, currency)}
-            valueClass={signClass(unit === 'r' ? s?.total_r ?? 0 : s?.net_pnl)}
-            sub={unit === 'r' ? 'sum of R' : `Gross ${formatMoney(s?.gross_pnl, currency)}`}
-          />
-          <StatTile
-            label="Win Rate"
-            value={s?.trade_count ? formatPct(s.win_rate) : '—'}
-            sub={`${s?.trade_count ?? 0} trades`}
-          />
-          <StatTile
-            label="Profit Factor"
-            // null = no losing trades in range: infinite PF, not a bad one.
-            value={!s || s.trade_count === 0 ? '—' : s.profit_factor == null ? (s.avg_win > 0 ? '∞' : '—') : formatNumber(s.profit_factor, 2)}
-            valueClass={
-              !s || s.trade_count === 0 || (s.profit_factor == null && !(s.avg_win > 0))
-                ? 'text-slate-200'
-                : s.profit_factor == null || s.profit_factor >= 1
-                  ? 'text-emerald-400'
-                  : 'text-red-400'
-            }
-          />
-          <StatTile
-            label={unit === 'r' ? 'Expectancy (R)' : 'Expectancy'}
-            value={unit === 'r' ? formatR(s?.avg_r) : s?.trade_count ? formatMoney(s.expectancy, currency) : '—'}
-            valueClass={signClass(unit === 'r' ? s?.avg_r : s?.expectancy)}
-            sub="per trade"
-          />
-          <StatTile
-            label="Avg R"
-            value={formatR(s?.avg_r)}
-            valueClass={signClass(s?.avg_r)}
-          />
-          <StatTile
-            label="Trade Count"
-            value={s?.trade_count ?? 0}
-            sub={
-              s?.trade_count
-                ? `${formatMoney(s.avg_win, currency)} / ${formatMoney(s.avg_loss, currency)}`
-                : undefined
-            }
-          />
-        </div>
-      </AsyncBoundary>
-
-      {/* Goals */}
-      <GoalsCard account={filters.account ?? ''} currency={currency} />
-
-      {/* Discipline — plan adherence + grades */}
-      <DisciplineCard filters={filters} />
-
-      {/* Equity curve */}
-      <SectionCard
-        title={unit === 'r' ? 'Equity Curve (R)' : 'Equity Curve'}
-        right={<UnitToggle unit={unit} onChange={setUnit} />}
-      >
-        <AsyncBoundary
-          loading={equity.loading}
-          error={equity.error}
-          onRetry={equity.reload}
-          isEmpty={!equity.data || equity.data.length === 0}
-          emptyMessage="No closed trades in range."
-          loadingLabel="Loading equity…"
-        >
-          {equity.data && <EquityCurve data={equity.data} unit={unit} />}
-        </AsyncBoundary>
-      </SectionCard>
-
-      {/* Calendar + Sessions */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <SectionCard
-          title="Monthly P&L"
-          right={
-            <input
-              type="month"
-              className="input py-1"
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-            />
-          }
-        >
-          <AsyncBoundary
-            loading={calendar.loading}
-            error={calendar.error}
-            onRetry={calendar.reload}
-            loadingLabel="Loading calendar…"
-          >
-            <Calendar
-              month={month}
-              days={calendar.data ?? []}
-              currency={currency}
-            />
-          </AsyncBoundary>
-        </SectionCard>
-
-        <SectionCard
-          title="Session Heatmap"
-          right={
-            <span className="text-xs text-slate-500" title="Follows the Monthly P&L month">
-              {monthLabel}
-            </span>
-          }
-        >
-          <AsyncBoundary
-            loading={session.loading}
-            error={session.error}
-            onRetry={session.reload}
-            isEmpty={!session.data || session.data.length === 0}
-            emptyMessage={`No session data for ${monthLabel}.`}
-            loadingLabel="Loading sessions…"
-          >
-            {session.data && (
-              <SessionHeatmap data={session.data} currency={currency} month={month} />
+        {editing && (
+          <div className="card hidden flex-col gap-2 border-dashed md:flex border-cyan-500/40 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-slate-400">
+                Drag widgets by their handle (or use ↑ ↓) to reorder · ⇔ toggles wide · ✕ hides. Saved
+                {profile == null ? ' for All profiles' : ' for this profile'}.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  className="btn text-xs"
+                  disabled={isDefault}
+                  onClick={() => {
+                    if (window.confirm('Reset the dashboard to the default layout?')) {
+                      setLayoutState(defaultLayout(WIDGETS));
+                      saveLayout(profile, null);
+                    }
+                  }}
+                >
+                  Reset layout
+                </button>
+                <button className="btn btn-primary text-xs" onClick={() => setEditing(false)}>
+                  Done
+                </button>
+              </div>
+            </div>
+            {hiddenDefs.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] uppercase tracking-wide text-slate-500">Hidden:</span>
+                {hiddenDefs.map((w) => (
+                  <button
+                    key={w.id}
+                    className="rounded-full border border-slate-700 px-2.5 py-0.5 text-xs text-slate-300 hover:border-cyan-500 hover:text-cyan-300"
+                    title={w.description}
+                    onClick={() => setLayout({ ...layout, hidden: toggleIn(layout.hidden, w.id, false) })}
+                  >
+                    + {w.title}
+                  </button>
+                ))}
+              </div>
             )}
-          </AsyncBoundary>
-        </SectionCard>
+          </div>
+        )}
+
+        <ReviewReminderBanner account={filters.account} profile={filters.profile ?? null} />
+
+        {/* Live open positions (rendered only when EA snapshot present) */}
+        <LivePositions account={filters.account} currency={currency} />
+
+        {/* Prop status banner */}
+        {isProp && prop.data && <PropBanner p={prop.data} currency={currency} />}
+
+        {visible.length === 0 && (
+          <div className="card p-6 text-center text-sm text-slate-500">
+            Every widget is hidden.{' '}
+            <button className="text-cyan-400 hover:underline" onClick={() => setEditing(true)}>
+              Customise
+            </button>{' '}
+            to add some back.
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          {visible.map((w, i) => {
+            const { Component } = w;
+            const isWide = layout.wide.includes(w.id);
+            const hint = dropHint?.id === w.id ? dropHint : null;
+            return (
+              <div
+                key={w.id}
+                className={`relative min-w-0 ${spanClass(w, i)} ${
+                  editing ? 'rounded-xl outline-dashed outline-1 outline-offset-2 outline-slate-700' : ''
+                } ${dragId === w.id ? 'opacity-40' : ''}`}
+                onDragOver={
+                  editing && dragId
+                    ? (e) => {
+                        e.preventDefault();
+                        const r = e.currentTarget.getBoundingClientRect();
+                        const after =
+                          r.width > r.height * 1.5
+                            ? e.clientX > r.left + r.width / 2
+                            : e.clientY > r.top + r.height / 2;
+                        if (hint?.after !== after || !hint) setDropHint({ id: w.id, after });
+                      }
+                    : undefined
+                }
+                onDragLeave={editing ? () => setDropHint((h) => (h?.id === w.id ? null : h)) : undefined}
+                onDrop={
+                  editing && dragId
+                    ? (e) => {
+                        e.preventDefault();
+                        if (dragId !== w.id) setLayout(moveWidget(layout, dragId, w.id, hint?.after ?? false));
+                        setDragId(null);
+                        setDropHint(null);
+                      }
+                    : undefined
+                }
+              >
+                {hint && dragId && dragId !== w.id && (
+                  <div
+                    className={`pointer-events-none absolute z-20 rounded bg-cyan-400 ${
+                      hint.after ? '-right-2.5 top-0 h-full w-1' : '-left-2.5 top-0 h-full w-1'
+                    }`}
+                  />
+                )}
+                {editing && (
+                  <div className="mb-1.5 flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/60 px-2 py-1 text-xs">
+                    <span
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', w.id);
+                        setDragId(w.id);
+                      }}
+                      onDragEnd={() => {
+                        setDragId(null);
+                        setDropHint(null);
+                      }}
+                      className="cursor-grab select-none px-1 text-slate-500 hover:text-slate-200 active:cursor-grabbing"
+                      title="Drag to reorder"
+                      aria-label={`Drag ${w.title}`}
+                    >
+                      ⠿
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-medium text-slate-300" title={w.description}>
+                      {w.title}
+                    </span>
+                    <button
+                      className="rounded px-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-30"
+                      onClick={() => setLayout(stepWidget(layout, w.id, -1))}
+                      disabled={i === 0}
+                      title="Move up"
+                      aria-label={`Move ${w.title} up`}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="rounded px-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-30"
+                      onClick={() => setLayout(stepWidget(layout, w.id, 1))}
+                      disabled={i === visible.length - 1}
+                      title="Move down"
+                      aria-label={`Move ${w.title} down`}
+                    >
+                      ↓
+                    </button>
+                    {!w.full && (
+                      <button
+                        className={`rounded px-1.5 hover:bg-slate-800 ${isWide ? 'text-cyan-400' : 'text-slate-400 hover:text-slate-100'}`}
+                        onClick={() => setLayout({ ...layout, wide: toggleIn(layout.wide, w.id, !isWide) })}
+                        title={isWide ? 'Normal width' : 'Full width'}
+                        aria-pressed={isWide}
+                      >
+                        ⇔ {isWide ? 'Wide' : 'Normal'}
+                      </button>
+                    )}
+                    <button
+                      className="rounded px-1.5 text-slate-400 hover:bg-slate-800 hover:text-red-400"
+                      onClick={() => setLayout({ ...layout, hidden: toggleIn(layout.hidden, w.id, true) })}
+                      title="Hide widget"
+                      aria-label={`Hide ${w.title}`}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+                <div className={editing ? 'pointer-events-none select-none' : 'h-full'}>
+                  <Component />
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
-
-      {/* Market sessions clock */}
-      <SectionCard
-        title="Sessions"
-        right={<span className="text-[10px] text-slate-500">local · {DISPLAY_TZ.split('/')[1]?.replace('_', ' ')}</span>}
-      >
-        <SessionsClock />
-      </SectionCard>
-
-      {/* Hourly */}
-      <SectionCard title="Hourly P&L (UTC)">
-        <AsyncBoundary
-          loading={hourly.loading}
-          error={hourly.error}
-          onRetry={hourly.reload}
-          isEmpty={!hourly.data || hourly.data.length === 0}
-          emptyMessage="No hourly data in range."
-          loadingLabel="Loading hourly…"
-        >
-          {hourly.data && <HourlyBars data={hourly.data} />}
-        </AsyncBoundary>
-      </SectionCard>
-
-      {/* AI Review */}
-      <AiReviewPanel />
-    </div>
+    </DashboardProvider>
   );
 }

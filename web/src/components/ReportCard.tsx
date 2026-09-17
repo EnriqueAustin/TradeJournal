@@ -20,13 +20,13 @@ const GRADE_COLOR: Record<string, string> = {
 };
 
 function scoreColor(v: number): string {
-  if (v >= 70) return '#34d399'; // emerald
-  if (v >= 55) return '#fbbf24'; // amber
-  if (v >= 40) return '#fb923c'; // orange
-  return '#f87171'; // red
+  if (v >= 70) return 'var(--term-green)'; // emerald
+  if (v >= 55) return 'var(--term-amber)'; // amber
+  if (v >= 40) return 'rgb(var(--c-orange-400))'; // orange
+  return 'var(--term-red)'; // red
 }
 
-function EdgeScoreGauge({ score }: { score: EdgeScore }) {
+export function EdgeScoreGauge({ score }: { score: EdgeScore }) {
   const r = 52;
   const c = 2 * Math.PI * r;
   const pct = score.total / 100;
@@ -35,7 +35,7 @@ function EdgeScoreGauge({ score }: { score: EdgeScore }) {
     <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-5">
       <div className="relative shrink-0" style={{ width: 132, height: 132 }}>
         <svg width={132} height={132} viewBox="0 0 132 132">
-          <circle cx={66} cy={66} r={r} fill="none" stroke="#1e293b" strokeWidth={12} />
+          <circle cx={66} cy={66} r={r} fill="none" stroke="var(--term-border)" strokeWidth={12} />
           <circle
             cx={66}
             cy={66}
@@ -98,9 +98,9 @@ function UnderwaterCurve({ d, currency }: { d: DrawdownStats; currency: string }
   const area = `M0,0 ${pts.map((p, i) => `L${x(i).toFixed(1)},${y(p.dd).toFixed(1)}`).join(' ')} L${w},0 Z`;
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Max Drawdown</div>
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">Max Drawdown</div>
           <div className="num mt-0.5 text-lg font-semibold text-red-400">
             {formatMoney(-d.max_dd, currency)}
           </div>
@@ -109,14 +109,14 @@ function UnderwaterCurve({ d, currency }: { d: DrawdownStats; currency: string }
           )}
         </div>
         <div className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Recovery Factor</div>
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">Recovery Factor</div>
           <div className="num mt-0.5 text-lg font-semibold text-slate-100">
             {d.recovery_factor == null ? '—' : formatNumber(d.recovery_factor, 2)}
           </div>
           <div className="text-[11px] text-slate-500">net ÷ max DD</div>
         </div>
         <div className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Starting Bal.</div>
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">Starting Bal.</div>
           <div className="num mt-0.5 text-lg font-semibold text-slate-100">
             {d.starting_balance ? formatMoney(d.starting_balance, currency) : '—'}
           </div>
@@ -125,9 +125,9 @@ function UnderwaterCurve({ d, currency }: { d: DrawdownStats; currency: string }
       </div>
       <div className="overflow-x-auto">
         <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="w-full" preserveAspectRatio="none">
-          <path d={area} fill="rgba(248,113,113,0.12)" />
-          <path d={line} fill="none" stroke="#f87171" strokeWidth={1.5} />
-          <line x1={0} y1={0} x2={w} y2={0} stroke="#334155" strokeWidth={1} />
+          <path d={area} fill="rgb(var(--c-red) / 0.12)" />
+          <path d={line} fill="none" stroke="var(--term-red)" strokeWidth={1.5} />
+          <line x1={0} y1={0} x2={w} y2={0} stroke="var(--term-border-2)" strokeWidth={1} />
         </svg>
       </div>
       <p className="text-[11px] text-slate-500">
@@ -230,7 +230,7 @@ function KeyNumbers({ k, currency }: { k: ReportKeyNumbers; currency: string }) 
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       {items.map((it) => (
         <div key={it.label} className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">{it.label}</div>
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">{it.label}</div>
           <div className={`num mt-0.5 text-sm font-semibold ${it.cls ?? 'text-slate-100'}`}>{it.value}</div>
         </div>
       ))}

@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import type { ImportResult, BarsImportResult, BarsFetchResult } from '../types';
 import { Spinner } from '../components/states';
+import ImportWatchCard from '../components/ImportWatchCard';
 
 export default function Import() {
   const { refreshAccounts, accounts, filters, setFilters } = useFilters();
@@ -238,6 +239,8 @@ export default function Import() {
         </div>
       )}
 
+      <ImportWatchCard onImported={refreshAccounts} />
+
       <BarsImport />
     </div>
   );
@@ -463,7 +466,7 @@ function BarsImport() {
       )}
 
       {result && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-lg bg-slate-800/50 p-3">
             <div className="text-xs uppercase text-slate-500">Inserted</div>
             <div className="num mt-1 text-xl font-semibold text-emerald-400">

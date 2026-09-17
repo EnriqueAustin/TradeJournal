@@ -4,7 +4,10 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import DailyPlanCard from '../components/DailyPlanCard';
 import MissedTradesCard from '../components/MissedTradesCard';
-import type { JournalDay } from '../types';
+import ShareLinkButton from '../components/ShareLinkButton';
+import Markdown from '../components/Markdown';
+import { ReminderSettingsButton, ReviewReminderBanner } from '../components/ReviewReminders';
+import type { Filters, JournalDay } from '../types';
 import {
   formatMoney,
   formatR,
@@ -50,6 +53,8 @@ export default function Journal() {
   const [recapDirty, setRecapDirty] = useState(false);
   const [savingRecap, setSavingRecap] = useState(false);
   const [recapMsg, setRecapMsg] = useState<string | null>(null);
+  // Saved recaps open rendered (markdown); an empty day opens straight in Write.
+  const [recapPreview, setRecapPreview] = useState(false);
 
   const setDay = useCallback(
     (d: string) => {
@@ -71,6 +76,7 @@ export default function Journal() {
       setData(d);
       setRecap(d.recap?.body ?? '');
       setRecapDirty(false);
+      setRecapPreview(!!d.recap?.body?.trim());
     } catch (e: any) {
       setErr(e?.message || 'Failed to load the day');
       setData(null);
@@ -82,6 +88,37 @@ export default function Journal() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Most recent trading day on or before the viewed day's account (the server
+  // falls back to the first account when none is picked, so mirror that).
+  // Trades sort newest-realized first; the journal buckets on the same date.
+  const [lastDay, setLastDay] = useState<string | null>(null);
+  const journalAccount = account ?? accounts[0]?.id ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    const f: Filters = {
+      account: journalAccount,
+      instrument: 'All',
+      session: 'All',
+      setup: 'All',
+      from: '',
+      to: today(),
+      rMin: '',
+      rMax: '',
+    };
+    api
+      .getTrades(f, 1, 0)
+      .then((r) => {
+        const t = r.rows[0];
+        if (!cancelled) setLastDay((t?.exit_time ?? t?.entry_time ?? '').slice(0, 10) || null);
+      })
+      .catch(() => {
+        if (!cancelled) setLastDay(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [journalAccount]);
 
   const saveRecap = async () => {
     setSavingRecap(true);
@@ -121,7 +158,7 @@ export default function Journal() {
           <h1 className="text-lg font-semibold text-slate-100">Journal</h1>
           <p className="text-sm text-slate-400">{weekday(day)}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button className="btn px-2 py-1" onClick={() => setDay(shiftDay(day, -1))} aria-label="Previous day">
             ‹
           </button>
@@ -142,13 +179,43 @@ export default function Journal() {
           <button className="btn px-2 py-1 text-xs" onClick={() => setDay(today())} disabled={isToday}>
             Today
           </button>
+          {lastDay && (
+            <button
+              className="btn px-2 py-1 text-xs"
+              onClick={() => setDay(lastDay)}
+              disabled={day === lastDay}
+              title="Jump to the most recent day with trades"
+            >
+              Last trading day
+            </button>
+          )}
           <Link className="btn px-2 py-1 text-xs" to={`/report/week/${day}`}>
             Week review →
           </Link>
+          <Link className="btn px-2 py-1 text-xs" to={`/report/month/${day.slice(0, 7)}`}>
+            Month report →
+          </Link>
+          <ShareLinkButton kind="day" refId={day} accountId={account} />
+          <ReminderSettingsButton />
         </div>
       </div>
 
+      <ReviewReminderBanner account={account} profile={filters.profile ?? null} />
+
       {err && <div className="card border-red-500/30 p-3 text-sm text-red-400">{err}</div>}
+
+      {!loading && data && trades.length === 0 && lastDay && lastDay !== day && (
+        <button
+          className="card flex items-center justify-between gap-3 border-amber-500/40 p-3 text-left text-sm hover:border-amber-500"
+          onClick={() => setDay(lastDay)}
+        >
+          <span className="text-slate-300">
+            No trades on this day. Last trading day was{' '}
+            <span className="font-semibold text-amber-400">{weekday(lastDay)}</span>.
+          </span>
+          <span className="text-amber-400">Open →</span>
+        </button>
+      )}
 
       {/* Plan (editable, driven by this page's day) */}
       <DailyPlanCard account={account} currency={currency} day={day} hideDatePicker />
@@ -168,9 +235,26 @@ export default function Journal() {
 
       {/* Trades taken */}
       <div className="card p-5">
-        <h2 className="mb-3 text-sm font-semibold text-slate-200">
-          Trades <span className="text-slate-500">({trades.length})</span>
-        </h2>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-200">
+            Trades <span className="text-slate-500">({trades.length})</span>
+            {trades.some((t) => t.followed_plan == null) && (
+              <span className="ml-2 text-xs font-normal text-amber-400">
+                {trades.filter((t) => t.followed_plan == null).length} unreviewed
+              </span>
+            )}
+          </h2>
+          {trades.length > 0 && (
+            <div className="flex gap-2">
+              <Link className="btn btn-primary px-3 py-1 text-xs" to={`/review/day/${day}`}>
+                Review day →
+              </Link>
+              <Link className="btn px-2 py-1 text-xs" to={`/review/week/${day}`}>
+                Review week
+              </Link>
+            </div>
+          )}
+        </div>
         {loading && trades.length === 0 ? (
           <p className="text-sm text-slate-500">Loading…</p>
         ) : trades.length === 0 ? (
@@ -233,6 +317,21 @@ export default function Journal() {
           <h2 className="text-sm font-semibold text-slate-200">Recap</h2>
           <div className="flex items-center gap-2">
             {recapMsg && <span className="text-sm text-emerald-400">{recapMsg}</span>}
+            <div className="flex overflow-hidden rounded-lg border border-slate-800 text-xs">
+              {([['Write', false], ['Preview', true]] as const).map(([label, v]) => (
+                <button
+                  key={label}
+                  onClick={() => setRecapPreview(v)}
+                  className={`px-2.5 py-1 font-semibold ${
+                    recapPreview === v
+                      ? 'bg-cyan-600 text-white'
+                      : 'bg-slate-900/40 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <button
               className="btn btn-primary"
               onClick={saveRecap}
@@ -242,15 +341,28 @@ export default function Journal() {
             </button>
           </div>
         </div>
-        <textarea
-          className="input min-h-[120px] w-full resize-y"
-          value={recap}
-          onChange={(e) => {
-            setRecap(e.target.value);
-            setRecapDirty(true);
-          }}
-          placeholder="How did the day go against the plan? What worked, what to carry into tomorrow…"
-        />
+        {recapPreview ? (
+          <div
+            className="min-h-[60px] cursor-text rounded-lg border border-slate-800 bg-slate-900/30 p-3"
+            onDoubleClick={() => setRecapPreview(false)}
+            title="Double-click to edit"
+          >
+            <Markdown source={recap} empty={<p className="text-sm text-slate-500">Nothing written yet.</p>} />
+          </div>
+        ) : (
+          <textarea
+            className="input min-h-[120px] w-full resize-y"
+            value={recap}
+            onChange={(e) => {
+              setRecap(e.target.value);
+              setRecapDirty(true);
+            }}
+            placeholder="How did the day go against the plan? What worked, what to carry into tomorrow…"
+          />
+        )}
+        <p className="mt-1 text-[11px] text-slate-500">
+          Markdown: **bold**, - lists, - [ ] tasks, ## headings · #123 links a trade, @2026-09-15 a day
+        </p>
         {data?.recap?.updated_at && !recapDirty && (
           <p className="mt-2 text-xs text-slate-500">Last saved {data.recap.updated_at}</p>
         )}

@@ -6,6 +6,7 @@ import {
   type IChartApi,
   type UTCTimestamp,
 } from 'lightweight-charts';
+import { useChartTheme, lwcThemeOptions } from '../store/theme';
 import type { EquityPoint } from '../types';
 
 export const SERIES_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#06b6d4', '#a855f7', '#84cc16', '#f97316'];
@@ -26,6 +27,7 @@ export default function MultiEquityCurve({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const ct = useChartTheme();
 
   useEffect(() => {
     const el = containerRef.current;
@@ -54,6 +56,11 @@ export default function MultiEquityCurve({
       chartRef.current = null;
     };
   }, []);
+
+  // Canvas charts don't see CSS vars — push the palette on mount and on toggle.
+  useEffect(() => {
+    chartRef.current?.applyOptions(lwcThemeOptions(ct));
+  }, [ct]);
 
   useEffect(() => {
     const chart = chartRef.current;

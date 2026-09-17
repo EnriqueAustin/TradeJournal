@@ -8,8 +8,23 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { PORT, EA_TOKEN } from './env.js';
-import { db, migrate } from './db.js';
+import { db, dbPath, migrate, getSetting, setSetting } from './db.js';
+import {
+  createBackup,
+  listBackups,
+  lastBackupTime,
+  isValidBackupName,
+  resolveBackupDir,
+  resolveBackupKeep,
+  exportAll,
+  startBackupScheduler,
+} from './backup.js';
+import { createImportWatcher } from './importWatch.js';
 import { listGoals, createGoal, deleteGoal } from './goals.js';
+import { registerProfileRoutes } from './profiles.js';
+import { registerPivotRoutes } from './pivot.js';
+import { registerShareRoutes } from './share.js';
+import { registerNotebookRoutes } from './notebook.js';
 import { migrateResearch } from './research/schema.js';
 import { researchRouter } from './research/routes.js';
 import { initResearchWs } from './research/ws.js';
@@ -18,6 +33,7 @@ import { captureSnapshot } from './research/snapshot.js';
 import { parseImport } from './import.js';
 import { parseBarsCsv, getBarsForTf, upsertBars, TF_MINUTES, TF_MS, tfMs, isKnownTf } from './bars.js';
 import { fetchOandaM1, fetchOandaCandles, oandaConfigured, oandaSymbol } from './marketdata.js';
+import { refreshExcursions, exitAnalysisFor } from './excursion.js';
 import { aiReview, autoTagTrades, getAiConfig } from './ai.js';
 import {
   safeRefresh,
@@ -52,12 +68,15 @@ import {
   streaks,
   tilt,
   optimizer,
+  exitStats,
   portfolio,
   wickEdge,
   reportCard,
   tagStats,
   discipline,
 } from './stats.js';
+import { psychology, insights, EMOTIONS, INSIGHT_THRESHOLDS } from './insights.js';
+import { monthReport, mondayOf } from './report.js';
 
 migrate();
 migrateResearch();
@@ -182,7 +201,47 @@ function insertTradeTx(t) {
     } catch (_) { /* never block trade insertion */ }
   }
 
+  // Auto MAE/MFE from any bars already stored (manual/EA/backtest trades inside
+  // a fetched range). Bars fetched later refresh it again.
+  try {
+    refreshExcursionsByIds([tradeId]);
+  } catch (_) { /* never block trade insertion */ }
+
   return tradeId;
+}
+
+// Recompute auto MAE/MFE for trades by id (null/auto values only). → count.
+function refreshExcursionsByIds(ids) {
+  const list = [...new Set(ids.map(Number).filter(Boolean))];
+  if (!list.length) return 0;
+  const stmt = db.prepare('SELECT * FROM trades WHERE id = ?');
+  return refreshExcursions(db, list.map((id) => stmt.get(id)).filter(Boolean), normalizeInstrument);
+}
+
+// Recompute auto MAE/MFE for every trade on `instrument` whose holding window
+// overlaps [fromIso, toIso] — after new bars land for that range.
+function refreshExcursionsInRange(instrument, fromIso, toIso) {
+  const rows = db
+    .prepare(
+      `SELECT * FROM trades
+       WHERE instrument = ? AND exit_time IS NOT NULL
+         AND exit_time >= ? AND entry_time <= ?
+         AND (mae IS NULL OR mae_auto = 1 OR mfe IS NULL OR mfe_auto = 1)`
+    )
+    .all(normalizeInstrument(instrument), fromIso, toIso);
+  return refreshExcursions(db, rows, normalizeInstrument);
+}
+
+// Fire-and-forget: pull bars around freshly created trades, then fill their
+// MAE/MFE. Used by the manual-create and EA paths, which respond immediately.
+function fetchBarsThenExcursions(ids) {
+  if (!oandaConfigured()) return;
+  const stmt = db.prepare('SELECT * FROM trades WHERE id = ?');
+  const trades = ids.map((id) => stmt.get(id)).filter((t) => t && t.exit_time);
+  if (!trades.length) return;
+  autoFetchBarsForTrades(trades)
+    .then(() => refreshExcursionsByIds(ids))
+    .catch(() => { /* best-effort */ });
 }
 
 function accountExists(id) {
@@ -197,6 +256,12 @@ function removeScreenshotFiles(rows) {
     }
   }
 }
+
+// ---------- Profiles + read-only share links (profiles.js, share.js) ----------
+registerProfileRoutes(app);
+registerPivotRoutes(app);
+registerShareRoutes(app);
+registerNotebookRoutes(app, { imageUpload: screenshotUpload });
 
 // ---------- Accounts ----------
 app.get('/api/accounts', (req, res) => {
@@ -285,6 +350,7 @@ app.patch('/api/accounts/:id', (req, res) => {
     'default_risk_pct',
     'default_risk_amount',
     'be_band_r',
+    'profile_id',
   ];
   const sets = [];
   const params = { id };
@@ -521,6 +587,9 @@ function tradesQuery(q) {
   if (q.account) {
     clauses.push('account_id = @account');
     params.account = Number(q.account);
+  } else if (q.profile) {
+    clauses.push('account_id IN (SELECT id FROM accounts WHERE profile_id = @profile)');
+    params.profile = Number(q.profile);
   }
   if (q.instrument) {
     clauses.push('instrument = @instrument');
@@ -558,15 +627,49 @@ function tradesQuery(q) {
   if (q.outcome === 'win') clauses.push('net_pnl > 0 AND is_be = 0');
   else if (q.outcome === 'loss') clauses.push('net_pnl < 0 AND is_be = 0');
   else if (q.outcome === 'be') clauses.push('is_be = 1');
-  // Post-trade review: followed / broke the plan.
-  if (q.plan === 'followed') clauses.push('followed_plan = 1');
-  else if (q.plan === 'broke') clauses.push('followed_plan = 0');
   // "Needs attention" backfill queue. Comma-separated flags, OR-combined so the
   // one filter surfaces every trade with a data gap worth fixing:
   //   entry      → corrupt import (entry_price 0 / null) — breaks replay + R
   //   stop       → no stop set — no R (MT5 drops the original risk stop; set it)
   //   untagged   → no setup assigned and no tags
   //   unreviewed → no post-trade review (followed_plan not set)
+  // Insight drill-down filters (from /api/stats/insights links).
+  if (q.tag !== undefined && q.tag !== '') {
+    clauses.push('EXISTS (SELECT 1 FROM trade_tags tt WHERE tt.trade_id = trades.id AND tt.tag_id = @tag)');
+    params.tag = Number(q.tag);
+  }
+  if (q.hour !== undefined && q.hour !== '') {
+    clauses.push("CAST(strftime('%H', entry_time) AS INTEGER) = @hour");
+    params.hour = Number(q.hour);
+  }
+  if (q.dow !== undefined && q.dow !== '') {
+    clauses.push("CAST(strftime('%w', entry_time) AS INTEGER) = @dow");
+    params.dow = Number(q.dow);
+  }
+  if (q.emotion) {
+    clauses.push('EXISTS (SELECT 1 FROM trade_psych p WHERE p.trade_id = trades.id AND p.emotion = @emotion)');
+    params.emotion = String(q.emotion);
+  }
+  // `plan=followed|broke` is an alias for followed=1|0.
+  if (q.plan === 'followed') q = { ...q, followed: '1' };
+  else if (q.plan === 'broke') q = { ...q, followed: '0' };
+  if (q.followed === '0' || q.followed === '1') {
+    clauses.push('followed_plan = @followed');
+    params.followed = Number(q.followed);
+  }
+  // Entered within N minutes after a losing exit on the same account — the same
+  // rule insights.js afterLossIds() uses for the "tilt after loss" check.
+  if (q.after_loss === '1') {
+    clauses.push(
+      `EXISTS (SELECT 1 FROM trades p
+               WHERE p.account_id = trades.account_id AND p.id <> trades.id
+                 AND COALESCE(p.is_backtest, 0) = 0 AND p.net_pnl < 0 AND p.is_be = 0
+                 AND p.exit_time IS NOT NULL
+                 AND julianday(trades.entry_time) >= julianday(p.exit_time)
+                 AND (julianday(trades.entry_time) - julianday(p.exit_time)) * 1440 <= @after_loss_min)`
+    );
+    params.after_loss_min = INSIGHT_THRESHOLDS.after_loss_min;
+  }
   const needs = String(q.needs || '')
     .split(',')
     .map((s) => s.trim())
@@ -723,7 +826,44 @@ app.get('/api/trades/:id', (req, res) => {
   const criteria = db
     .prepare('SELECT criterion, met FROM trade_criteria WHERE trade_id = ?')
     .all(id);
-  res.json({ ...trade, executions, tags, notes, screenshots, wick, criteria });
+  const psych = db.prepare('SELECT * FROM trade_psych WHERE trade_id = ?').get(id) ?? null;
+  res.json({ ...trade, executions, tags, notes, screenshots, wick, criteria, psych });
+});
+
+// PUT /api/trades/:id/psych — upsert the structured psychology rating. Partial
+// bodies merge: only keys present are changed; null clears a field.
+app.put('/api/trades/:id/psych', (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
+    return res.status(404).json({ error: 'trade not found' });
+  const b = req.body || {};
+  const scale = (v) => v == null || (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 5);
+  if ('confidence' in b && !scale(b.confidence))
+    return res.status(400).json({ error: 'confidence must be 1-5 or null' });
+  if ('satisfaction' in b && !scale(b.satisfaction))
+    return res.status(400).json({ error: 'satisfaction must be 1-5 or null' });
+  if ('emotion' in b && b.emotion != null && !EMOTIONS.includes(b.emotion))
+    return res.status(400).json({ error: `emotion must be one of ${EMOTIONS.join(', ')}` });
+  const cur = db.prepare('SELECT * FROM trade_psych WHERE trade_id = ?').get(id) || {};
+  const pick = (k, num) => (k in b ? (b[k] == null ? null : num ? Number(b[k]) : b[k]) : cur[k] ?? null);
+  const next = {
+    trade_id: id,
+    confidence: pick('confidence', true),
+    emotion: pick('emotion', false),
+    satisfaction: pick('satisfaction', true),
+  };
+  if (next.confidence == null && next.emotion == null && next.satisfaction == null) {
+    db.prepare('DELETE FROM trade_psych WHERE trade_id = ?').run(id);
+    return res.json(null);
+  }
+  db.prepare(
+    `INSERT INTO trade_psych (trade_id, confidence, emotion, satisfaction, updated_at)
+     VALUES (@trade_id, @confidence, @emotion, @satisfaction, datetime('now'))
+     ON CONFLICT(trade_id) DO UPDATE SET confidence = excluded.confidence,
+       emotion = excluded.emotion, satisfaction = excluded.satisfaction,
+       updated_at = excluded.updated_at`
+  ).run(next);
+  res.json(db.prepare('SELECT * FROM trade_psych WHERE trade_id = ?').get(id));
 });
 
 // PUT /api/trades/:id/criteria — set whether one setup criterion was met on
@@ -932,9 +1072,17 @@ app.patch('/api/trades/:id', (req, res) => {
       params[k] = k === 'setup_id' ? (v == null ? null : Number(v)) : v;
     }
   }
+  // A hand-entered MAE/MFE is no longer auto-derived; clearing it (null) hands
+  // it back to the auto fill below.
+  if ('mae' in b) sets.push('mae_auto = 0');
+  if ('mfe' in b) sets.push('mfe_auto = 0');
   if (sets.length) {
     db.prepare(`UPDATE trades SET ${sets.join(', ')} WHERE id = @id`).run(params);
   }
+  // Price/direction/instrument edits change the excursion; recompute auto values.
+  try {
+    refreshExcursionsByIds([id]);
+  } catch (_) { /* best-effort */ }
   // Recompute r_multiple after an edit. A real stop gives a stop-based R (uses
   // realized $/point, so it's correct across instruments); otherwise fall back to
   // the account's modeled risk and flag it derived, so correcting a stop later
@@ -948,6 +1096,21 @@ app.patch('/api/trades/:id', (req, res) => {
 });
 
 // ---------- Tags ----------
+// Known tags (optionally one category) with how often each is used — feeds the
+// review stepper's quick-pick mistake chips.
+app.get('/api/tags', (req, res) => {
+  const cat = req.query.category ? String(req.query.category) : null;
+  const rows = db
+    .prepare(
+      `SELECT t.id, t.category, t.name, COUNT(tt.trade_id) AS uses
+       FROM tags t LEFT JOIN trade_tags tt ON tt.tag_id = t.id
+       ${cat ? 'WHERE t.category = ?' : ''}
+       GROUP BY t.id ORDER BY uses DESC, t.name`
+    )
+    .all(...(cat ? [cat] : []));
+  res.json(rows);
+});
+
 app.post('/api/trades/:id/tags', (req, res) => {
   const id = Number(req.params.id);
   if (!db.prepare('SELECT 1 FROM trades WHERE id = ?').get(id))
@@ -1055,7 +1218,7 @@ app.get('/api/journal/:day', (req, res) => {
     .get(accountId, day) || null;
   const recap = db
     .prepare(
-      'SELECT * FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+      'SELECT * FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL AND kind IS NULL ORDER BY id LIMIT 1'
     )
     .get(accountId, day) || null;
 
@@ -1075,7 +1238,7 @@ app.put('/api/journal/:day', (req, res) => {
 
   const existing = db
     .prepare(
-      'SELECT id FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+      'SELECT id FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL AND kind IS NULL ORDER BY id LIMIT 1'
     )
     .get(accountId, day);
   if (existing) {
@@ -1091,6 +1254,54 @@ app.put('/api/journal/:day', (req, res) => {
   res
     .status(201)
     .json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
+});
+
+// ---------- Week recap ----------
+// One recap per (account, week), stored like the day recap (a trade-less note)
+// but with kind = 'week' on the week's Monday, so it never collides with that
+// Monday's own day recap. `date` is any day in the week.
+function weekRecapRow(accountId, monday) {
+  return (
+    db
+      .prepare(
+        "SELECT * FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL AND kind = 'week' ORDER BY id LIMIT 1"
+      )
+      .get(accountId, monday) || null
+  );
+}
+
+app.get('/api/journal/week/:date', (req, res) => {
+  const date = req.params.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  const accountId = resolveAccountId(req.query);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+  const monday = mondayOf(date);
+  res.json({ week: monday, account_id: accountId, recap: weekRecapRow(accountId, monday) });
+});
+
+app.put('/api/journal/week/:date', (req, res) => {
+  const date = req.params.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  const b = req.body || {};
+  const accountId = resolveAccountId(b);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+  const monday = mondayOf(date);
+  const body = b.body ?? '';
+  const existing = weekRecapRow(accountId, monday);
+  if (existing) {
+    db.prepare("UPDATE notes SET body = ?, updated_at = datetime('now') WHERE id = ?").run(body, existing.id);
+    return res.json(db.prepare('SELECT * FROM notes WHERE id = ?').get(existing.id));
+  }
+  const info = db
+    .prepare(
+      "INSERT INTO notes (account_id, day, kind, body, updated_at) VALUES (?, ?, 'week', ?, datetime('now'))"
+    )
+    .run(accountId, monday, body);
+  res.status(201).json(db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid));
 });
 
 // ---------- Custom field definitions + per-trade values ----------
@@ -1229,7 +1440,7 @@ app.get('/api/report/week/:date', (req, res) => {
       .get(accountId, day);
     const recap = db
       .prepare(
-        'SELECT body FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL ORDER BY id LIMIT 1'
+        'SELECT body FROM notes WHERE account_id = ? AND day = ? AND trade_id IS NULL AND kind IS NULL ORDER BY id LIMIT 1'
       )
       .get(accountId, day);
     const plan = db
@@ -1246,7 +1457,20 @@ app.get('/api/report/week/:date', (req, res) => {
   }
 
   const account = db.prepare('SELECT id, name, currency FROM accounts WHERE id = ?').get(accountId);
-  res.json({ from, to, account, stats, best, worst, days });
+  const weekRecap = weekRecapRow(accountId, from)?.body ?? null;
+  res.json({ from, to, account, stats, best, worst, days, week_recap: weekRecap });
+});
+
+// ---------- Monthly review report ----------
+// GET /api/report/month/:ym (YYYY-MM) — see report.js monthReport().
+app.get('/api/report/month/:ym', (req, res) => {
+  const ym = req.params.ym;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym))
+    return res.status(400).json({ error: 'month must be YYYY-MM' });
+  const accountId = resolveAccountId(req.query);
+  if (!accountId || !accountExists(accountId))
+    return res.status(400).json({ error: 'valid account required' });
+  res.json(monthReport(accountId, ym));
 });
 
 // ---------- Missed trades ----------
@@ -1471,6 +1695,7 @@ app.post('/api/trades', (req, res) => {
       bt_session_id: null,
     });
     const row = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
+    fetchBarsThenExcursions([id]);
     res.status(201).json(row);
   } catch (err) {
     res.status(500).json({ error: String(err?.message || err) });
@@ -1561,10 +1786,24 @@ app.get('/api/stats/streaks', (req, res) => res.json(streaks(req.query)));
 app.get('/api/stats/tilt', (req, res) => res.json(tilt(req.query)));
 app.get('/api/stats/wick', (req, res) => res.json(wickEdge(req.query)));
 app.get('/api/stats/optimizer', (req, res) => res.json(optimizer(req.query)));
+app.get('/api/stats/exits', (req, res) => res.json(exitStats(req.query)));
+
+// GET /api/trades/:id/exit-analysis → where price went after this trade's exit.
+// `analysis` is null when the trade is ineligible or has no post-exit bars.
+app.get('/api/trades/:id/exit-analysis', (req, res) => {
+  const id = Number(req.params.id);
+  const trade = db.prepare('SELECT * FROM trades WHERE id = ?').get(id);
+  if (!trade) return res.status(404).json({ error: 'trade not found' });
+  res.json({ trade_id: id, analysis: exitAnalysisFor(db, trade, normalizeInstrument) });
+});
 app.get('/api/stats/portfolio', (req, res) => res.json(portfolio(req.query)));
 app.get('/api/stats/reportcard', (req, res) => res.json(reportCard(req.query)));
 app.get('/api/stats/tags', (req, res) => res.json(tagStats(req.query)));
 app.get('/api/stats/discipline', (req, res) => res.json(discipline(req.query)));
+app.get('/api/stats/psychology', (req, res) => res.json(psychology(req.query)));
+app.get('/api/stats/insights', (req, res) =>
+  res.json(insights(req.query, { exits: req.query.exits !== '0' }))
+);
 
 // --- Goals ---
 app.get('/api/goals', (req, res) => res.json(listGoals(req.query)));
@@ -1786,59 +2025,192 @@ async function autoFetchBarsForTrades(trades) {
   return out;
 }
 
+// Shared import pipeline for the upload endpoint and the watch folder: parse,
+// broker-time → UTC, dedupe by (account, ext_id), insert, then best-effort bar
+// fetch + MAE/MFE. Throws an Error with .status = 400 on a bad account.
+function importError(msg) {
+  return Object.assign(new Error(msg), { status: 400 });
+}
+
+async function importTradesFromBuffer(buffer, { filename, mimetype, accountId } = {}) {
+  let acct = accountId ? Number(accountId) : null;
+  if (!acct) acct = db.prepare('SELECT id FROM accounts ORDER BY id LIMIT 1').get()?.id;
+  if (!acct || !accountExists(acct)) throw importError('valid account is required');
+
+  const { trades } = parseImport(buffer, { filename, mimetype, accountId: acct });
+
+  // Broker server time → true UTC (so trades align with UTC price bars).
+  const brokerTz = db.prepare('SELECT broker_tz FROM accounts WHERE id = ?').get(acct)?.broker_tz;
+  for (const t of trades) brokerTimesToUtc(t, brokerTz);
+
+  let inserted = 0;
+  let skipped = 0;
+  const insertedIds = [];
+  const tx = db.transaction((list) => {
+    for (const t of list) {
+      if (
+        t.ext_id != null &&
+        db
+          .prepare('SELECT 1 FROM trades WHERE account_id = ? AND ext_id = ?')
+          .get(t.account_id, t.ext_id)
+      ) {
+        skipped++;
+        continue;
+      }
+      insertedIds.push(insertTradeTx(t));
+      inserted++;
+    }
+  });
+  tx(trades);
+
+  // Best-effort: pull M1 bars around the imported trades so Replay works.
+  let bars = null;
+  try {
+    bars = await autoFetchBarsForTrades(trades);
+  } catch {
+    /* never fail an import over bars */
+  }
+
+  // Now that bars are stored, derive MAE/MFE for the new trades.
+  let excursions = 0;
+  try {
+    excursions = refreshExcursionsByIds(insertedIds);
+  } catch {
+    /* best-effort */
+  }
+
+  return { parsed: trades.length, inserted, skipped, account_id: acct, bars, excursions };
+}
+
 app.post('/api/import', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'file is required' });
-    let accountId = req.body.account ? Number(req.body.account) : null;
-    if (!accountId) {
-      accountId = db.prepare('SELECT id FROM accounts ORDER BY id LIMIT 1').get()?.id;
-    }
-    if (!accountId || !accountExists(accountId))
-      return res.status(400).json({ error: 'valid account is required' });
-
-    const { trades } = parseImport(req.file.buffer, {
+    const result = await importTradesFromBuffer(req.file.buffer, {
       filename: req.file.originalname,
       mimetype: req.file.mimetype,
-      accountId,
+      accountId: req.body.account,
     });
-
-    // Broker server time → true UTC (so trades align with UTC price bars).
-    const brokerTz = db
-      .prepare('SELECT broker_tz FROM accounts WHERE id = ?')
-      .get(accountId)?.broker_tz;
-    for (const t of trades) brokerTimesToUtc(t, brokerTz);
-
-    let inserted = 0;
-    let skipped = 0;
-    const tx = db.transaction((list) => {
-      for (const t of list) {
-        if (
-          t.ext_id != null &&
-          db
-            .prepare('SELECT 1 FROM trades WHERE account_id = ? AND ext_id = ?')
-            .get(t.account_id, t.ext_id)
-        ) {
-          skipped++;
-          continue;
-        }
-        insertTradeTx(t);
-        inserted++;
-      }
-    });
-    tx(trades);
-
-    // Best-effort: pull M1 bars around the imported trades so Replay works.
-    let bars = null;
-    try {
-      bars = await autoFetchBarsForTrades(trades);
-    } catch {
-      /* never fail an import over bars */
-    }
-
-    res.json({ inserted, skipped, account_id: accountId, bars });
+    res.json(result);
   } catch (err) {
-    res.status(500).json({ error: String(err.message || err) });
+    res.status(err.status || 500).json({ error: String(err.message || err) });
   }
+});
+
+// ---------- Watch-folder auto-import ----------
+// Config: env IMPORT_WATCH_DIR / IMPORT_WATCH_ACCOUNT override the values saved
+// from the Import page (app_settings). Files named `acc<id>_…` route to that
+// account; others go to the configured account (or the first account).
+function importWatchConfig() {
+  const envDir = process.env.IMPORT_WATCH_DIR || '';
+  const envAcct = process.env.IMPORT_WATCH_ACCOUNT || '';
+  const dir = envDir || getSetting('import_watch_dir') || null;
+  const acctRaw = envAcct || getSetting('import_watch_account') || null;
+  const accountId = acctRaw && Number(acctRaw) > 0 ? Number(acctRaw) : null;
+  return {
+    dir,
+    accountId,
+    dir_source: envDir ? 'env' : dir ? 'settings' : null,
+    account_source: envAcct ? 'env' : accountId ? 'settings' : null,
+  };
+}
+
+const importWatcher = createImportWatcher({
+  getConfig: importWatchConfig,
+  importFile: (buffer, { filename, accountId }) =>
+    importTradesFromBuffer(buffer, { filename, accountId }),
+  intervalMs: Math.max(5, Number(process.env.IMPORT_WATCH_SEC) || 30) * 1000,
+});
+
+function importWatchStatus() {
+  const cfg = importWatchConfig();
+  return {
+    enabled: !!cfg.dir,
+    dir: cfg.dir,
+    dir_source: cfg.dir_source,
+    account_id: cfg.accountId,
+    account_source: cfg.account_source,
+    dir_exists: cfg.dir ? fs.existsSync(cfg.dir) : false,
+    ...importWatcher.status(),
+  };
+}
+
+app.get('/api/import/watch', (_req, res) => res.json(importWatchStatus()));
+
+// Save dir/account from the UI. Empty values clear the setting.
+app.put('/api/import/watch', (req, res) => {
+  const body = req.body || {};
+  if ('dir' in body) {
+    const dir = typeof body.dir === 'string' ? body.dir.trim() : '';
+    if (dir) {
+      if (!path.isAbsolute(dir)) return res.status(400).json({ error: 'dir must be an absolute path' });
+      let st = null;
+      try {
+        st = fs.statSync(dir);
+      } catch {
+        /* missing */
+      }
+      if (!st || !st.isDirectory()) return res.status(400).json({ error: `directory not found: ${dir}` });
+    }
+    setSetting('import_watch_dir', dir || null);
+  }
+  if ('account_id' in body) {
+    const id = body.account_id == null || body.account_id === '' ? null : Number(body.account_id);
+    if (id != null && !accountExists(id)) return res.status(400).json({ error: 'unknown account' });
+    setSetting('import_watch_account', id);
+  }
+  res.json(importWatchStatus());
+});
+
+app.post('/api/import/watch/scan', async (_req, res) => {
+  try {
+    const r = await importWatcher.scanOnce();
+    res.json({ ...r, status: importWatchStatus() });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// ---------- Backups & export ----------
+// Restore is intentionally manual (README "Backups & restore").
+const backupDir = resolveBackupDir(dbPath);
+const backupKeep = resolveBackupKeep();
+const backupAuto = process.env.BACKUP_AUTO !== '0';
+const runBackup = () => createBackup({ db, dir: backupDir, screenshotsDir, keep: backupKeep });
+
+app.post('/api/backup', async (_req, res) => {
+  try {
+    res.json(await runBackup());
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+app.get('/api/backups', (_req, res) => {
+  res.json({
+    dir: backupDir,
+    keep: backupKeep,
+    auto: backupAuto,
+    last_backup: lastBackupTime(backupDir),
+    backups: listBackups(backupDir),
+  });
+});
+
+app.get('/api/backups/:name/download', (req, res) => {
+  const { name } = req.params;
+  if (!isValidBackupName(name)) return res.status(400).json({ error: 'invalid backup name' });
+  const file = path.join(backupDir, name);
+  // Belt and braces: the name regex already forbids separators and `..`.
+  if (path.dirname(file) !== backupDir || !fs.existsSync(file)) {
+    return res.status(404).json({ error: 'backup not found' });
+  }
+  res.download(file, name);
+});
+
+app.get('/api/export/all', (_req, res) => {
+  const data = exportAll(db);
+  const day = data.exported_at.slice(0, 10);
+  res.setHeader('Content-Disposition', `attachment; filename="trade-journal-export-${day}.json"`);
+  res.json(data);
 });
 
 // ---------- Phase 3: Price bars ----------
@@ -1902,6 +2274,12 @@ app.post('/api/bars/import', upload.single('file'), (req, res) => {
     });
     tx(bars);
 
+    if (bars.length) {
+      try {
+        refreshExcursionsInRange(instrument, bars[0].t, bars[bars.length - 1].t);
+      } catch { /* best-effort */ }
+    }
+
     const total = db
       .prepare('SELECT COUNT(*) AS c FROM price_bars WHERE instrument = ? AND tf = ?')
       .get(normalizeInstrument(instrument), tf).c;
@@ -1956,6 +2334,9 @@ app.post('/api/bars/fetch', async (req, res) => {
           const s5 = await fetchOandaCandles(inst, from, to, FINE_TF);
           row.s5 = upsertBars(inst, FINE_TF, s5);
         }
+        try {
+          row.excursions = refreshExcursionsInRange(inst, from.toISOString(), to.toISOString());
+        } catch { /* best-effort */ }
         results.push(row);
       } catch (e) {
         results.push({ instrument: inst, error: String(e.message || e) });
@@ -2089,7 +2470,8 @@ app.post('/api/trades/:id/bars/refetch', async (req, res) => {
     return res.status(400).json({ error: 'OANDA not configured' });
   try {
     const bars = await autoFetchBarsForTrades([trade]);
-    res.json({ trade_id: id, bars });
+    const excursions = refreshExcursionsByIds([id]);
+    res.json({ trade_id: id, bars, excursions });
   } catch (e) {
     res.status(502).json({ error: String(e.message || e) });
   }
@@ -2542,6 +2924,7 @@ function webhookTrade(req, res) {
     return res.status(200).json({ inserted: 0, skipped: 1 });
   }
   const id = insertTradeTx(trade);
+  fetchBarsThenExcursions([id]);
   res.status(201).json({ inserted: 1, id });
 }
 
@@ -2652,6 +3035,15 @@ initResearchWs(server);
 
 server.listen(PORT, () => {
   console.log(`Trade Journal API listening on http://localhost:${PORT}`);
+  if (backupAuto) {
+    startBackupScheduler({ dir: backupDir, run: runBackup });
+    console.log(`[backup] daily auto-backup -> ${backupDir} (keep ${backupKeep})`);
+  } else {
+    console.log('[backup] auto-backup disabled (BACKUP_AUTO=0)');
+  }
+  importWatcher.start();
+  const watchCfg = importWatchConfig();
+  if (watchCfg.dir) console.log(`[watch] polling ${watchCfg.dir} for import files`);
   const newsSec = Number(process.env.NEWS_REFRESH_SEC ?? 300);
   if (newsSec > 0) startNewsScheduler(newsSec);
   else console.log('[news] server-side polling disabled (NEWS_REFRESH_SEC=0)');

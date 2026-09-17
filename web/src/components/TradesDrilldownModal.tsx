@@ -40,7 +40,7 @@ function Stat({
 }) {
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+      <div className="text-[11px] uppercase tracking-wide text-slate-500">
         {label}
       </div>
       <div className={`num text-sm font-semibold ${valueClass}`}>{value}</div>
@@ -148,7 +148,7 @@ function SessionTimeline({
 
   return (
     <div className="border-b border-slate-800 px-6 py-4">
-      <div className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-wide text-slate-500">
+      <div className="mb-1.5 flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-500">
         <span>Entries within session (UTC)</span>
         <span className="num">
           {hh(win.start)} → {hh(win.start + win.len)}
@@ -161,7 +161,7 @@ function SessionTimeline({
             key={s.start}
             type="button"
             onClick={() => toggle(i)}
-            className={`num rounded text-center text-[10px] transition hover:text-cyan-300 ${
+            className={`num rounded text-center text-[11px] transition hover:text-cyan-300 ${
               selected === i ? 'font-semibold text-cyan-300' : 'text-slate-400'
             }`}
           >
@@ -219,7 +219,7 @@ function SessionTimeline({
                 title={`${hh(s.start)}–${hh(s.start + 1)} · ${s.wins}W / ${s.losses}L${s.be ? ` / ${s.be}BE` : ''} · ${formatMoney(s.net, currency)} · click to filter`}
               >
                 {n === 0 ? (
-                  <div className="text-[10px] text-slate-600">—</div>
+                  <div className="text-[11px] text-slate-600">—</div>
                 ) : (
                   <>
                     <div
@@ -233,7 +233,7 @@ function SessionTimeline({
                     >
                       {wr == null ? '—' : `${Math.round(wr * 100)}%`}
                     </div>
-                    <div className="num text-[10px] text-slate-400">
+                    <div className="num text-[11px] text-slate-400">
                       {s.wins}W/{s.losses}L{s.be ? `/${s.be}BE` : ''}
                     </div>
                   </>
@@ -243,7 +243,7 @@ function SessionTimeline({
           })}
         </div>
       </div>
-      <div className="mt-1 flex items-center gap-3 text-[10px] text-slate-500">
+      <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500">
         <span>win rate by entry hour</span>
         <span className="ml-auto">
           {selected == null ? (
@@ -388,11 +388,11 @@ export default function TradesDrilldownModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 backdrop-blur-sm"
+      className="tj-modal fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="relative my-8 flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl"
+        className="tj-modal-panel relative my-8 flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -508,7 +508,7 @@ export default function TradesDrilldownModal({
           {/* Optional per-day breakdown */}
           {dayBreakdown && days.length > 0 && (
             <div className="border-b border-slate-800 px-6 py-4">
-              <div className="mb-1.5 text-[10px] uppercase tracking-wide text-slate-500">
+              <div className="mb-1.5 text-[11px] uppercase tracking-wide text-slate-500">
                 By day
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
@@ -519,7 +519,7 @@ export default function TradesDrilldownModal({
                       key={d.day}
                       className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2"
                     >
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                      <div className="text-[11px] uppercase tracking-wide text-slate-500">
                         {formatDate(`${d.day}T12:00:00Z`)}
                       </div>
                       <div
@@ -529,7 +529,7 @@ export default function TradesDrilldownModal({
                       >
                         {formatMoney(d.net, currency)}
                       </div>
-                      <div className="num text-[10px] text-slate-400">
+                      <div className="num text-[11px] text-slate-400">
                         {d.count}t · {d.wins}W/{d.losses}L ·{' '}
                         {d.count ? `${Math.round((d.wins / d.count) * 100)}%` : '—'}
                       </div>

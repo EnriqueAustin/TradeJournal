@@ -3,6 +3,10 @@ import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi } from '../hooks/useApi';
 import { AsyncBoundary } from '../components/states';
+import BackupsPanel from '../components/BackupsPanel';
+import ProfilesPanel from '../components/ProfilesPanel';
+import ShareLinksPanel from '../components/ShareLinksPanel';
+import { profilesApi } from '../api/profiles';
 import type { Account, NewAccount, TimeCheck } from '../types';
 import { formatMoney, formatDate, DISPLAY_TZ } from '../utils/format';
 import { FIRM_OPTIONS, getPlanOptions, getPreset, getPhaseRules } from '../data/propPresets';
@@ -238,7 +242,19 @@ function BrokerTimePanel({
 export default function Accounts() {
   type FormState = NewAccount & { _firm: string; _plan: string };
 
-  const { refreshAccounts } = useFilters();
+  const { refreshAccounts, refreshProfiles, profiles } = useFilters();
+  const [assignErr, setAssignErr] = useState<string | null>(null);
+  const assignProfile = async (accountId: number, profileId: number | null) => {
+    setAssignErr(null);
+    try {
+      await profilesApi.assignAccount(accountId, profileId);
+      reload();
+      refreshAccounts();
+      refreshProfiles();
+    } catch (e: any) {
+      setAssignErr(e?.message || 'Failed to assign profile');
+    }
+  };
   const { data, loading, error, reload } = useApi(() => api.getAccounts(), []);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [busy, setBusy] = useState(false);
@@ -359,6 +375,8 @@ export default function Accounts() {
         <p className="text-sm text-slate-500">Manage trading accounts.</p>
       </div>
 
+      <ProfilesPanel />
+
       {data && data.length > 0 && (
         <BrokerTimePanel accounts={data} onChanged={reload} />
       )}
@@ -379,6 +397,7 @@ export default function Accounts() {
                 <thead>
                   <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
                     <th className="px-4 py-2.5 font-medium">Name</th>
+                    <th className="px-4 py-2.5 font-medium">Profile</th>
                     <th className="px-4 py-2.5 font-medium">Broker</th>
                     <th className="px-4 py-2.5 font-medium">Platform</th>
                     <th className="px-4 py-2.5 font-medium">Type</th>
@@ -397,6 +416,23 @@ export default function Accounts() {
                     <tr key={a.id} className="border-b border-slate-800/60">
                       <td className="px-4 py-2.5 font-medium text-slate-200">
                         {a.name}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <select
+                          className="input"
+                          aria-label={`Profile for ${a.name}`}
+                          value={a.profile_id ?? ''}
+                          onChange={(e) =>
+                            assignProfile(a.id, e.target.value ? Number(e.target.value) : null)
+                          }
+                        >
+                          <option value="">{profiles.length ? 'Unassigned' : 'No profiles'}</option>
+                          {profiles.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="px-4 py-2.5 text-slate-400">{a.broker}</td>
                       <td className="px-4 py-2.5 text-slate-400">
@@ -429,6 +465,7 @@ export default function Accounts() {
                 </tbody>
               </table>
             </div>
+            {assignErr && <p className="px-4 py-2 text-xs text-red-400">{assignErr}</p>}
           </AsyncBoundary>
         </div>
 
@@ -723,6 +760,10 @@ export default function Accounts() {
           {ok && <p className="text-sm text-emerald-400">{ok}</p>}
         </form>
       </div>
+
+      <ShareLinksPanel />
+
+      <BackupsPanel />
     </div>
   );
 }
