@@ -21,6 +21,8 @@ import {
 } from './backup.js';
 import { createImportWatcher } from './importWatch.js';
 import { listGoals, createGoal, deleteGoal } from './goals.js';
+import { registerProfileRoutes } from './profiles.js';
+import { registerShareRoutes } from './share.js';
 import { migrateResearch } from './research/schema.js';
 import { researchRouter } from './research/routes.js';
 import { initResearchWs } from './research/ws.js';
@@ -251,6 +253,10 @@ function removeScreenshotFiles(rows) {
   }
 }
 
+// ---------- Profiles + read-only share links (profiles.js, share.js) ----------
+registerProfileRoutes(app);
+registerShareRoutes(app);
+
 // ---------- Accounts ----------
 app.get('/api/accounts', (req, res) => {
   res.json(db.prepare('SELECT * FROM accounts ORDER BY id').all());
@@ -338,6 +344,7 @@ app.patch('/api/accounts/:id', (req, res) => {
     'default_risk_pct',
     'default_risk_amount',
     'be_band_r',
+    'profile_id',
   ];
   const sets = [];
   const params = { id };
@@ -574,6 +581,9 @@ function tradesQuery(q) {
   if (q.account) {
     clauses.push('account_id = @account');
     params.account = Number(q.account);
+  } else if (q.profile) {
+    clauses.push('account_id IN (SELECT id FROM accounts WHERE profile_id = @profile)');
+    params.profile = Number(q.profile);
   }
   if (q.instrument) {
     clauses.push('instrument = @instrument');

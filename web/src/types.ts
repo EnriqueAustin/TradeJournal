@@ -37,6 +37,8 @@ export interface Account {
   default_risk_amount: number | null;
   /** Trades whose |R| is within this band count as break-even (null = exact $0 only). */
   be_band_r: number | null;
+  /** Owning profile (per-trader grouping), null = unassigned. */
+  profile_id?: number | null;
   created_at: string;
 }
 
@@ -1053,6 +1055,8 @@ export interface BtSessionBars {
 
 export interface Filters {
   account: number | null;
+  /** Active profile; scopes "All accounts" to that profile's accounts. */
+  profile?: number | null;
   instrument: string; // 'All' | 'XAUUSD' | 'US100'
   session: string; // 'All' | session
   setup: string; // 'All' | setup id (as string)

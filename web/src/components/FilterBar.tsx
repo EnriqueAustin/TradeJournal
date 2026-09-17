@@ -89,6 +89,7 @@ export default function FilterBar({ variant = 'full' }: { variant?: 'full' | 'ac
     accountsLoading,
     accountsError,
     setups,
+    activeProfile,
   } = useFilters();
 
   return (
@@ -110,9 +111,13 @@ export default function FilterBar({ variant = 'full' }: { variant?: 'full' | 'ac
           }
         >
           {accounts.length === 0 ? (
-            <option value="">{accountsLoading ? 'Loading…' : 'No accounts'}</option>
+            <option value="">
+              {accountsLoading ? 'Loading…' : activeProfile ? 'No accounts in profile' : 'No accounts'}
+            </option>
           ) : (
-            <option value="">All accounts</option>
+            <option value="">
+              {activeProfile ? `All ${activeProfile.name} accounts` : 'All accounts'}
+            </option>
           )}
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>
