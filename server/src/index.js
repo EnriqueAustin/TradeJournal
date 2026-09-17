@@ -650,6 +650,9 @@ function tradesQuery(q) {
     clauses.push('EXISTS (SELECT 1 FROM trade_psych p WHERE p.trade_id = trades.id AND p.emotion = @emotion)');
     params.emotion = String(q.emotion);
   }
+  // `plan=followed|broke` is an alias for followed=1|0.
+  if (q.plan === 'followed') q = { ...q, followed: '1' };
+  else if (q.plan === 'broke') q = { ...q, followed: '0' };
   if (q.followed === '0' || q.followed === '1') {
     clauses.push('followed_plan = @followed');
     params.followed = Number(q.followed);

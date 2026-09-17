@@ -448,7 +448,23 @@ export default function Trades() {
             { value: 'be' as TradeOutcome, label: 'B/E' },
           ]}
         />
-        {(Object.keys(drill) as DrillKey[]).map((k) => (
+        <Segmented
+          value={(drill.followed ?? '') as '' | '1' | '0'}
+          onChange={(v) =>
+            setDrill((cur) => {
+              const next = { ...cur };
+              if (v === '') delete next.followed;
+              else next.followed = v;
+              return next;
+            })
+          }
+          options={[
+            { value: '' as const, label: 'Plan: any' },
+            { value: '1' as const, label: 'Followed' },
+            { value: '0' as const, label: 'Broke' },
+          ]}
+        />
+        {(Object.keys(drill) as DrillKey[]).filter((k) => k !== 'followed').map((k) => (
           <button
             key={k}
             type="button"
