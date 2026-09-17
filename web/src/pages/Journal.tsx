@@ -5,6 +5,7 @@ import { useFilters } from '../store/FilterContext';
 import DailyPlanCard from '../components/DailyPlanCard';
 import MissedTradesCard from '../components/MissedTradesCard';
 import ShareLinkButton from '../components/ShareLinkButton';
+import Markdown from '../components/Markdown';
 import { ReminderSettingsButton, ReviewReminderBanner } from '../components/ReviewReminders';
 import type { Filters, JournalDay } from '../types';
 import {
@@ -52,6 +53,8 @@ export default function Journal() {
   const [recapDirty, setRecapDirty] = useState(false);
   const [savingRecap, setSavingRecap] = useState(false);
   const [recapMsg, setRecapMsg] = useState<string | null>(null);
+  // Saved recaps open rendered (markdown); an empty day opens straight in Write.
+  const [recapPreview, setRecapPreview] = useState(false);
 
   const setDay = useCallback(
     (d: string) => {
@@ -73,6 +76,7 @@ export default function Journal() {
       setData(d);
       setRecap(d.recap?.body ?? '');
       setRecapDirty(false);
+      setRecapPreview(!!d.recap?.body?.trim());
     } catch (e: any) {
       setErr(e?.message || 'Failed to load the day');
       setData(null);
@@ -313,6 +317,21 @@ export default function Journal() {
           <h2 className="text-sm font-semibold text-slate-200">Recap</h2>
           <div className="flex items-center gap-2">
             {recapMsg && <span className="text-sm text-emerald-400">{recapMsg}</span>}
+            <div className="flex overflow-hidden rounded-lg border border-slate-800 text-xs">
+              {([['Write', false], ['Preview', true]] as const).map(([label, v]) => (
+                <button
+                  key={label}
+                  onClick={() => setRecapPreview(v)}
+                  className={`px-2.5 py-1 font-semibold ${
+                    recapPreview === v
+                      ? 'bg-cyan-600 text-white'
+                      : 'bg-slate-900/40 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <button
               className="btn btn-primary"
               onClick={saveRecap}
@@ -322,15 +341,28 @@ export default function Journal() {
             </button>
           </div>
         </div>
-        <textarea
-          className="input min-h-[120px] w-full resize-y"
-          value={recap}
-          onChange={(e) => {
-            setRecap(e.target.value);
-            setRecapDirty(true);
-          }}
-          placeholder="How did the day go against the plan? What worked, what to carry into tomorrow…"
-        />
+        {recapPreview ? (
+          <div
+            className="min-h-[60px] cursor-text rounded-lg border border-slate-800 bg-slate-900/30 p-3"
+            onDoubleClick={() => setRecapPreview(false)}
+            title="Double-click to edit"
+          >
+            <Markdown source={recap} empty={<p className="text-sm text-slate-500">Nothing written yet.</p>} />
+          </div>
+        ) : (
+          <textarea
+            className="input min-h-[120px] w-full resize-y"
+            value={recap}
+            onChange={(e) => {
+              setRecap(e.target.value);
+              setRecapDirty(true);
+            }}
+            placeholder="How did the day go against the plan? What worked, what to carry into tomorrow…"
+          />
+        )}
+        <p className="mt-1 text-[11px] text-slate-500">
+          Markdown: **bold**, - lists, - [ ] tasks, ## headings · #123 links a trade, @2026-09-15 a day
+        </p>
         {data?.recap?.updated_at && !recapDirty && (
           <p className="mt-2 text-xs text-slate-500">Last saved {data.recap.updated_at}</p>
         )}
