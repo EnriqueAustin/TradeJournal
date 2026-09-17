@@ -23,10 +23,18 @@ function systemTheme(): Theme {
   return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }
 
+// Browser / installed-app chrome colour per theme (matches --c-panel-hd, the
+// mobile top bar). Kept in step with index.html's pre-paint script.
+export const THEME_COLOR: Record<Theme, string> = { dark: '#0e161a', light: '#f7f9f8' };
+
 function apply(t: Theme) {
   if (document.documentElement.getAttribute('data-theme') !== t) {
     document.documentElement.setAttribute('data-theme', t);
   }
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+    m.setAttribute('content', THEME_COLOR[t]);
+    m.removeAttribute('media');
+  });
   listeners.forEach((l) => l());
 }
 
