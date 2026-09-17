@@ -79,7 +79,7 @@ function Field({
     return (
       <div className="flex flex-col gap-1">
         {labelEl}
-        <div className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1 [&>select]:min-w-0 [&>select]:flex-1">
+        <div className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1 [&>select]:min-w-0 [&>select]:max-w-none [&>select]:flex-1">
           {children}
         </div>
       </div>

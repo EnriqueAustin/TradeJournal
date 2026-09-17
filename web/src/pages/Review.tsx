@@ -142,7 +142,7 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
               <Link
                 key={s}
                 to={reviewPath(s, s === 'day' && scope === 'week' ? from : date)}
-                className={`px-2.5 py-1 text-xs font-semibold capitalize ${
+                className={`px-3 py-2.5 text-xs font-semibold capitalize md:px-2.5 md:py-1 ${
                   s === scope ? 'bg-cyan-600 text-white' : 'bg-slate-900/40 text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -250,7 +250,8 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
                   height={mobile ? 260 : 360}
                   hideNews
                 />
-                <ExitAnalysisCard tradeId={current.id} currency={currency} />
+                {/* Phones: the review inputs come straight after the chart. */}
+                {!mobile && <ExitAnalysisCard tradeId={current.id} currency={currency} />}
               </div>
               <div
                 className="flex min-w-0 touch-pan-y flex-col gap-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1"
@@ -266,6 +267,7 @@ function ReviewInner({ scope, date }: { scope: ReviewScope; date: string }) {
                   isLast={idx === total - 1}
                 />
                 <KeyStatsCard trade={current} />
+                {mobile && <ExitAnalysisCard tradeId={current.id} currency={currency} />}
               </div>
             </div>
           )}

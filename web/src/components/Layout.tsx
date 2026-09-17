@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet, matchPath, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import FilterBar from './FilterBar';
@@ -24,8 +24,14 @@ export default function Layout() {
   const variant = filterVariant(pathname);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // The drawer closes on any navigation (link tap inside it, bottom bar, back).
-  useEffect(() => setDrawerOpen(false), [pathname]);
+  // The drawer closes on any navigation (link tap inside it, bottom bar, back),
+  // and a new page starts at the top — main is the scroll container and
+  // outlives route changes, so it would otherwise keep the old offset.
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    setDrawerOpen(false);
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [pathname]);
 
   // Esc closes it; the page behind doesn't scroll while it's open.
   useEffect(() => {
@@ -44,7 +50,7 @@ export default function Layout() {
 
   return (
     <div
-      className="flex h-full min-h-screen"
+      className="tj-shell flex h-full min-h-screen"
       style={{ background: 'var(--term-bg)' }}
     >
       <Sidebar className="hidden md:flex" />
@@ -72,7 +78,7 @@ export default function Layout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <MobileTopBar title={title} onMenu={() => setDrawerOpen(true)} menuOpen={drawerOpen} />
         {variant && <FilterBar variant={variant} />}
-        <main className="tj-main min-w-0 flex-1 overflow-y-auto px-3 py-3 md:px-4 md:py-4">
+        <main ref={mainRef} className="tj-main min-w-0 flex-1 overflow-y-auto px-3 py-3 md:px-4 md:py-4">
           <Outlet />
         </main>
       </div>

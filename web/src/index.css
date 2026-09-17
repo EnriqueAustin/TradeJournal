@@ -234,6 +234,24 @@ table th {
   .btn {
     min-height: 40px;
   }
+  /* Tap targets: every control in the page gets at least 40px of height, and
+     a select can never be wider than its container (long option labels). */
+  .tj-main button,
+  .tj-main select,
+  .tj-main [role='button'],
+  .tj-main input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .tj-sheet-body button,
+  .tj-sheet-body select,
+  .tj-sheet-body input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .tj-modal button,
+  .tj-modal select,
+  .tj-modal input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']) {
+    min-height: 40px;
+  }
+  .tj-main select,
+  .tj-main .input {
+    max-width: 100%;
+  }
   /* Prev/Next row of the review card stays under the thumb while scrolling:
      above the tab bar in the page, at the sheet's bottom edge inside a sheet. */
   .tj-sticky-actions {
@@ -265,6 +283,16 @@ table th {
   }
   .tj-sheet-body .tj-sticky-actions {
     bottom: 0;
+  }
+}
+/* Installed on a tablet (md+, translucent status bar): keep the sidebar and
+   page clear of the notch/status bar. env() is 0 in ordinary browsers. */
+@media (min-width: 768px) {
+  .tj-shell {
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    box-sizing: border-box;
   }
 }
 @keyframes tj-slide-right {
