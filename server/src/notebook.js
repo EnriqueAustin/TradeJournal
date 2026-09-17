@@ -323,6 +323,8 @@ export function registerNotebookRoutes(app, { imageUpload } = {}) {
   });
   app.post('/api/notebook/notes', (req, res) => send(res, createNote(req.body), 'note', true));
   app.patch('/api/notebook/notes/:id', (req, res) => send(res, updateNote(req.params.id, req.body), 'note'));
+  // POST alias: navigator.sendBeacon (last-chance save on tab close) can only POST.
+  app.post('/api/notebook/notes/:id', (req, res) => send(res, updateNote(req.params.id, req.body), 'note'));
   app.delete('/api/notebook/notes/:id', (req, res) =>
     deleteNote(req.params.id) ? res.status(204).end() : res.status(404).json({ error: 'not found' })
   );
