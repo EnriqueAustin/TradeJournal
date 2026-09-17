@@ -16,6 +16,7 @@ import {
 import type { PropStats } from '../types';
 import { getPreset } from '../data/propPresets';
 import RiskCalculator from '../components/RiskCalculator';
+import MonteCarloCard from '../components/MonteCarloCard';
 
 function SectionCard({
   title,
@@ -996,6 +997,8 @@ export default function Risk() {
           )}
         </AsyncBoundary>
       </SectionCard>
+
+      <MonteCarloCard />
     </div>
   );
 }
