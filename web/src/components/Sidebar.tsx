@@ -21,6 +21,7 @@ function navGroups(): { heading: string; links: Link[] }[] {
       links: [
         { to: '/', label: 'Dashboard', icon: '▦', end: true },
         { to: '/journal', label: 'Journal', icon: '❒' },
+        { to: '/notebook', label: 'Notebook', icon: '✎' },
         { to: '/trades', label: 'Trades', icon: '≣' },
         { to: '/playbook', label: 'Playbook', icon: '◎' },
       ],

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../api/client';
 import type { TradeDetail as TTradeDetail, Note as TNote } from '../../types';
 import { formatDateTime } from '../../utils/format';
+import Markdown from '../Markdown';
 
 // One note: read view with Edit/Delete, or an inline editor. Notes are editable
 // documents — a typo or a note on the wrong trade shouldn't be permanent.
@@ -105,7 +106,7 @@ function NoteRow({ note, onChanged }: { note: TNote; onChanged: () => void }) {
           </div>
         </div>
       ) : (
-        <p className="whitespace-pre-wrap text-sm text-slate-200">{note.body}</p>
+        <Markdown source={note.body} />
       )}
       {err && <p className="mt-1 text-sm text-red-400">{err}</p>}
     </div>

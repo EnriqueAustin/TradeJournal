@@ -15,6 +15,7 @@ import BacktestHub from './pages/BacktestHub';
 import Portfolio from './pages/Portfolio';
 import CalendarPage from './pages/Calendar';
 import Journal from './pages/Journal';
+import Notebook from './pages/Notebook';
 import WeekReport from './pages/WeekReport';
 import MonthReport from './pages/MonthReport';
 import Review from './pages/Review';
@@ -37,6 +38,7 @@ export default function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="journal" element={<Journal />} />
+        <Route path="notebook" element={<Notebook />} />
         <Route path="report/week/:date" element={<WeekReport />} />
         <Route path="report/month/:ym" element={<MonthReport />} />
         <Route path="review/:scope/:date" element={<Review />} />
