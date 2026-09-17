@@ -256,7 +256,7 @@ export function computeInsights(rows, ctx = {}) {
         severity: la.net_pnl < 0 ? 'bad' : 'warn',
         title: 'Performance decays after your 2nd trade of the day',
         detail: `3rd+ trades: ${usd(la.avg_net)}/trade, win ${pct(la.win_rate)} (${la.n}) vs first two: ${usd(e.avg_net)}/trade (${e.n}).`,
-        metric: { label: '3rd+ net', value: la.net_pnl, unit: 'usd' },
+        metric: { label: '3rd+ avg/trade', value: la.avg_net, unit: 'usd' },
         sample_n: la.n,
         impact: Math.abs(Math.min(0, la.net_pnl)),
       });
@@ -307,16 +307,17 @@ export function computeInsights(rows, ctx = {}) {
     const n = Math.min(w.length, l.length);
     if (n < T.min_group) skip('hold_asymmetry', 'Hold time winners vs losers', n, T.min_group);
     else {
-      const aw = w.reduce((s, t) => s + t.hold_time_sec, 0) / w.length;
-      const al = l.reduce((s, t) => s + t.hold_time_sec, 0) / l.length;
-      const mins = (s) => `${(s / 60).toFixed(1)}m`;
+      // Medians: one position held over a weekend would swamp a mean.
+      const aw = median(w.map((t) => t.hold_time_sec));
+      const al = median(l.map((t) => t.hold_time_sec));
+      const mins = (s) => (s >= 5400 ? `${(s / 3600).toFixed(1)}h` : `${(s / 60).toFixed(1)}m`);
       const ratio = aw > 0 ? al / aw : null;
       if (ratio != null && ratio >= 1.5)
         add({
           id: 'hold_asymmetry',
           severity: 'warn',
           title: 'You hold losers longer than winners',
-          detail: `Losers held ${mins(al)} on average vs ${mins(aw)} for winners (${ratio.toFixed(1)}×) — cutting winners early or hoping on losers.`,
+          detail: `Median loser held ${mins(al)} vs ${mins(aw)} for winners (${ratio.toFixed(1)}×) — cutting winners early or hoping on losers.`,
           metric: { label: 'Loser/winner hold', value: round(ratio, 2), unit: 'x' },
           sample_n: w.length + l.length,
           link: { outcome: 'loss' },
