@@ -1,42 +1,68 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
+import { DISPLAY_TZ } from '../utils/format';
 import { setTheme, useTheme } from '../store/theme';
 import { useFilters } from '../store/FilterContext';
 import type { Profile } from '../api/profiles';
 
-type Link = { to: string; label: string; icon: string; end?: boolean };
+type Link = { to: string; label: string; icon: string; end?: boolean; match?: string };
 
-const groups: { heading: string; links: Link[] }[] = [
-  {
-    heading: 'Journal',
-    links: [
-      { to: '/', label: 'Dashboard', icon: '▦', end: true },
-      { to: '/journal', label: 'Journal', icon: '❒' },
-      { to: '/trades', label: 'Trades', icon: '≣' },
-      { to: '/playbook', label: 'Playbook', icon: '◎' },
-      { to: '/analytics', label: 'Analytics', icon: '◔' },
-      { to: '/risk', label: 'Risk', icon: '⚠' },
-      { to: '/portfolio', label: 'Portfolio', icon: '⌘' },
-    ],
-  },
-  {
-    heading: 'Tools',
-    links: [
-      { to: '/calendar', label: 'Econ Calendar', icon: '▤' },
-      { to: '/replay', label: 'Replay', icon: '▶' },
-      { to: '/backtest', label: 'Backtest', icon: '⟲' },
-    ],
-  },
-  {
-    heading: 'Data',
-    links: [
-      { to: '/import', label: 'Import', icon: '⤓' },
-      { to: '/accounts', label: 'Accounts', icon: '◈' },
-    ],
-  },
-];
+// Today / this month on the display clock, so the Review and Month report links
+// land on the trader's local day rather than UTC's.
+function localToday(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: DISPLAY_TZ }).format(new Date());
+}
+
+function navGroups(): { heading: string; links: Link[] }[] {
+  const today = localToday();
+  return [
+    {
+      heading: 'Journal',
+      links: [
+        { to: '/', label: 'Dashboard', icon: '▦', end: true },
+        { to: '/journal', label: 'Journal', icon: '❒' },
+        { to: '/trades', label: 'Trades', icon: '≣' },
+        { to: '/playbook', label: 'Playbook', icon: '◎' },
+      ],
+    },
+    {
+      heading: 'Review',
+      links: [
+        { to: `/review/day/${today}`, label: 'Review', icon: '✓', match: '/review/' },
+        { to: `/report/month/${today.slice(0, 7)}`, label: 'Month report', icon: '▧', match: '/report/month/' },
+      ],
+    },
+    {
+      heading: 'Analyze',
+      links: [
+        { to: '/analytics', label: 'Analytics', icon: '◔' },
+        { to: '/reports', label: 'Reports', icon: '⊞' },
+        { to: '/compare', label: 'Compare', icon: '⇄' },
+        { to: '/risk', label: 'Risk', icon: '⚠' },
+        { to: '/portfolio', label: 'Portfolio', icon: '⌘' },
+      ],
+    },
+    {
+      heading: 'Tools',
+      links: [
+        { to: '/calendar', label: 'Econ Calendar', icon: '▤' },
+        { to: '/replay', label: 'Replay', icon: '▶' },
+        { to: '/backtest', label: 'Backtest', icon: '⟲' },
+      ],
+    },
+    {
+      heading: 'Data',
+      links: [
+        { to: '/import', label: 'Import', icon: '⤓' },
+        { to: '/accounts', label: 'Accounts', icon: '◈' },
+      ],
+    },
+  ];
+}
 
 export default function Sidebar() {
+  const { pathname } = useLocation();
+  const groups = navGroups();
   return (
     <aside
       className="flex w-52 shrink-0 flex-col border-r"
@@ -64,7 +90,7 @@ export default function Sidebar() {
         </div>
       </div>
       <ProfileSwitcher />
-      <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-2 py-2">
+      <nav className="flex flex-1 flex-col gap-2 overflow-y-auto px-2 py-2">
         {groups.map((g) => (
           <div key={g.heading} className="flex flex-col gap-0.5">
             <div
@@ -78,17 +104,20 @@ export default function Sidebar() {
                 key={l.to}
                 to={l.to}
                 end={l.end}
-                className={({ isActive }) =>
-                  `flex items-center gap-2 border px-2.5 py-1.5 text-[13px] font-medium transition ${
-                    isActive ? 'is-active' : ''
+                className={({ isActive: a }) =>
+                  `flex items-center gap-2 border px-2.5 py-1 text-[13px] font-medium transition ${
+                    a || (l.match && pathname.startsWith(l.match)) ? 'is-active' : ''
                   }`
                 }
-                style={({ isActive }) => ({
+                style={({ isActive: a }) => {
+                  const isActive = a || (!!l.match && pathname.startsWith(l.match));
+                  return {
                   borderRadius: 2,
                   borderColor: isActive ? 'var(--term-amber)' : 'transparent',
                   background: isActive ? 'var(--term-amber)' : 'transparent',
                   color: isActive ? 'var(--term-on-accent)' : 'var(--term-text-dim)',
-                })}
+                  };
+                }}
               >
                 <span
                   className="w-4 text-center text-sm leading-none"
