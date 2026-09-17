@@ -38,7 +38,7 @@ function Scale({
     <div>
       <div className="label mb-1.5">{label}</div>
       <div className="flex items-center gap-1.5">
-        <span className="w-10 text-right text-[11px] text-slate-500">{hint[0]}</span>
+        <span className="w-9 shrink-0 text-right text-[11px] text-slate-500 md:w-10">{hint[0]}</span>
         {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
@@ -46,14 +46,14 @@ function Scale({
             disabled={disabled}
             aria-pressed={value === n}
             onClick={() => onPick(value === n ? null : n)}
-            className={`num h-8 w-8 rounded-lg border text-sm font-semibold transition ${
+            className={`num h-10 min-w-0 flex-1 rounded-lg border text-sm font-semibold transition md:h-8 md:w-8 md:flex-none ${
               value === n ? 'border-cyan-500 bg-cyan-500/15 text-cyan-300' : OFF
             }`}
           >
             {n}
           </button>
         ))}
-        <span className="w-10 text-[11px] text-slate-500">{hint[1]}</span>
+        <span className="w-9 shrink-0 text-[11px] text-slate-500 md:w-10">{hint[1]}</span>
       </div>
     </div>
   );
@@ -108,7 +108,7 @@ export default function PsychCard({
               type="button"
               aria-pressed={p.emotion === e.value}
               onClick={() => save({ emotion: p.emotion === e.value ? null : e.value })}
-              className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+              className={`min-h-[40px] rounded-full border px-3 py-1 text-xs font-medium transition md:min-h-0 md:px-2.5 ${
                 p.emotion === e.value ? toneOn[e.tone] : OFF
               }`}
             >
