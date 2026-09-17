@@ -14,6 +14,7 @@ import ScreenshotsPanel from '../components/trade/ScreenshotsPanel';
 import TagsPanel from '../components/trade/TagsPanel';
 import WickSetupPanel from '../components/trade/WickSetupPanel';
 import ReviewPanel from '../components/trade/ReviewPanel';
+import PsychCard from '../components/trade/PsychCard';
 import NotesPanel from '../components/trade/NotesPanel';
 import KeyStatsCard from '../components/trade/KeyStatsCard';
 import RiskLevelsCard from '../components/trade/RiskLevelsCard';
@@ -271,6 +272,7 @@ function TradeBody({
       <div className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-0 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
         <KeyStatsCard trade={trade} />
         <ReviewPanel trade={trade} onChanged={onChanged} />
+        <PsychCard trade={trade} onChanged={onChanged} />
         <RiskLevelsCard trade={trade} onChanged={onChanged} />
         <TagsPanel trade={trade} onChanged={onChanged} />
         <WickSetupPanel trade={trade} onChanged={onChanged} />

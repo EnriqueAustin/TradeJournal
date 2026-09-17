@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useFilters } from '../store/FilterContext';
 import { useApi } from '../hooks/useApi';
@@ -31,9 +31,17 @@ export default function WeekReport() {
       {/* Screen-only toolbar; hidden when printing */}
       <div className="mb-4 flex items-center justify-between print:hidden">
         <h1 className="text-lg font-semibold text-slate-100">Weekly Review</h1>
-        <button className="btn btn-primary" onClick={() => window.print()}>
-          Print / Save PDF
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link className="btn text-xs" to={`/review/week/${d?.from ?? date}`}>
+            Review week
+          </Link>
+          <Link className="btn text-xs" to={`/report/month/${(d?.from ?? date).slice(0, 7)}`}>
+            Month report →
+          </Link>
+          <button className="btn btn-primary" onClick={() => window.print()}>
+            Print / Save PDF
+          </button>
+        </div>
       </div>
 
       <AsyncBoundary
@@ -67,6 +75,13 @@ export default function WeekReport() {
                 </div>
               ))}
             </div>
+
+            {d.week_recap && (
+              <div className="rounded-lg border border-slate-800 p-4">
+                <h3 className="mb-2 text-sm font-semibold text-slate-200">Week recap</h3>
+                <p className="whitespace-pre-wrap text-sm text-slate-300">{d.week_recap}</p>
+              </div>
+            )}
 
             {/* Best / worst */}
             <div className="grid gap-4 sm:grid-cols-2">

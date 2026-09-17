@@ -17,10 +17,17 @@ export default function TradeChartCard({
   trade,
   onChanged,
   onOpenShare,
+  height = 420,
+  hideNews = false,
 }: {
   trade: TTradeDetail;
   onChanged: () => void;
-  onOpenShare: () => void;
+  /** Omit to hide the Share Card button (e.g. in the review stepper). */
+  onOpenShare?: () => void;
+  /** Chart height in px. */
+  height?: number;
+  /** Hide the news panel under the chart. */
+  hideNews?: boolean;
 }) {
   const [tf, setTf] = useState(trade.preferred_tf || 'M30');
   const [refetching, setRefetching] = useState(false);
@@ -146,13 +153,15 @@ export default function TradeChartCard({
           >
             {refetching ? 'Fetching…' : '↻ Bars'}
           </button>
-          <button
-            onClick={onOpenShare}
-            className="btn text-xs bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border-cyan-500/40"
-            title="Generate social share graphic"
-          >
-            📸 Share Card
-          </button>
+          {onOpenShare && (
+            <button
+              onClick={onOpenShare}
+              className="btn text-xs bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border-cyan-500/40"
+              title="Generate social share graphic"
+            >
+              📸 Share Card
+            </button>
+          )}
           <Link to={`/replay?trade=${trade.id}`} className="btn text-xs">
             Full replay →
           </Link>
@@ -165,7 +174,7 @@ export default function TradeChartCard({
         loadingLabel="Loading chart…"
       >
         {!frame || frame.bars.length === 0 ? (
-          <div className="flex h-[420px] items-center justify-center text-sm text-slate-500">
+          <div style={{ height }} className="flex items-center justify-center text-sm text-slate-500">
             No {tf} bars for {trade.instrument}. Import bars to see the chart.
           </div>
         ) : (
@@ -174,11 +183,12 @@ export default function TradeChartCard({
             markers={markers}
             priceLines={priceLines}
             positionBox={showBox ? positionBox : null}
-            height={420}
+            height={height}
           />
         )}
       </AsyncBoundary>
     </div>
+    {!hideNews && (
     <NewsPanel
       events={news.data ?? []}
       status={newsStatus.data}
@@ -192,6 +202,7 @@ export default function TradeChartCard({
           : undefined
       }
     />
+    )}
     </>
   );
 }

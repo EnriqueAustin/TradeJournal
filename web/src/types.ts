@@ -182,6 +182,7 @@ export interface Note {
   rules_followed: 0 | 1 | null;
   created_at: string;
   updated_at?: string | null;
+  kind?: string | null;
 }
 
 export interface MissedTrade {
@@ -225,6 +226,7 @@ export interface WeekReport {
     recap: string | null;
     bias: string | null;
   }>;
+  week_recap?: string | null;
 }
 
 export interface FieldDef {
@@ -328,6 +330,7 @@ export interface TradeDetail extends Trade {
   screenshots: Screenshot[];
   wick?: WickTag | null;
   criteria?: TradeCriterion[];
+  psych?: TradePsych | null;
 }
 
 export interface WickEdgeRow {
@@ -462,6 +465,13 @@ export interface TradeQuery {
   outcome?: TradeOutcome;
   /** Comma-joined TradeNeed flags for the needs-attention backfill queue. */
   needs?: string;
+  /** Insight drill-down filters (see server tradesQuery). */
+  tag?: string;
+  hour?: string;
+  dow?: string;
+  emotion?: string;
+  followed?: string;
+  after_loss?: string;
 }
 
 export interface TradesResponse {
@@ -1894,4 +1904,112 @@ export interface SpreadResponse {
   data: SpreadPoint[];
   asOf: number;
   error?: string;
+}
+
+// ============================================================================
+// Phase D — review workflow: psychology, insights, month report, week recap.
+// ============================================================================
+export type Emotion = 'calm' | 'anxious' | 'fomo' | 'revenge' | 'bored' | 'confident';
+
+export interface TradePsych {
+  trade_id: number;
+  confidence: number | null;
+  emotion: Emotion | null;
+  satisfaction: number | null;
+  updated_at?: string;
+}
+
+export interface GroupAgg {
+  n: number;
+  net_pnl: number;
+  wins: number;
+  losses: number;
+  win_rate: number | null;
+  avg_net: number | null;
+  avg_r: number | null;
+}
+
+export interface PsychologyStats {
+  total: number;
+  rated: number;
+  by_emotion: Array<GroupAgg & { key: Emotion }>;
+  by_confidence: Array<GroupAgg & { key: number }>;
+  by_satisfaction: Array<GroupAgg & { key: number }>;
+  tilt_after_loss: { window_min: number; after_loss: GroupAgg; other: GroupAgg };
+}
+
+export type InsightSeverity = 'good' | 'warn' | 'bad';
+
+/** Trades-page query an insight drills into (URL params on /trades). */
+export type InsightLink = Partial<Record<
+  'session' | 'instrument' | 'setup' | 'direction' | 'outcome' | 'needs' | 'tag' | 'hour' | 'dow' | 'emotion' | 'followed' | 'after_loss' | 'sort' | 'dir',
+  string | number
+>>;
+
+export interface Insight {
+  id: string;
+  severity: InsightSeverity;
+  title: string;
+  detail: string;
+  metric: { label: string; value: number | null; unit: 'usd' | 'r' | 'pct' | 'x' | 'count' };
+  sample_n: number;
+  impact?: number;
+  link: InsightLink | null;
+}
+
+export interface InsightsResponse {
+  total: number;
+  insights: Insight[];
+  low_sample: Array<{ id: string; title: string; sample_n: number; need: number; detail: string }>;
+  thresholds: Record<string, number>;
+}
+
+export interface TagWithUses extends Tag {
+  uses: number;
+}
+
+export interface WeekRecap {
+  week: string;
+  account_id: number;
+  recap: Note | null;
+}
+
+export interface MonthReportTrade extends WeekReportTrade {
+  is_be: number;
+  followed_plan: number | null;
+}
+
+export interface MonthReport {
+  month: string;
+  from: string;
+  to: string;
+  prev_month: string;
+  account: { id: number; name: string; currency: string };
+  stats: StatsSummary;
+  prev_stats: StatsSummary;
+  equity: EquityPoint[];
+  days: CalendarDay[];
+  trading_days: number;
+  green_days: number;
+  best_days: CalendarDay[];
+  worst_days: CalendarDay[];
+  best_trades: MonthReportTrade[];
+  worst_trades: MonthReportTrade[];
+  by_setup: SetupStat[];
+  by_session: Array<GroupAgg & { key: string }>;
+  by_instrument: Array<GroupAgg & { key: string }>;
+  discipline: DisciplineStats;
+  mistakes: TagStatRow[];
+  exits: null | {
+    sample: number;
+    avg_left_usd: number | null;
+    avg_left_r: number | null;
+    continued_1r_pct: number | null;
+    horizons: Array<{ minutes: number; sample: number; avg_move_usd: number | null; avg_move_r: number | null; pct_continued: number | null }>;
+    hold_to_target: Record<string, number>;
+    top_left: Array<{ id: number; instrument: string | null; direction: string; left_usd: number | null; left_r: number | null; net_pnl: number | null }>;
+  };
+  psychology: Pick<PsychologyStats, 'rated' | 'by_emotion' | 'tilt_after_loss'>;
+  recaps: Array<{ day: string; kind: 'day' | 'week'; body: string }>;
+  avg_day: number | null;
 }
