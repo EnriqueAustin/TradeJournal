@@ -1,5 +1,8 @@
+import { useEffect, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { setTheme, useTheme } from '../store/theme';
+import { useFilters } from '../store/FilterContext';
+import type { Profile } from '../api/profiles';
 
 type Link = { to: string; label: string; icon: string; end?: boolean };
 
@@ -60,6 +63,7 @@ export default function Sidebar() {
           TRADE<span style={{ color: 'var(--term-green)' }}>▮</span>JOURNAL
         </div>
       </div>
+      <ProfileSwitcher />
       <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-2 py-2">
         {groups.map((g) => (
           <div key={g.heading} className="flex flex-col gap-0.5">
@@ -108,6 +112,112 @@ export default function Sidebar() {
         <ThemeToggle />
       </div>
     </aside>
+  );
+}
+
+function Avatar({ profile, size = 22 }: { profile: Profile | null; size?: number }) {
+  return (
+    <span
+      aria-hidden
+      className="flex shrink-0 items-center justify-center text-[11px] font-bold uppercase"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 999,
+        background: profile ? profile.colour || 'var(--term-amber)' : 'transparent',
+        border: profile ? 'none' : '1px dashed var(--term-border-2)',
+        color: profile ? '#0b1411' : 'var(--term-muted)',
+      }}
+    >
+      {profile ? profile.name.trim().charAt(0) || '?' : '∗'}
+    </span>
+  );
+}
+
+// Per-trader profile picker. Hidden until at least one profile exists (set up on
+// the Accounts page); the choice persists in localStorage via FilterContext.
+function ProfileSwitcher() {
+  const { profiles, activeProfile, setProfile } = useFilters();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+
+  if (profiles.length === 0) return null;
+
+  const options: (Profile | null)[] = [null, ...profiles];
+  return (
+    <div
+      ref={ref}
+      className="relative border-b px-2 py-2"
+      style={{ borderColor: 'var(--term-border)' }}
+    >
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 border px-2 py-1.5 text-left text-[13px] font-medium transition hover:brightness-110"
+        style={{ borderColor: 'var(--term-border-2)', borderRadius: 2, color: 'var(--term-text)' }}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Switch profile"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Avatar profile={activeProfile} />
+        <span className="min-w-0 flex-1 truncate">
+          {activeProfile ? activeProfile.name : 'All profiles'}
+        </span>
+        <span aria-hidden className="text-[10px]" style={{ color: 'var(--term-muted)' }}>
+          ▾
+        </span>
+      </button>
+      {open && (
+        <ul
+          role="listbox"
+          aria-label="Profiles"
+          className="absolute left-2 right-2 z-30 mt-1 flex flex-col border py-1 shadow-lg"
+          style={{ background: 'var(--term-bg-2)', borderColor: 'var(--term-border-2)', borderRadius: 2 }}
+        >
+          {options.map((p) => {
+            const selected = (p?.id ?? null) === (activeProfile?.id ?? null);
+            return (
+              <li key={p?.id ?? 'all'} role="option" aria-selected={selected}>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] hover:brightness-125"
+                  style={{
+                    color: selected ? 'var(--term-amber)' : 'var(--term-text-dim)',
+                    background: selected ? 'var(--term-panel-hd)' : 'transparent',
+                  }}
+                  onClick={() => {
+                    setProfile(p?.id ?? null);
+                    setOpen(false);
+                  }}
+                >
+                  <Avatar profile={p} size={18} />
+                  <span className="min-w-0 flex-1 truncate">{p ? p.name : 'All profiles'}</span>
+                  {p?.default_instrument && (
+                    <span className="text-[10px]" style={{ color: 'var(--term-muted)' }}>
+                      {p.default_instrument}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 

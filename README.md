@@ -119,6 +119,12 @@ Docker: do the same inside the volume, e.g.
 `docker compose run --rm --entrypoint sh server` then work in `/app/data`
 (backups are in `/app/data/backups`).
 
+## Profiles & share links
+
+- **Profiles** (Accounts page) group accounts per trader, e.g. one profile for XAUUSD and one for US100. Pick the active profile at the top of the sidebar: the account filter then lists only that profile's accounts, "All accounts" means all of that profile's accounts, and its default instrument is pre-selected. No passwords; it is a view switch, not access control.
+- **Share links** (Accounts page, Share links panel) create a read-only page at `/s/<token>` for one trade, day or week, with notes/recaps only if you tick "Include notes". Links can expire and can be revoked.
+- The app has no authentication. A share link only works for someone else if this app is reachable from their machine (e.g. you expose it on your LAN or through a tunnel), and exposing the app exposes the whole API, not just the shared page.
+
 ## Roadmap (see docs/CONTRACT.md for Phase 0 detail)
 - **Phase 0 (this)** — CSV/HTML import, stats, equity curve, P&L calendar, session/instrument filters.
 - **Phase 1** — EA webhook real-time capture, session heatmap, setups/playbook, hold-time & MAE/MFE.

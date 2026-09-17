@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
+import { FilterProvider } from './store/FilterContext';
+import SharePublic from './pages/SharePublic';
 import Dashboard from './pages/Dashboard';
 import Trades from './pages/Trades';
 import TradeDetail from './pages/TradeDetail';
@@ -19,7 +21,16 @@ import Signal from './features/signal/pages/Signal';
 export default function App() {
   return (
     <Routes>
-      <Route element={<Layout />}>
+      {/* Public read-only share page: outside Layout (no sidebar / filter bar)
+          and outside FilterProvider, so it never loads accounts or profiles. */}
+      <Route path="s/:token" element={<SharePublic />} />
+      <Route
+        element={
+          <FilterProvider>
+            <Layout />
+          </FilterProvider>
+        }
+      >
         <Route index element={<Dashboard />} />
         <Route path="journal" element={<Journal />} />
         <Route path="report/week/:date" element={<WeekReport />} />

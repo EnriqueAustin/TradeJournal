@@ -100,6 +100,7 @@ export function filterParams(
 ): string {
   const p = new URLSearchParams();
   if (f.account != null) p.set('account', String(f.account));
+  else if (f.profile != null) p.set('profile', String(f.profile));
   if (f.instrument && f.instrument !== 'All') p.set('instrument', f.instrument);
   if (f.session && f.session !== 'All') p.set('session', f.session);
   if (f.setup && f.setup !== 'All') p.set('setup', f.setup);
@@ -289,8 +290,9 @@ export const api = {
       `/stats/optimizer${filterParams(f, { sl, tp })}`
     ),
   getPortfolio: (f: Filters) => {
-    // Portfolio spans every account — drop the account filter.
+    // Portfolio spans every account (of the active profile) — drop the account filter.
     const p = new URLSearchParams();
+    if (f.profile != null) p.set('profile', String(f.profile));
     if (f.instrument && f.instrument !== 'All') p.set('instrument', f.instrument);
     if (f.session && f.session !== 'All') p.set('session', f.session);
     if (f.setup && f.setup !== 'All') p.set('setup', f.setup);
