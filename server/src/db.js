@@ -542,6 +542,36 @@ export function migrate() {
     db.exec('ALTER TABLE notes ADD COLUMN kind TEXT');
   }
 
+  // Profiles: a lightweight "whose accounts are these" grouping so two traders
+  // sharing one local app each get a clean view. No auth — just a switcher.
+  // share_links: read-only public links to one trade / day / week. Both are
+  // idempotent (CREATE IF NOT EXISTS + guarded column), so no user_version bump.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      colour TEXT,
+      default_instrument TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS share_links (
+      token TEXT PRIMARY KEY,           -- 32 random bytes, hex
+      kind TEXT NOT NULL CHECK(kind IN ('trade','day','week')),
+      ref TEXT NOT NULL,                -- trade id, or YYYY-MM-DD (day / any day of the week)
+      account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE, -- day/week scope
+      include_notes INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      expires_at TEXT,
+      revoked INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+  const acctProfileCols = db.prepare('PRAGMA table_info(accounts)').all();
+  if (!acctProfileCols.some((c) => c.name === 'profile_id')) {
+    db.exec(
+      'ALTER TABLE accounts ADD COLUMN profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL'
+    );
+  }
+
   // Seed default account if none exists
   const count = db.prepare('SELECT COUNT(*) AS c FROM accounts').get().c;
   if (count === 0) {
